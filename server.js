@@ -392,9 +392,22 @@ async function handleApi(req, res) {
     const email = String(body.email || "").trim().toLowerCase();
     const manager = db.careManagers.get(email);
     if (!manager || manager.password !== String(body.password || "")) return sendJson(res, 401, { error: "Invalid care manager credentials" });
+    if (manager.accessLevel !== "care") return sendJson(res, 403, { error: "Use the TaskBridge admin access point" });
     const agency = db.agencies.get(manager.agencyId);
     db.audit.push(auditEvent("auth.signin", `${manager.name} signed in`, { managerId: manager.id }));
     return sendJson(res, 200, { user: sanitizeManager(manager), agency: { id: agency.id, name: agency.name } });
+  }
+
+  if (req.method === "POST" && pathname === "/api/auth/admin-signin") {
+    const body = await readJson(req);
+    const email = String(body.email || "").trim().toLowerCase();
+    const admin = db.careManagers.get(email);
+    if (!admin || admin.password !== String(body.password || "") || admin.accessLevel !== "admin") {
+      return sendJson(res, 401, { error: "Invalid TaskBridge admin credentials" });
+    }
+    const agency = db.agencies.get(admin.agencyId);
+    db.audit.push(auditEvent("auth.admin_signin", `${admin.name} signed in to admin`, { adminId: admin.id }));
+    return sendJson(res, 200, { user: sanitizeManager(admin), agency: { id: agency.id, name: agency.name } });
   }
 
   if (req.method === "POST" && pathname === "/api/ai/task-plan") {

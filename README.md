@@ -26,13 +26,6 @@ Email: maya@birdie.example
 Password: demo12345
 ```
 
-TaskBridge admin:
-
-```text
-Email: admin@taskbridge.example
-Password: admin12345
-```
-
 ## Railway
 
 Start command:

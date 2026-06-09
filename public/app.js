@@ -8,6 +8,7 @@ const api = {
   demo: (payload) => postJson("/api/demo-requests", payload),
   signup: (payload) => postJson("/api/auth/signup", payload),
   signin: (payload) => postJson("/api/auth/signin", payload),
+  adminSignin: (payload) => postJson("/api/auth/admin-signin", payload),
   createTask: (payload) => postJson("/api/care/tasks", payload),
   aiPlan: (payload) => postJson("/api/ai/task-plan", payload),
   dispatch: (id, actorEmail) => postJson(`/api/taskbridge/tasks/${id}/dispatch`, { actorEmail }),
@@ -31,6 +32,7 @@ function routeFromPath() {
   if (path === "/book-demo") return "demo";
   if (path === "/sign-up") return "signup";
   if (path === "/sign-in") return "signin";
+  if (path === "/taskbridge-admin") return "admin";
   if (path === "/portal") return "portal";
   return "home";
 }
@@ -47,7 +49,7 @@ function App() {
   }
 
   function navigate(nextRoute) {
-    const paths = { home: "/", how: "/how-it-works", demo: "/book-demo", signup: "/sign-up", signin: "/sign-in", portal: "/portal" };
+    const paths = { home: "/", how: "/how-it-works", demo: "/book-demo", signup: "/sign-up", signin: "/sign-in", admin: "/taskbridge-admin", portal: "/portal" };
     history.pushState({}, "", paths[nextRoute]);
     setRoute(nextRoute);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -102,6 +104,10 @@ function App() {
         const result = await api.signin(payload);
         result.error ? setNotice(result.error) : saveUser(result);
       }} switchMode={() => navigate("signup")} />}
+      {route === "admin" && <AuthPage mode="admin" submit={async (payload) => {
+        const result = await api.adminSignin(payload);
+        result.error ? setNotice(result.error) : saveUser(result);
+      }} />}
       {route === "portal" && <Portal state={state} user={user} navigate={navigate} refresh={refresh} setNotice={setNotice} />}
     </main>
   );
@@ -457,16 +463,11 @@ function DemoPage({ submit }) {
 }
 
 function AuthPage({ mode, agencies = [], submit, switchMode }) {
-  const [form, setForm] = useState({ name: "", email: mode === "signin" ? "maya@birdie.example" : "", password: mode === "signin" ? "demo12345" : "", role: "Care Coordinator", agencyId: agencies[0]?.id || "birdie-london" });
+  const [form, setForm] = useState({ name: "", email: "", password: "", role: "Care Coordinator", agencyId: agencies[0]?.id || "birdie-london" });
   const signup = mode === "signup";
+  const admin = mode === "admin";
   return (
-    <FormShell title={signup ? "Create your care manager account" : "Sign in to the care portal"} intro={signup ? "New accounts are created with limited care-manager access for task intake and monitoring." : "Use the care login for intake, or the TaskBridge admin login for DBS and handyman approval controls."}>
-      {!signup && (
-        <div className="mb-4 grid gap-2 sm:grid-cols-2">
-          <button type="button" onClick={() => setForm({ ...form, email: "maya@birdie.example", password: "demo12345" })} className="rounded bg-mint px-3 py-2 text-sm font-semibold text-ink">Use Care Coordinator Demo</button>
-          <button type="button" onClick={() => setForm({ ...form, email: "admin@taskbridge.example", password: "admin12345" })} className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white">Use TaskBridge Admin Demo</button>
-        </div>
-      )}
+    <FormShell title={signup ? "Create your care manager account" : admin ? "TaskBridge admin access" : "Sign in to the care portal"} intro={signup ? "New accounts are created with limited care-manager access for task intake and monitoring." : admin ? "Restricted operations access for authorised TaskBridge administrators." : "Care managers and coordinators can sign in to create and monitor safeguarded home safety tasks."}>
       <form className="grid gap-4" onSubmit={(event) => {
         event.preventDefault();
         submit(form);
@@ -485,7 +486,7 @@ function AuthPage({ mode, agencies = [], submit, switchMode }) {
         )}
         <SubmitButton label={signup ? "Create Account" : "Sign In"} />
       </form>
-      <button onClick={switchMode} className="mt-4 text-sm font-semibold text-safe">{signup ? "Already have an account? Sign in" : "Need an account? Sign up"}</button>
+      {!admin && <button onClick={switchMode} className="mt-4 text-sm font-semibold text-safe">{signup ? "Already have an account? Sign in" : "Need an account? Sign up"}</button>}
     </FormShell>
   );
 }
