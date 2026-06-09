@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TaskBridge - Making home safer for our vulnerable</title>
+    <meta name="description" content="TaskBridge connects care teams with vetted local trades while protecting vulnerable residents through safeguarded task assignment." />
+    <style>
+      :root {
+        --ink: #102027;
+        --safe: #2563eb;
+        --mint: #dff5e8;
+        --paper: #f4f7f5;
+        --line: rgba(16, 32, 39, 0.12);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Inter, Arial, sans-serif;
+        color: var(--ink);
+        background: var(--paper);
+      }
+      a { color: inherit; text-decoration: none; }
+      .wrap { max-width: 1180px; margin: 0 auto; padding: 0 22px; }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(12px);
+      }
+      nav {
+        min-height: 76px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+      }
+      .logo { width: 236px; max-width: 58vw; }
+      .links { display: flex; align-items: center; gap: 14px; font-size: 14px; font-weight: 700; }
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        border-radius: 8px;
+        padding: 0 18px;
+        font-weight: 800;
+      }
+      .button.primary { color: white; background: var(--ink); }
+      .button.secondary { color: var(--ink); background: white; border: 1px solid var(--line); }
+      .hero {
+        min-height: 680px;
+        display: grid;
+        align-items: center;
+        background:
+          linear-gradient(90deg, rgba(16,32,39,0.93), rgba(16,32,39,0.76), rgba(16,32,39,0.18)),
+          url("https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&w=1800&q=80") center/cover;
+        color: white;
+      }
+      .hero h1 {
+        margin: 0;
+        max-width: 760px;
+        font-size: clamp(44px, 7vw, 78px);
+        line-height: 0.98;
+        letter-spacing: 0;
+      }
+      .motto {
+        margin-top: 22px;
+        color: var(--mint);
+        font-size: clamp(22px, 3vw, 34px);
+        font-weight: 800;
+      }
+      .hero p {
+        max-width: 690px;
+        margin: 22px 0 0;
+        color: rgba(255,255,255,0.86);
+        font-size: 20px;
+        line-height: 1.65;
+      }
+      .actions { margin-top: 34px; display: flex; flex-wrap: wrap; gap: 12px; }
+      section { padding: 76px 0; }
+      .section-head { max-width: 760px; }
+      .eyebrow {
+        color: var(--safe);
+        font-size: 13px;
+        font-weight: 900;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      h2 { margin: 12px 0 0; font-size: clamp(32px, 4vw, 48px); line-height: 1.08; letter-spacing: 0; }
+      .lead { margin-top: 16px; color: rgba(16,32,39,0.68); font-size: 18px; line-height: 1.7; }
+      .grid { display: grid; gap: 18px; margin-top: 34px; }
+      .grid.three { grid-template-columns: repeat(3, 1fr); }
+      .grid.four { grid-template-columns: repeat(4, 1fr); }
+      .card {
+        background: white;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 24px;
+      }
+      .icon {
+        width: 46px;
+        height: 46px;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        color: white;
+        background: var(--safe);
+        font-weight: 900;
+      }
+      .card h3 { margin: 18px 0 0; font-size: 20px; }
+      .card p { margin: 10px 0 0; color: rgba(16,32,39,0.66); line-height: 1.65; }
+      .steps { counter-reset: step; }
+      .step { position: relative; }
+      .step:before {
+        counter-increment: step;
+        content: counter(step);
+        width: 40px;
+        height: 40px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        color: white;
+        background: var(--safe);
+        font-weight: 900;
+      }
+      .cta {
+        background: var(--ink);
+        color: white;
+        border-radius: 8px;
+        padding: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+      .cta p { color: rgba(255,255,255,0.76); line-height: 1.7; }
+      footer { padding: 34px 0; border-top: 1px solid var(--line); color: rgba(16,32,39,0.58); }
+      @media (max-width: 860px) {
+        .links a:not(.button) { display: none; }
+        .grid.three, .grid.four { grid-template-columns: 1fr; }
+        .cta { display: block; }
+        .cta .button { margin-top: 18px; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav class="wrap">
+        <a href="#top" aria-label="TaskBridge home"><img class="logo" src="./taskbridge-logo.svg" alt="TaskBridge" /></a>
+        <div class="links">
+          <a href="#how">How it works</a>
+          <a href="#services">Services</a>
+          <a href="#safeguarding">Safeguarding</a>
+          <a class="button primary" href="mailto:demo@taskbridge.example?subject=TaskBridge%20demo">Book a demo</a>
+        </div>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="wrap">
+          <h1>TaskBridge</h1>
+          <div class="motto">Making home safer for our vulnerable</div>
+          <p>
+            TaskBridge helps care teams turn home safety concerns into safeguarded handyman tasks, automatically matching work to vetted local trades while protecting vulnerable residents.
+          </p>
+          <div class="actions">
+            <a class="button primary" href="mailto:demo@taskbridge.example?subject=TaskBridge%20demo">Book a demo</a>
+            <a class="button secondary" href="#how">See how it works</a>
+          </div>
+        </div>
+      </section>
+
+      <section id="how">
+        <div class="wrap">
+          <div class="section-head">
+            <div class="eyebrow">How it works</div>
+            <h2>From care note to safer home visit.</h2>
+            <p class="lead">AI identifies one or more tasks from the care note, then TaskBridge automates assignment using safeguarding, availability, price, proximity, and service fit.</p>
+          </div>
+          <div class="grid four steps">
+            <article class="card step"><h3>Care note submitted</h3><p>A coordinator logs concerns such as lawn mowing, window cleaning, loose rails, locks, or trip hazards.</p></article>
+            <article class="card step"><h3>AI creates tasks</h3><p>One note can become multiple structured tasks with category, urgency, and preferred time window.</p></article>
+            <article class="card step"><h3>Safeguarding applied</h3><p>Vulnerable adult tasks prefer Enhanced DBS-approved handymen or supervised visits when a carer is on site.</p></article>
+            <article class="card step"><h3>Assignment automated</h3><p>Care teams see only pending assignment or assigned handyman details, never the full proposal list.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section id="services" style="background:white">
+        <div class="wrap">
+          <div class="section-head">
+            <div class="eyebrow">Services</div>
+            <h2>Practical help that reduces home risk.</h2>
+          </div>
+          <div class="grid three">
+            <article class="card"><div class="icon">G</div><h3>Garden and access</h3><p>Lawn mowing, garden clearance, hedge trimming, moss removal, path clearing, and outdoor access support.</p></article>
+            <article class="card"><div class="icon">H</div><h3>Home safety repairs</h3><p>Loose rails, grab rails, locks, trip hazards, door thresholds, appliance safety, and minor repairs.</p></article>
+            <article class="card"><div class="icon">C</div><h3>Cleaning and visibility</h3><p>Window cleaning, deep cleaning, grease removal, decluttering for safe access, and photo-proof completion.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section id="safeguarding">
+        <div class="wrap">
+          <div class="cta">
+            <div>
+              <div class="eyebrow">Safeguarding first</div>
+              <h2>Built for vulnerable-adult protection.</h2>
+              <p>TaskBridge hides resident contact details, uses tokenized visit links, logs check-in and completion proof, and keeps care teams informed without exposing proposed marketplace options.</p>
+            </div>
+            <a class="button secondary" href="mailto:demo@taskbridge.example?subject=TaskBridge%20demo">Talk to us</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">TaskBridge - Making home safer for our vulnerable</div>
+    </footer>
+  </body>
+</html>

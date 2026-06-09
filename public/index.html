@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TaskBridge</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              ink: "#102027",
+              panel: "#f7faf8",
+              safe: "#2563eb",
+              mint: "#dff5e8",
+              clay: "#b85532"
+            }
+          }
+        }
+      };
+    </script>
+    <style>
+      @keyframes taskbridge-scan {
+        0%, 100% { transform: translateX(0); opacity: 0.45; }
+        50% { transform: translateX(210px); opacity: 1; }
+      }
+      @keyframes taskbridge-float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-8px); }
+      }
+      @keyframes taskbridge-progress {
+        0% { width: 8%; }
+        100% { width: 92%; }
+      }
+      .taskbridge-scan { animation: taskbridge-scan 4s ease-in-out infinite; }
+      .taskbridge-float { animation: taskbridge-float 3.5s ease-in-out infinite; }
+      .taskbridge-progress { animation: taskbridge-progress 6s linear infinite; }
+    </style>
+  </head>
+  <body class="bg-[#edf2ef] text-ink">
+    <div id="root"></div>
+    <script type="text/babel" src="/app.js"></script>
+  </body>
+</html>
+

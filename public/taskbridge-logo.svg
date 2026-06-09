@@ -1,0 +1,11 @@
+<svg width="236" height="56" viewBox="0 0 236 56" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">TaskBridge logo</title>
+  <desc id="desc">TaskBridge wordmark with a home and bridge symbol.</desc>
+  <rect width="56" height="56" rx="16" fill="#DFF5E8"/>
+  <path d="M14 34C19 25 24 21 28 21C32 21 37 25 42 34" stroke="#102027" stroke-width="4" stroke-linecap="round"/>
+  <path d="M18 32H46" stroke="#2563EB" stroke-width="4" stroke-linecap="round"/>
+  <path d="M21 29V41H36V29" stroke="#102027" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M18 29L28 20L38 29" stroke="#102027" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="70" y="36" fill="#102027" font-family="Inter, Arial, sans-serif" font-size="25" font-weight="800" letter-spacing="0">Task</text>
+  <text x="126" y="36" fill="#2563EB" font-family="Inter, Arial, sans-serif" font-size="25" font-weight="800" letter-spacing="0">Bridge</text>
+</svg>
