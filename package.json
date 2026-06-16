@@ -4,11 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "node scripts/build-client.js",
     "dev": "node server.js",
     "start": "node server.js",
     "test": "node --test"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1"
   }
 }
