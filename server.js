@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { randomBytes, createCipheriv, createDecipheriv, createHmac, timingSafeEqual } from "node:crypto";
+import { randomBytes, createCipheriv, createDecipheriv, createHmac, timingSafeEqual, pbkdf2Sync } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,8 @@ const PORT = Number(process.env.PORT || 4173);
 const ENCRYPTION_KEY = Buffer.from(process.env.TASKBRIDGE_ENCRYPTION_KEY || "0123456789abcdef0123456789abcdef");
 const SIGNING_SECRET = process.env.TASKBRIDGE_SIGNING_SECRET || "dev-taskbridge-signing-secret";
 const USE_REAL_PARTNER_APIS = process.env.USE_REAL_PARTNER_APIS === "true";
+const TASKBRIDGE_PLATFORM_FEE_RATE = 0.1;
+const AGENCY_SERVICE_FEE_RATE = 0.05;
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -26,7 +28,9 @@ function seedDatabase() {
     name: "Birdie London",
     apiKey: "shl_demo_birdie_token",
     primaryContact: "Maya Shah",
-    webhookUrl: "https://partner.example.local/birdie/webhooks/TaskBridge"
+    webhookUrl: "https://partner.example.local/birdie/webhooks/TaskBridge",
+    monthlyCap: 500,
+    monthlyCommittedSpend: 115
   };
 
   const users = [
@@ -65,6 +69,10 @@ function seedDatabase() {
       hourlyRate: 38,
       nextAvailable: "Today 14:00-16:00",
       services: ["Garden Path Clearing", "Trip Hazard Removal", "Lawn Mowing", "Window Cleaning"],
+      insuranceStatus: "Verified",
+      insuranceExpiryDate: "2027-05-31",
+      qualifications: ["public-liability", "garden-maintenance"],
+      qualityScore: 96,
       lastCheckedAt: "2026-05-28T09:30:00.000Z"
     },
     {
@@ -81,6 +89,10 @@ function seedDatabase() {
       hourlyRate: 29,
       nextAvailable: "Today 11:00-13:00",
       services: ["Loose Rails", "Lock Repairs", "Window Cleaning", "Garden Clearance"],
+      insuranceStatus: "Verified",
+      insuranceExpiryDate: "2027-02-20",
+      qualifications: ["public-liability", "minor-repairs"],
+      qualityScore: 89,
       lastCheckedAt: "2026-05-27T15:45:00.000Z"
     },
     {
@@ -97,6 +109,10 @@ function seedDatabase() {
       hourlyRate: 34,
       nextAvailable: "Tomorrow 09:00-11:00",
       services: ["Appliance Safety", "Deep Cleaning", "Trip Hazard Removal", "Garden Path Clearing"],
+      insuranceStatus: "Verified",
+      insuranceExpiryDate: "2027-01-15",
+      qualifications: ["public-liability", "appliance-safety"],
+      qualityScore: 93,
       lastCheckedAt: "2026-05-29T08:00:00.000Z"
     }
   ];
@@ -121,7 +137,11 @@ function seedDatabase() {
       createdAt: "2026-05-29T08:45:00.000Z",
       dispatchReceipt: "mock_taskrabbit_8a00",
       ringFenceEnforced: true,
-      marketplace: "taskrabbit"
+      marketplace: "taskrabbit",
+      assignmentStatus: "Assigned",
+      estimatedCustomerCharge: 115,
+      paymentStatus: "Authorised",
+      completionConfirmationStatus: "Not required yet"
     },
     {
       id: "tsk_7C62ED",
@@ -141,7 +161,11 @@ function seedDatabase() {
       createdAt: "2026-05-29T10:15:00.000Z",
       dispatchReceipt: null,
       ringFenceEnforced: false,
-      marketplace: null
+      marketplace: null,
+      assignmentStatus: "Pending assignment",
+      estimatedCustomerCharge: 0,
+      paymentStatus: "Pending cap check",
+      completionConfirmationStatus: "Not required yet"
     }
   ];
 
@@ -154,7 +178,7 @@ function seedDatabase() {
           id: "cm_001",
           name: "Maya Shah",
           email: "maya@birdie.example",
-          password: "demo12345",
+          password: hashPassword("demo12345"),
           role: "Care Coordinator",
           accessLevel: "care",
           agencyId: agency.id
@@ -166,7 +190,7 @@ function seedDatabase() {
           id: "adm_001",
           name: "Alex Reid",
           email: "admin@taskbridge.example",
-          password: "admin12345",
+          password: hashPassword("admin12345"),
           role: "TaskBridge Admin",
           accessLevel: "admin",
           agencyId: agency.id
@@ -198,6 +222,59 @@ function decryptField(payload) {
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
 }
 
+function hashPassword(password, salt = randomBytes(16).toString("base64url")) {
+  const hash = pbkdf2Sync(String(password), salt, 150000, 32, "sha256").toString("base64url");
+  return `pbkdf2$${salt}$${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  if (!stored) return false;
+  if (!stored.startsWith("pbkdf2$")) return stored === String(password || "");
+  const [, salt, expected] = stored.split("$");
+  const actual = hashPassword(password, salt).split("$")[2];
+  return timingSafeStringEqual(actual, expected);
+}
+
+function timingSafeStringEqual(actual, expected) {
+  const actualBuffer = Buffer.from(String(actual || ""));
+  const expectedBuffer = Buffer.from(String(expected || ""));
+  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function signSessionToken(user) {
+  const body = Buffer.from(JSON.stringify({
+    id: user.id,
+    email: user.email,
+    accessLevel: user.accessLevel,
+    issuedAt: Date.now()
+  })).toString("base64url");
+  const sig = createHmac("sha256", SIGNING_SECRET).update(body).digest("base64url");
+  return `${body}.${sig}`;
+}
+
+function verifySessionToken(token, expectedEmail, requiredAccessLevel = null) {
+  if (!token) return null;
+  const parts = String(token).split(".");
+  if (parts.length !== 2) return null;
+  const [body, sig] = parts;
+  const expectedSig = createHmac("sha256", SIGNING_SECRET).update(body).digest("base64url");
+  if (!timingSafeStringEqual(sig, expectedSig)) return null;
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+  const { email, accessLevel, issuedAt } = payload;
+  const maxAgeMs = 8 * 60 * 60 * 1000;
+  if (Date.now() - Number(issuedAt) > maxAgeMs) return null;
+  if (expectedEmail && email !== String(expectedEmail).trim().toLowerCase()) return null;
+  const user = db.careManagers.get(email);
+  if (!user || user.accessLevel !== accessLevel) return null;
+  if (requiredAccessLevel && user.accessLevel !== requiredAccessLevel) return null;
+  return user;
+}
+
 function signVisitToken(taskId, traderId) {
   const nonce = randomBytes(8).toString("hex");
   const body = `${taskId}.${traderId}.${nonce}`;
@@ -224,29 +301,39 @@ function auditEvent(type, detail, meta = {}) {
   };
 }
 
-function publicState() {
+function publicState(viewer = null, visitTask = null) {
   const serviceUsers = [...db.serviceUsers.values()].map((user) => ({
     ...user,
     name: decryptField(user.name),
     address: decryptField(user.address)
   }));
-  const tasks = [...db.tasks.values()].map((task) => {
+  const visibleUsers = viewer?.accessLevel === "admin"
+    ? serviceUsers
+    : viewer?.accessLevel === "care"
+      ? serviceUsers.filter((user) => user.agencyId === viewer.agencyId)
+      : visitTask
+        ? serviceUsers.filter((user) => user.id === visitTask.serviceUserId).map((user) => ({ ...user, name: "Resident details redacted", address: "Address redacted until check-in" }))
+        : [];
+  const visibleUserIds = new Set(visibleUsers.map((user) => user.id));
+  const sourceTasks = visitTask ? [visitTask] : [...db.tasks.values()].filter((task) => visibleUserIds.has(task.serviceUserId));
+  const tasks = sourceTasks.map((task) => {
     const serviceUser = serviceUsers.find((user) => user.id === task.serviceUserId);
     const trader = db.traders.get(task.assignedTraderId);
+    const safeServiceUser = visibleUsers.find((user) => user.id === task.serviceUserId) || serviceUser;
     return {
       ...task,
-      serviceUser,
-      assignedTrader: trader || null,
-      tokenUrl: task.assignedTraderId ? `/visit/${task.id}?token=${encodeURIComponent(task.token)}` : null
+      serviceUser: safeServiceUser,
+      assignedTrader: viewer?.accessLevel === "admin" || visitTask ? trader || null : trader ? { id: trader.id, name: trader.name, source: trader.source } : null,
+      tokenUrl: task.assignedTraderId && (viewer?.accessLevel === "admin" || visitTask) ? `/visit/${task.id}?token=${encodeURIComponent(task.token)}` : null
     };
   });
   const vulnerableCases = serviceUsers.filter((user) => user.isVulnerable).length;
   return {
     agencies: [...db.agencies.values()].map(({ apiKey, ...agency }) => agency),
-    serviceUsers,
-    traders: [...db.traders.values()],
+    serviceUsers: visibleUsers,
+    traders: viewer?.accessLevel === "admin" ? [...db.traders.values()] : [],
     tasks,
-    audit: db.audit.slice(-12).reverse(),
+    audit: viewer?.accessLevel === "admin" ? db.audit.slice(-12).reverse() : [],
     metrics: {
       connectedPartners: db.agencies.size,
       activeVulnerableCases: vulnerableCases,
@@ -264,6 +351,8 @@ async function createTaskFromCarePayload(agency, body) {
   const plannedTasks = Array.isArray(body.aiTasks) && body.aiTasks.length ? body.aiTasks : [body];
   const results = [];
   for (const planned of plannedTasks) {
+  const estimatedCustomerCharge = estimateTaskCharge(planned.category || body.category || "General Home Safety");
+  const capCheck = checkAgencyPaymentCap(agency, estimatedCustomerCharge);
   const task = {
     id: `tsk_${randomBytes(3).toString("hex").toUpperCase()}`,
     serviceUserId: serviceUser.id,
@@ -287,12 +376,16 @@ async function createTaskFromCarePayload(agency, body) {
     createdAt: new Date().toISOString(),
     dispatchReceipt: null,
     ringFenceEnforced: Boolean(serviceUser.isVulnerable),
-    marketplace: null
+    marketplace: null,
+    assignmentStatus: capCheck.allowed ? "Pending assignment" : "Blocked",
+    estimatedCustomerCharge,
+    paymentStatus: capCheck.allowed ? "Pending cap authorisation" : "Agency cap exceeded",
+    capCheck,
+    completionConfirmationStatus: "Not required yet"
   };
   task.token = signVisitToken(task.id, "unassigned");
   db.tasks.set(task.id, task);
-  db.audit.push(auditEvent("task.triaged", `Care manager task accepted from ${agency.name}`, { taskId: task.id, ringFence: task.ringFenceEnforced }));
-  await autoAssignTask(task, serviceUser);
+  db.audit.push(auditEvent("task.triaged", `Care manager approved intake for TaskBridge admin assignment from ${agency.name}`, { taskId: task.id, ringFence: task.ringFenceEnforced, capCheck }));
   results.push(task);
   }
   return {
@@ -300,12 +393,12 @@ async function createTaskFromCarePayload(agency, body) {
     tasks: results,
     safeguard: results[0].ringFenceEnforced
       ? results[0].supervisedVisitRequired
-        ? "Digital Ring-Fence active: Enhanced DBS preferred; non-DBS requires carer-on-site supervised appointment"
+        ? "Digital Ring-Fence active: Enhanced DBS required; carer-on-site supervision recorded"
         : "Digital Ring-Fence active: Enhanced DBS required"
       : "Standard marketplace rules",
     assignmentSummary: results.map((task) => ({
       taskId: task.id,
-      status: task.status === "Dispatched" ? "Assigned" : "Pending assignment",
+      status: task.assignmentStatus,
       assignedTraderId: task.assignedTraderId
     }))
   };
@@ -320,6 +413,10 @@ function requireAgencyAuth(req) {
 function requireTaskBridgeAdmin(email) {
   const user = db.careManagers.get(String(email || "").trim().toLowerCase());
   return user?.accessLevel === "admin" ? user : null;
+}
+
+function requireTaskBridgeAdminSession(email, sessionToken) {
+  return verifySessionToken(sessionToken, email, "admin");
 }
 
 async function readJson(req) {
@@ -346,7 +443,14 @@ async function handleApi(req, res) {
   const { pathname, params } = getRoute(req);
 
   if (req.method === "GET" && pathname === "/api/state") {
-    return sendJson(res, 200, publicState());
+    const visitTaskId = params.get("visitTaskId");
+    if (visitTaskId) {
+      const visitTask = db.tasks.get(visitTaskId);
+      if (!verifyVisitToken(params.get("visitToken"), visitTask)) return sendJson(res, 403, { error: "Invalid or expired visit token" });
+      return sendJson(res, 200, publicState(null, visitTask));
+    }
+    const viewer = verifySessionToken(params.get("sessionToken"), params.get("email"));
+    return sendJson(res, 200, publicState(viewer));
   }
 
   if (req.method === "POST" && pathname === "/api/demo-requests") {
@@ -377,42 +481,42 @@ async function handleApi(req, res) {
       id: `cm_${randomBytes(3).toString("hex")}`,
       name: String(body.name || "Care Manager").slice(0, 120),
       email,
-      password: String(body.password).slice(0, 120),
+      password: hashPassword(String(body.password).slice(0, 120)),
       role: ["Care Manager", "Care Coordinator"].includes(body.role) ? body.role : "Care Coordinator",
       accessLevel: "care",
       agencyId: agency.id
     };
     db.careManagers.set(email, manager);
     db.audit.push(auditEvent("auth.signup", `${manager.name} joined ${agency.name}`, { managerId: manager.id }));
-    return sendJson(res, 201, { user: sanitizeManager(manager), agency: { id: agency.id, name: agency.name } });
+    return sendJson(res, 201, { user: sanitizeManager(manager), sessionToken: signSessionToken(manager), agency: { id: agency.id, name: agency.name } });
   }
 
   if (req.method === "POST" && pathname === "/api/auth/signin") {
     const body = await readJson(req);
     const email = String(body.email || "").trim().toLowerCase();
     const manager = db.careManagers.get(email);
-    if (!manager || manager.password !== String(body.password || "")) return sendJson(res, 401, { error: "Invalid care manager credentials" });
+    if (!manager || !verifyPassword(body.password, manager.password)) return sendJson(res, 401, { error: "Invalid care manager credentials" });
     if (manager.accessLevel !== "care") return sendJson(res, 403, { error: "Use the TaskBridge admin access point" });
     const agency = db.agencies.get(manager.agencyId);
     db.audit.push(auditEvent("auth.signin", `${manager.name} signed in`, { managerId: manager.id }));
-    return sendJson(res, 200, { user: sanitizeManager(manager), agency: { id: agency.id, name: agency.name } });
+    return sendJson(res, 200, { user: sanitizeManager(manager), sessionToken: signSessionToken(manager), agency: { id: agency.id, name: agency.name } });
   }
 
   if (req.method === "POST" && pathname === "/api/auth/admin-signin") {
     const body = await readJson(req);
     const email = String(body.email || "").trim().toLowerCase();
     const admin = db.careManagers.get(email);
-    if (!admin || admin.password !== String(body.password || "") || admin.accessLevel !== "admin") {
+    if (!admin || !verifyPassword(body.password, admin.password) || admin.accessLevel !== "admin") {
       return sendJson(res, 401, { error: "Invalid TaskBridge admin credentials" });
     }
     const agency = db.agencies.get(admin.agencyId);
     db.audit.push(auditEvent("auth.admin_signin", `${admin.name} signed in to admin`, { adminId: admin.id }));
-    return sendJson(res, 200, { user: sanitizeManager(admin), agency: { id: agency.id, name: agency.name } });
+    return sendJson(res, 200, { user: sanitizeManager(admin), sessionToken: signSessionToken(admin), agency: { id: agency.id, name: agency.name } });
   }
 
   if (req.method === "POST" && pathname === "/api/ai/task-plan") {
     const body = await readJson(req);
-    const manager = db.careManagers.get(String(body.managerEmail || "").trim().toLowerCase());
+    const manager = verifySessionToken(body.sessionToken, body.managerEmail, "care");
     if (!manager) return sendJson(res, 401, { error: "Care manager session not recognised" });
     const serviceUser = db.serviceUsers.get(body.service_user_id);
     if (!serviceUser || serviceUser.agencyId !== manager.agencyId) {
@@ -425,7 +529,7 @@ async function handleApi(req, res) {
 
   if (req.method === "POST" && pathname === "/api/care/tasks") {
     const body = await readJson(req);
-    const manager = db.careManagers.get(String(body.managerEmail || "").trim().toLowerCase());
+    const manager = verifySessionToken(body.sessionToken, body.managerEmail, "care");
     if (!manager) return sendJson(res, 401, { error: "Care manager session not recognised" });
     const agency = db.agencies.get(manager.agencyId);
     const result = await createTaskFromCarePayload(agency, body);
@@ -461,7 +565,7 @@ async function handleApi(req, res) {
 
   if (req.method === "POST" && pathname.match(/^\/api\/traders\/[^/]+\/amiqus-check$/)) {
     const body = await readJson(req);
-    const admin = requireTaskBridgeAdmin(body.actorEmail);
+    const admin = requireTaskBridgeAdminSession(body.actorEmail, body.sessionToken);
     if (!admin) return sendJson(res, 403, { error: "TaskBridge admin access required to trigger DBS checks" });
     const traderId = pathname.split("/")[3];
     const trader = db.traders.get(traderId);
@@ -476,7 +580,7 @@ async function handleApi(req, res) {
 
   if (req.method === "POST" && pathname.match(/^\/api\/admin\/traders\/[^/]+\/approve-dbs$/)) {
     const body = await readJson(req);
-    const admin = requireTaskBridgeAdmin(body.actorEmail);
+    const admin = requireTaskBridgeAdminSession(body.actorEmail, body.sessionToken);
     if (!admin) return sendJson(res, 403, { error: "TaskBridge admin access required to approve Enhanced DBS" });
     const traderId = pathname.split("/")[4];
     const trader = db.traders.get(traderId);
@@ -490,12 +594,23 @@ async function handleApi(req, res) {
 
   if (req.method === "POST" && pathname.match(/^\/api\/(?:taskbridge|safehome)\/tasks\/[^/]+\/dispatch$/)) {
     const body = await readJson(req);
-    const admin = requireTaskBridgeAdmin(body.actorEmail);
+    const admin = requireTaskBridgeAdminSession(body.actorEmail, body.sessionToken);
     if (!admin) return sendJson(res, 403, { error: "TaskBridge admin access required to approve handyman assignment" });
     const taskId = pathname.split("/")[4];
     const task = db.tasks.get(taskId);
     if (!task) return sendJson(res, 404, { error: "Task not found" });
+    if (task.status !== "Triaged") return sendJson(res, 409, { error: "Only triaged tasks can be approved for dispatch" });
+    if (task.assignmentStatus === "Blocked") return sendJson(res, 409, { error: task.paymentStatus || "Task is blocked and requires admin review" });
     const serviceUser = db.serviceUsers.get(task.serviceUserId);
+    const agency = db.agencies.get(serviceUser.agencyId);
+    const capCheck = checkAgencyPaymentCap(agency, task.estimatedCustomerCharge || estimateTaskCharge(task.category));
+    if (!capCheck.allowed) {
+      task.assignmentStatus = "Blocked";
+      task.paymentStatus = "Agency cap exceeded";
+      task.capCheck = capCheck;
+      db.audit.push(auditEvent("dispatch.blocked.cap", "Agency monthly payment cap blocked task release", { taskId, capCheck, adminId: admin.id }));
+      return sendJson(res, 409, { error: "Agency monthly cap would be exceeded. Increase cap or approve an override before dispatch.", capCheck });
+    }
     const eligible = findEligibleTraders(serviceUser, task.ringFenceEnforced, task.carerOnSite, task.category, task.preferredWindow);
     if (!eligible.length) {
       db.audit.push(auditEvent("dispatch.blocked", "No eligible trader matched safeguarding, proximity, service and availability rules", { taskId }));
@@ -508,8 +623,11 @@ async function handleApi(req, res) {
     task.marketplace = trader.source;
     task.dispatchReceipt = receipt.receiptId;
     task.token = signVisitToken(task.id, trader.id);
-    task.supervisedVisitRequired = Boolean(task.ringFenceEnforced && trader.dbsStatus !== "Approved");
-    db.audit.push(auditEvent("task.dispatched", `${admin.name} approved handyman assignment via ${trader.source} private pool`, { taskId, traderId: trader.id, receipt: receipt.receiptId, adminId: admin.id }));
+    task.supervisedVisitRequired = Boolean(task.ringFenceEnforced && task.carerOnSite);
+    task.assignmentStatus = "Assigned";
+    task.paymentStatus = "Authorised";
+    agency.monthlyCommittedSpend = Number((Number(agency.monthlyCommittedSpend || 0) + Number(task.estimatedCustomerCharge || 0)).toFixed(2));
+    db.audit.push(auditEvent("task.dispatched", `${admin.name} approved handyman assignment via ${trader.source} private pool`, { taskId, traderId: trader.id, receipt: receipt.receiptId, adminId: admin.id, capCheck }));
     return sendJson(res, 200, { task, trader, receipt, smsLink: `/visit/${task.id}?token=${encodeURIComponent(task.token)}` });
   }
 
@@ -534,10 +652,32 @@ async function handleApi(req, res) {
     const task = db.tasks.get(taskId);
     const body = await readJson(req);
     if (!verifyVisitToken(params.get("token"), task)) return sendJson(res, 403, { error: "Invalid or expired visit token" });
-    task.status = "Completed";
+    task.status = "Awaiting Confirmation";
     task.afterPhotoUrl = body.afterPhotoUrl || "local-upload://after-photo-captured";
     task.checkOutTime = new Date().toISOString();
-    db.audit.push(auditEvent("visit.completed", "Completion webhook fired back to care agency", { taskId, agencyWebhook: db.agencies.get(db.serviceUsers.get(task.serviceUserId).agencyId).webhookUrl }));
+    task.completionConfirmationStatus = "Awaiting care confirmation";
+    db.audit.push(auditEvent("visit.awaiting_confirmation", "Trader checkout received; care confirmation required before final closure", { taskId }));
+    return sendJson(res, 200, { task, callback: "held_until_care_confirmation" });
+  }
+
+  if (req.method === "POST" && pathname.match(/^\/api\/care\/tasks\/[^/]+\/confirm-completion$/)) {
+    const body = await readJson(req);
+    const manager = verifySessionToken(body.sessionToken, body.managerEmail);
+    if (!manager) return sendJson(res, 401, { error: "Care or admin session not recognised" });
+    const taskId = pathname.split("/")[4];
+    const task = db.tasks.get(taskId);
+    if (!task) return sendJson(res, 404, { error: "Task not found" });
+    const serviceUser = db.serviceUsers.get(task.serviceUserId);
+    if (manager.accessLevel !== "admin" && serviceUser.agencyId !== manager.agencyId) {
+      return sendJson(res, 403, { error: "Cannot confirm a task outside your agency" });
+    }
+    if (task.status !== "Awaiting Confirmation") return sendJson(res, 409, { error: "Task is not awaiting care confirmation" });
+    task.status = "Completed";
+    task.completionConfirmationStatus = "Confirmed";
+    task.confirmedBy = manager.id;
+    task.confirmedAt = new Date().toISOString();
+    const agency = db.agencies.get(serviceUser.agencyId);
+    db.audit.push(auditEvent("visit.completed", "Care confirmation completed and webhook fired back to care agency", { taskId, agencyWebhook: agency.webhookUrl, managerId: manager.id }));
     return sendJson(res, 200, { task, callback: "queued" });
   }
 
@@ -611,24 +751,56 @@ async function dispatchToMarketplace(task, serviceUser, trader) {
   return { provider: trader.source, receiptId: body.id || body.receiptId, payload };
 }
 
-async function autoAssignTask(task, serviceUser) {
-  const eligible = findEligibleTraders(serviceUser, task.ringFenceEnforced, task.carerOnSite, task.category, task.preferredWindow);
-  if (!eligible.length) {
-    task.assignmentStatus = "Pending assignment";
-    db.audit.push(auditEvent("assignment.pending", "Automated assignment could not find an eligible handyman", { taskId: task.id }));
-    return task;
-  }
-  const trader = eligible[0];
-  const receipt = await dispatchToMarketplace(task, serviceUser, trader);
-  task.assignedTraderId = trader.id;
-  task.status = "Dispatched";
-  task.marketplace = trader.source;
-  task.dispatchReceipt = receipt.receiptId;
-  task.token = signVisitToken(task.id, trader.id);
-  task.supervisedVisitRequired = Boolean(task.ringFenceEnforced && trader.dbsStatus !== "Approved");
-  task.assignmentStatus = "Assigned";
-  db.audit.push(auditEvent("assignment.automated", `Automated assignment selected ${trader.name}`, { taskId: task.id, traderId: trader.id, receipt: receipt.receiptId }));
-  return task;
+function estimateTaskCharge(category) {
+  const baseFees = {
+    "Garden Path Clearing": 90,
+    "Appliance Safety": 110,
+    "Lock Repairs": 95,
+    "Loose Rails": 120,
+    "Deep Cleaning": 100,
+    "Trip Hazard Removal": 85,
+    "Lawn Mowing": 75,
+    "Garden Clearance": 105,
+    "Window Cleaning": 80
+  };
+  const handymanFee = baseFees[category] || 90;
+  return Number((handymanFee * (1 + TASKBRIDGE_PLATFORM_FEE_RATE + AGENCY_SERVICE_FEE_RATE)).toFixed(2));
+}
+
+function checkAgencyPaymentCap(agency, amount) {
+  const cap = Number(agency.monthlyCap || 0);
+  const committed = Number(agency.monthlyCommittedSpend || 0);
+  const projected = Number((committed + Number(amount || 0)).toFixed(2));
+  return {
+    allowed: !cap || projected <= cap,
+    cap,
+    committed,
+    requested: Number(amount || 0),
+    projected,
+    remaining: Number(Math.max(0, cap - committed).toFixed(2))
+  };
+}
+
+function hasActiveEnhancedDbs(trader) {
+  if (trader.dbsStatus !== "Approved") return false;
+  if (!trader.dbsExpiryDate) return false;
+  return new Date(`${trader.dbsExpiryDate}T23:59:59.999Z`) >= new Date();
+}
+
+function hasVerifiedInsurance(trader) {
+  if (trader.insuranceStatus !== "Verified") return false;
+  if (!trader.insuranceExpiryDate) return false;
+  return new Date(`${trader.insuranceExpiryDate}T23:59:59.999Z`) >= new Date();
+}
+
+function hasRequiredQualification(trader, category) {
+  const requiredByCategory = {
+    "Appliance Safety": "appliance-safety",
+    "Lock Repairs": "minor-repairs",
+    "Loose Rails": "minor-repairs"
+  };
+  const required = requiredByCategory[category];
+  return !required || trader.qualifications?.includes(required);
 }
 
 function buildAiTaskPlan(serviceUser, body) {
@@ -644,7 +816,7 @@ function buildAiTaskPlan(serviceUser, body) {
       category,
       urgency: inferUrgency(lower),
       notes: taskNote,
-      assignmentStatus: "Pending automated assignment"
+      assignmentStatus: "Pending TaskBridge admin assignment"
     };
   });
   return {
@@ -656,9 +828,9 @@ function buildAiTaskPlan(serviceUser, body) {
     carerOnSite,
     safeguarding: serviceUser.isVulnerable
       ? carerOnSite
-        ? "Vulnerable adult: TaskBridge will automate assignment. Enhanced DBS is preferred; a non-DBS trader is only permitted when a carer is on site for the whole visit."
-        : "Vulnerable adult: TaskBridge will only auto-assign an Enhanced DBS approved handyman."
-      : "TaskBridge will automatically assign an eligible handyman."
+        ? "Vulnerable adult: TaskBridge admin approval is required. Enhanced DBS remains mandatory before assignment; carer-on-site supervision is recorded as an extra control."
+        : "Vulnerable adult: TaskBridge admin approval is required and only active Enhanced DBS approved handymen can be assigned."
+      : "TaskBridge admin approval is required before an eligible handyman is dispatched."
   };
 }
 
@@ -710,15 +882,22 @@ function findEligibleTraders(serviceUser, ringFenceEnforced, carerOnSite = false
       ...trader,
       distanceMiles: haversineMiles(serviceUser.lat, serviceUser.lng, trader.lat, trader.lng),
       serviceFit: trader.services?.includes(category) ? 1 : 0,
-      supervisedException: Boolean(ringFenceEnforced && trader.dbsStatus !== "Approved" && carerOnSite)
+      activeEnhancedDbs: hasActiveEnhancedDbs(trader),
+      insuranceVerified: hasVerifiedInsurance(trader),
+      qualifiedForTask: hasRequiredQualification(trader, category)
     }))
     .filter((trader) => trader.distanceMiles < 15)
-    .filter((trader) => !ringFenceEnforced || trader.dbsStatus === "Approved" || (carerOnSite && trader.dbsStatus !== "Rejected"))
+    .filter((trader) => trader.serviceFit === 1)
+    .filter((trader) => trader.insuranceVerified)
+    .filter((trader) => trader.qualifiedForTask)
+    .filter((trader) => !ringFenceEnforced || trader.activeEnhancedDbs)
     .sort((a, b) => {
-      const dbsScore = (b.dbsStatus === "Approved" ? 1 : 0) - (a.dbsStatus === "Approved" ? 1 : 0);
+      const dbsScore = (b.activeEnhancedDbs ? 1 : 0) - (a.activeEnhancedDbs ? 1 : 0);
       if (dbsScore) return dbsScore;
       const serviceScore = b.serviceFit - a.serviceFit;
       if (serviceScore) return serviceScore;
+      const qualityScore = Number(b.qualityScore || 0) - Number(a.qualityScore || 0);
+      if (qualityScore) return qualityScore;
       const availabilityScore = availabilityRank(a.nextAvailable, preferredWindow) - availabilityRank(b.nextAvailable, preferredWindow);
       if (availabilityScore) return availabilityScore;
       const priceScore = a.hourlyRate - b.hourlyRate;

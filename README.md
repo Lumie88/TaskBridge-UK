@@ -42,3 +42,18 @@ TASKBRIDGE_ENCRYPTION_KEY=replace-with-32-byte-secret
 TASKBRIDGE_SIGNING_SECRET=replace-with-long-random-secret
 USE_REAL_PARTNER_APIS=false
 ```
+
+## Current Safeguarding Controls
+
+- Care managers/coordinators can create and approve AI-summarised task intake only.
+- TaskBridge admins must approve handyman dispatch from the hidden `/taskbridge-admin` access point.
+- Vulnerable-adult tasks require an active, unexpired Enhanced DBS before dispatch.
+- Dispatch also checks service fit, verified insurance, required qualifications, proximity, availability, quality score, price, and the agency monthly cap.
+- Trader checkout moves a job to `Awaiting Confirmation`; care/admin confirmation is required before final completion and care-app callback.
+- `/api/state` returns operational data only for a valid care/admin session, or a single token-authorised visit task.
+
+## Database Status
+
+`database/schema.sql` contains the Railway PostgreSQL target schema, including agencies, service users, care users, traders, tasks, AI plans, visit events, partner integration events, webhook events, and audit events.
+
+The current deployed server still uses the in-memory store in `server.js`. The next production phase is to add a PostgreSQL driver, migrate the API reads/writes to `DATABASE_URL`, and run `database/schema.sql` against the Railway Postgres service.
