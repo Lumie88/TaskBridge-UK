@@ -2,6 +2,19 @@ const { useEffect, useRef, useState } = React;
 
 const columns = ["Triaged", "Dispatched", "Checked-In", "Awaiting Confirmation", "Completed"];
 const categories = ["Garden Path Clearing", "Appliance Safety", "Lock Repairs", "Loose Rails", "Deep Cleaning", "Trip Hazard Removal", "Lawn Mowing", "Garden Clearance", "Window Cleaning"];
+const emptyState = {
+  agencies: [{ id: "birdie-london", name: "Birdie London" }],
+  serviceUsers: [],
+  traders: [],
+  tasks: [],
+  audit: [],
+  metrics: {
+    connectedPartners: 0,
+    activeVulnerableCases: 0,
+    totalFallRisksPrevented: 0,
+    ringFenceTasks: 0
+  }
+};
 
 const api = {
   state: (auth, visit) => {
@@ -50,7 +63,7 @@ function routeFromPath() {
 }
 
 function App() {
-  const [state, setState] = useState(null);
+  const [state, setState] = useState(emptyState);
   const [route, setRoute] = useState(routeFromPath());
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem("TaskBridgeUser") || "null"));
   const [notice, setNotice] = useState("");
@@ -58,7 +71,12 @@ function App() {
 
   async function refresh() {
     const token = new URLSearchParams(location.search).get("token");
-    setState(await api.state(user, visitMatch ? { taskId: visitMatch[1], token } : null));
+    try {
+      const nextState = await api.state(user, visitMatch ? { taskId: visitMatch[1], token } : null);
+      setState({ ...emptyState, ...nextState, metrics: { ...emptyState.metrics, ...(nextState.metrics || {}) } });
+    } catch (error) {
+      setState((current) => current || emptyState);
+    }
   }
 
   function navigate(nextRoute) {
@@ -72,7 +90,7 @@ function App() {
     localStorage.setItem("TaskBridgeUser", JSON.stringify(payload));
     setUser(payload);
     setNotice(`Signed in as ${payload.user.name}`);
-    api.state(payload).then(setState);
+    api.state(payload).then((nextState) => setState({ ...emptyState, ...nextState, metrics: { ...emptyState.metrics, ...(nextState.metrics || {}) } })).catch(() => setState(emptyState));
     navigate("portal");
   }
 
@@ -80,7 +98,7 @@ function App() {
     localStorage.removeItem("TaskBridgeUser");
     setUser(null);
     setNotice("Signed out");
-    api.state(null).then(setState);
+    api.state(null).then((nextState) => setState({ ...emptyState, ...nextState, metrics: { ...emptyState.metrics, ...(nextState.metrics || {}) } })).catch(() => setState(emptyState));
     navigate("home");
   }
 
@@ -95,7 +113,6 @@ function App() {
     };
   }, [user?.sessionToken, location.pathname, location.search]);
 
-  if (!state) return <Loading />;
   if (visitMatch) {
     const task = state.tasks.find((item) => item.id === visitMatch[1]);
     return <VisitWorkflow task={task} onRefresh={refresh} />;
