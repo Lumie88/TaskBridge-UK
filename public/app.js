@@ -316,7 +316,7 @@ function LandingTrustStrip() {
   return (
     <section className="bg-white">
       <div className="mx-auto grid max-w-7xl gap-3 px-5 py-5 sm:grid-cols-2 lg:grid-cols-4">
-        <TrustSignal title="Care-platform ready" body="Birdie, PASS and Cera DCP adapters" />
+        <TrustSignal title="Care-software compatible" body="Works with most leading care management applications" />
         <TrustSignal title="Enhanced DBS vetted" body="Handymen assigned to vulnerable-adult visits are DBS checked" />
         <TrustSignal title="Private trader pools" body="Vetted support without public task feeds" />
         <TrustSignal title="Resident privacy" body="Tokenized visits with no direct contact sharing" />
@@ -399,13 +399,13 @@ function IntegrationBand() {
         <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-start">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-safe">Connected care ecosystem</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight">Built to integrate with the care platforms agencies already use.</h2>
-            <p className="mt-4 text-sm leading-6 text-ink/65">Partner adapters support inbound task events and outbound completion updates without handing resident contact details to traders.</p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight">Compatible with most leading care management applications.</h2>
+            <p className="mt-4 text-sm leading-6 text-ink/65">TaskBridge can receive care notes and send completion updates while keeping resident contact details protected from traders.</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <LogoPill title="Birdie" body="Webhook intake and care-note callback" />
-            <LogoPill title="PASS" body="Care workflow and event mapping" />
-            <LogoPill title="Cera DCP" body="Digital care platform adapter" />
+            <LogoPill title="Care note intake" body="Tasks can be raised from the care workflow already used by staff." />
+            <LogoPill title="Status updates" body="Visit progress and completion notes can flow back to the care record." />
+            <LogoPill title="Secure data handling" body="Resident contact information stays protected during trader dispatch." />
             <LogoPill title="Enhanced DBS vetting" body="DBS status checks for approved handyman networks" />
           </div>
         </div>
@@ -490,7 +490,7 @@ function QuoteCard({ quote, name, role }) {
 
 function HomeFaq() {
   const faqs = [
-    ["Does TaskBridge replace our care system?", "No. TaskBridge connects to care systems such as Birdie, PASS and Cera DCP, then handles the governed practical-task workflow."],
+    ["Does TaskBridge replace our care system?", "No. TaskBridge is compatible with most leading care management applications, then handles the governed practical-task workflow."],
     ["Can care coordinators choose handymen?", "No. Coordinators approve task intake and can monitor progress. TaskBridge admin controls handyman approval and dispatch."],
     ["What happens if a trader has no Enhanced DBS?", "They cannot be assigned to vulnerable-adult tasks. Supervision is recorded as an extra control, not a replacement for Enhanced DBS."],
     ["Are resident details shared?", "Direct contact details are redacted. Traders use tokenized visit links for check-in, evidence and checkout."]
@@ -636,7 +636,7 @@ function HowItWorksPage({ navigate }) {
         <div className="mx-auto grid max-w-7xl gap-8 px-5 py-16 lg:grid-cols-[0.85fr_1.15fr] lg:items-center">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-safe">Connected by API</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight">Designed to sit quietly behind Birdie, PASS and Cera DCP.</h2>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight">Designed to sit quietly behind the care management software your teams already use.</h2>
             <p className="mt-4 text-sm leading-6 text-ink/65">
               Agencies can raise hazards from their care ecosystem, while TaskBridge handles practical task governance, Enhanced DBS vetted handyman dispatch and completion callbacks.
             </p>
