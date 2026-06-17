@@ -43,7 +43,7 @@ const api = {
   createTask: (payload) => postJson("/api/care/tasks", payload),
   aiPlan: (payload) => postJson("/api/ai/task-plan", payload),
   dispatch: (id, actorEmail, sessionToken) => postJson(`/api/taskbridge/tasks/${id}/dispatch`, { actorEmail, sessionToken }),
-  amiqus: (id, actorEmail, sessionToken) => postJson(`/api/traders/${id}/amiqus-check`, { actorEmail, sessionToken }),
+  dbsCheck: (id, actorEmail, sessionToken) => postJson(`/api/traders/${id}/dbs-check`, { actorEmail, sessionToken }),
   approveDbs: (id, actorEmail, sessionToken) => postJson(`/api/admin/traders/${id}/approve-dbs`, { actorEmail, sessionToken }),
   confirmCompletion: (id, managerEmail, sessionToken) => postJson(`/api/care/tasks/${id}/confirm-completion`, { managerEmail, sessionToken }),
   checkIn: (id, token, coords) => postJson(`/api/visit/${id}/check-in?token=${encodeURIComponent(token)}`, coords),
@@ -220,7 +220,7 @@ function LeadPopup({ navigate, close }) {
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-safe">TaskBridge demo</p>
             <h3 className="mt-3 text-3xl font-semibold tracking-tight">From a care note to a confirmed safer-home visit.</h3>
             <p className="mt-4 text-sm leading-6 text-ink/65">
-              Walk through AI task extraction, care-manager approval, Enhanced DBS lock, private trader dispatch, GPS check-in and photo evidence.
+              Walk through AI task extraction, care-manager approval, Enhanced DBS vetted handymen, private trader dispatch, GPS check-in and photo evidence.
             </p>
             <div className="mt-5 grid gap-2 text-sm font-semibold text-ink/72">
               <div className="rounded bg-panel px-3 py-2">No public task feed</div>
@@ -317,7 +317,7 @@ function LandingTrustStrip() {
     <section className="bg-white">
       <div className="mx-auto grid max-w-7xl gap-3 px-5 py-5 sm:grid-cols-2 lg:grid-cols-4">
         <TrustSignal title="Care-platform ready" body="Birdie, PASS and Cera DCP adapters" />
-        <TrustSignal title="Amiqus DBS checks" body="Enhanced DBS verification for safer visits" />
+        <TrustSignal title="Enhanced DBS vetted" body="Handymen assigned to vulnerable-adult visits are DBS checked" />
         <TrustSignal title="Private trader pools" body="Vetted support without public task feeds" />
         <TrustSignal title="Resident privacy" body="Tokenized visits with no direct contact sharing" />
       </div>
@@ -406,7 +406,7 @@ function IntegrationBand() {
             <LogoPill title="Birdie" body="Webhook intake and care-note callback" />
             <LogoPill title="PASS" body="Care workflow and event mapping" />
             <LogoPill title="Cera DCP" body="Digital care platform adapter" />
-            <LogoPill title="Amiqus" body="Identity and Enhanced DBS sessions" />
+            <LogoPill title="Enhanced DBS vetting" body="DBS status checks for approved handyman networks" />
           </div>
         </div>
       </div>
@@ -519,7 +519,7 @@ function DemoCta({ navigate }) {
         <div className="grid gap-8 rounded bg-ink p-8 text-white md:grid-cols-[1fr_auto] md:items-center">
           <div>
             <h2 className="text-3xl font-semibold">See TaskBridge in action</h2>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/72">Book a guided walkthrough of AI intake, care approval, admin dispatch, Amiqus DBS checks and the mobile trader visit workflow.</p>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/72">Book a guided walkthrough of AI intake, care approval, Enhanced DBS vetted handyman dispatch and the mobile trader visit workflow.</p>
           </div>
           <button onClick={() => navigate("demo")} className="rounded bg-white px-5 py-3 font-semibold text-ink">Book a Demo</button>
         </div>
@@ -543,7 +543,7 @@ function HowItWorksPage({ navigate }) {
     {
       step: "03",
       title: "The safeguard firewall checks the job",
-      body: "Vulnerable-adult tasks require active Enhanced DBS. TaskBridge also checks insurance, qualifications, service fit, proximity, availability, price and the agency monthly cap."
+      body: "Vulnerable-adult tasks require an Enhanced DBS vetted handyman. TaskBridge also checks insurance, qualifications, service fit, proximity, availability and price before release."
     },
     {
       step: "04",
@@ -583,7 +583,7 @@ function HowItWorksPage({ navigate }) {
               </div>
               <div className="mt-6 grid gap-3 sm:grid-cols-3">
                 <ProcessBadge value="AI" label="task extraction" />
-                <ProcessBadge value="DBS" label="firewall" />
+                <ProcessBadge value="DBS" label="vetted handymen" />
                 <ProcessBadge value="GPS" label="visit proof" />
               </div>
             </div>
@@ -638,12 +638,12 @@ function HowItWorksPage({ navigate }) {
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-safe">Connected by API</p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight">Designed to sit quietly behind Birdie, PASS and Cera DCP.</h2>
             <p className="mt-4 text-sm leading-6 text-ink/65">
-              Agencies can raise hazards from their care ecosystem, while TaskBridge handles practical task governance, Amiqus DBS sessions, private marketplace dispatch and completion callbacks.
+              Agencies can raise hazards from their care ecosystem, while TaskBridge handles practical task governance, Enhanced DBS vetted handyman dispatch and completion callbacks.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <IntegrationTile title="Inbound care note" body="Webhook or portal task intake from care teams." />
-            <IntegrationTile title="Amiqus DBS" body="Identity and Enhanced DBS session management." />
+            <IntegrationTile title="Enhanced DBS vetting" body="DBS status capture and renewal workflow for approved handymen." />
             <IntegrationTile title="Private trader pools" body="Restricted dispatch to vetted marketplace members." />
             <IntegrationTile title="Care callback" body="Completion evidence returned to the parent care record." />
           </div>
@@ -902,7 +902,7 @@ function MiniScene({ title, label, active = false, playing = false }) {
 function DemoPage({ submit }) {
   const [form, setForm] = useState({ name: "", workEmail: "", organisation: "", role: "Care Manager", message: "" });
   return (
-    <FormShell title="Book a TaskBridge demo" intro="See the care-coordinator workflow, DBS firewall, marketplace dispatch, and trader visit controls in one guided session.">
+    <FormShell title="Book a TaskBridge demo" intro="See the care-coordinator workflow, Enhanced DBS vetted handyman dispatch, and trader visit controls in one guided session.">
       <form className="grid gap-4" onSubmit={(event) => {
         event.preventDefault();
         submit(form);
@@ -1097,8 +1097,8 @@ function Portal({ state, user, navigate, refresh, setNotice }) {
         await refresh();
       }} />}
       {activeView === "traders" && isAdmin && <Compliance traders={state.traders} runCheck={async (id) => {
-        const result = await api.amiqus(id, user.user.email, user.sessionToken);
-        setNotice(result.error || `Amiqus session created: ${result.session.id}`);
+        const result = await api.dbsCheck(id, user.user.email, user.sessionToken);
+        setNotice(result.error || `DBS verification started for ${result.trader.name}`);
         await refresh();
       }} approveDbs={async (id) => {
         const result = await api.approveDbs(id, user.user.email, user.sessionToken);
@@ -1345,7 +1345,7 @@ function Compliance({ traders, runCheck, approveDbs }) {
                 <td className="p-3">{new Date(trader.lastCheckedAt).toLocaleString()}</td>
                 <td className="p-3">
                   <div className="flex justify-end gap-2">
-                    <button onClick={() => runCheck(trader.id)} className="rounded bg-ink px-3 py-2 text-xs font-semibold text-white">Trigger Amiqus</button>
+                    <button onClick={() => runCheck(trader.id)} className="rounded bg-ink px-3 py-2 text-xs font-semibold text-white">Start DBS Check</button>
                     <button onClick={() => approveDbs(trader.id)} className="rounded bg-safe px-3 py-2 text-xs font-semibold text-white">Approve DBS</button>
                   </div>
                 </td>
