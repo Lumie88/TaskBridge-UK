@@ -285,7 +285,7 @@ function MarketingHome({ navigate }) {
       </section>
       <PlatformStory navigate={navigate} />
       <IntegrationBand />
-      <TrustSection />
+      <TrustSection navigate={navigate} />
       <TestimonialSection />
       <HomeFaq />
       <DemoCta navigate={navigate} />
@@ -423,30 +423,40 @@ function LogoPill({ title, body }) {
   );
 }
 
-function TrustSection() {
+function TrustSection({ navigate }) {
+  const safeguards = [
+    ["Enhanced DBS confidence", "Vulnerable-adult visits are held behind active Enhanced DBS checks before a handyman can be released."],
+    ["Resident privacy protected", "Direct phone numbers and personal contact details stay hidden behind secure visit links."],
+    ["Care-team approval", "Coordinators review the task before it moves into TaskBridge's safeguarded assignment flow."],
+    ["Proof after every visit", "GPS check-in, photo evidence and care confirmation help teams close the loop with confidence."]
+  ];
+
   return (
     <section className="bg-[#e8f2ed]">
-      <div className="mx-auto max-w-7xl px-5 py-16">
-        <div className="max-w-3xl">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-safe">Governance by design</p>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight">Compliance controls for real-world home safety work.</h2>
+      <div className="mx-auto grid max-w-7xl gap-10 px-5 py-16 lg:grid-cols-[0.82fr_1.18fr] lg:items-start">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-safe">Safeguarding confidence</p>
+          <h2 className="mt-3 text-4xl font-semibold tracking-tight">Built to protect residents, care teams and trusted visitors.</h2>
+          <p className="mt-5 text-base leading-7 text-ink/68">
+            TaskBridge makes practical home support feel simple on the outside while keeping the right checks, approvals and evidence in place behind the scenes.
+          </p>
+          <button onClick={() => navigate("how")} className="mt-7 rounded bg-ink px-5 py-3 font-semibold text-white">Explore the Process</button>
         </div>
-        <div className="mt-8 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <TrustItem title="Enhanced DBS lock" body="Active, unexpired approval required for vulnerable-adult dispatch." />
-          <TrustItem title="Verified insurance" body="No verified cover, no assignment to a practical home task." />
-          <TrustItem title="Payment caps" body="Agency monthly limits checked before releasing jobs." />
-          <TrustItem title="Audit trail" body="Every triage, admin approval, visit event and callback is recorded." />
+        <div className="grid gap-4 sm:grid-cols-2">
+          {safeguards.map(([title, body], index) => (
+            <TrustItem key={title} title={title} body={body} index={index + 1} />
+          ))}
         </div>
       </div>
     </section>
   );
 }
 
-function TrustItem({ title, body }) {
+function TrustItem({ title, body, index }) {
   return (
     <article className="rounded bg-white p-5 ring-1 ring-ink/10">
-      <div className="mb-4 h-10 w-10 rounded-full bg-safe/12"></div>
-      <h3 className="font-semibold">{title}</h3>
+      <div className="mb-5 grid h-11 w-11 place-items-center rounded bg-blue-50 text-sm font-semibold text-safe">{String(index).padStart(2, "0")}</div>
+      <h3 className="text-lg font-semibold">{title}</h3>
       <p className="mt-2 text-sm leading-6 text-ink/62">{body}</p>
     </article>
   );
