@@ -30,6 +30,13 @@ const api = {
     return fetch(`/api/state${params.toString() ? `?${params}` : ""}`).then((res) => res.json());
   },
   demo: (payload) => postJson("/api/demo-requests", payload),
+  brandLogo: (payload) => {
+    const params = new URLSearchParams();
+    Object.entries(payload).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
+    return fetch(`/api/brand-logo?${params}`).then((res) => res.json());
+  },
   signup: (payload) => postJson("/api/auth/signup", payload),
   signin: (payload) => postJson("/api/auth/signin", payload),
   adminSignin: (payload) => postJson("/api/auth/admin-signin", payload),
@@ -932,8 +939,10 @@ function AuthPage({ mode, agencies = [], submit, switchMode }) {
         {signup && <Input label="Role" value={form.role} onChange={(role) => setForm({ ...form, role })} />}
         {signup && (
           <div className="grid gap-3 rounded bg-panel p-4 ring-1 ring-ink/10">
-            <Input label="Company name" value={form.companyName} onChange={(companyName) => setForm({ ...form, companyName })} />
-            <CompanyLogoPreview companyName={form.companyName} />
+            <div className="grid gap-3 sm:grid-cols-[88px_1fr] sm:items-end">
+              <CompanyLogoPreview companyName={form.companyName} email={form.email} />
+              <Input label="Company name" value={form.companyName} onChange={(companyName) => setForm({ ...form, companyName })} />
+            </div>
           </div>
         )}
         <SubmitButton label={signup ? "Create Account" : "Sign In"} />
@@ -943,15 +952,56 @@ function AuthPage({ mode, agencies = [], submit, switchMode }) {
   );
 }
 
-function CompanyLogoPreview({ companyName }) {
+function CompanyLogoPreview({ companyName, email }) {
   const initials = companyInitials(companyName);
+  const [logo, setLogo] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    const lookupName = String(companyName || "").trim();
+    const lookupEmail = isWorkEmail(email) ? String(email || "").trim() : "";
+    if (!lookupName && !lookupEmail) {
+      setLogo(null);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const result = await api.brandLogo({ companyName: lookupName, email: lookupEmail });
+        if (!cancelled) {
+          setLogo(result.logoUrl ? result : null);
+          setImageFailed(false);
+        }
+      } catch {
+        if (!cancelled) setLogo(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [companyName, email]);
+
+  const showOnlineLogo = logo?.logoUrl && !logo.fallback && !imageFailed;
+
   return (
-    <div className="flex items-center gap-3 rounded bg-white p-3 ring-1 ring-ink/10">
-      <div className="grid h-14 w-14 shrink-0 place-items-center rounded bg-mint text-lg font-semibold text-ink">
-        {initials}
-      </div>
-      <div>
-        <div className="text-sm font-semibold">{companyName || "Company logo preview"}</div>
+    <div className="grid gap-2 text-sm font-medium">
+      <span>Logo</span>
+      <div className="grid h-[50px] w-[72px] place-items-center overflow-hidden rounded border border-ink/15 bg-white">
+        {loading ? (
+          <div className="h-7 w-7 animate-spin rounded-full border-2 border-safe/25 border-t-safe"></div>
+        ) : showOnlineLogo ? (
+          <img className="max-h-10 max-w-[58px] object-contain" src={logo.logoUrl} alt={`${companyName || "Company"} logo`} onError={() => setImageFailed(true)} />
+        ) : (
+          <span className="grid h-10 w-10 place-items-center rounded bg-mint text-sm font-semibold text-ink">{initials}</span>
+        )}
       </div>
     </div>
   );

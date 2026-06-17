@@ -29,6 +29,9 @@ function seedDatabase() {
     apiKey: "shl_demo_birdie_token",
     primaryContact: "Maya Shah",
     webhookUrl: "https://partner.example.local/birdie/webhooks/TaskBridge",
+    logoUrl: "https://logo.clearbit.com/birdie.care",
+    logoDomain: "birdie.care",
+    logoProvider: "clearbit",
     monthlyCap: 500,
     monthlyCommittedSpend: 115
   };
@@ -322,6 +325,127 @@ function companyLogoDataUrl(name) {
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
 }
 
+const knownBrandDomains = new Map([
+  ["birdie", "birdie.care"],
+  ["birdie london", "birdie.care"],
+  ["nourish", "nourishcare.com"],
+  ["nourish care", "nourishcare.com"],
+  ["cera", "ceracare.co.uk"],
+  ["cera care", "ceracare.co.uk"],
+  ["cera dcp", "ceracare.co.uk"],
+  ["pass", "everylifetechnologies.com"],
+  ["pass planning", "everylifetechnologies.com"],
+  ["pass care planning", "everylifetechnologies.com"],
+  ["access", "theaccessgroup.com"],
+  ["access group", "theaccessgroup.com"],
+  ["the access group", "theaccessgroup.com"],
+  ["bluebird care", "bluebirdcare.co.uk"],
+  ["bluebird", "bluebirdcare.co.uk"],
+  ["helping hands", "helpinghandshomecare.co.uk"],
+  ["home instead", "homeinstead.co.uk"]
+]);
+
+function normaliseCompanyKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/\b(ltd|limited|plc|llp|group|uk|care)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function normaliseDomain(value) {
+  const domain = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .split(/[/?#]/)[0];
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return "";
+  return domain;
+}
+
+function domainFromEmail(email) {
+  return normaliseDomain(String(email || "").split("@")[1] || "");
+}
+
+function brandDomainCandidates({ companyName, email }) {
+  const domains = [];
+  const emailDomain = domainFromEmail(email);
+  if (emailDomain) domains.push(emailDomain);
+
+  const rawKey = normaliseCompanyKey(companyName);
+  const knownDomain = knownBrandDomains.get(rawKey) || knownBrandDomains.get(String(companyName || "").toLowerCase().trim());
+  if (knownDomain) domains.push(knownDomain);
+
+  const slug = rawKey.replace(/\s+/g, "");
+  if (slug && slug.length > 2) {
+    domains.push(`${slug}.co.uk`, `${slug}.com`, `${slug}.care`);
+  }
+
+  return [...new Set(domains)].slice(0, 6);
+}
+
+async function imageUrlIsUsable(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1200);
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      signal: controller.signal,
+      headers: { "user-agent": "TaskBridgeLogoResolver/1.0" }
+    });
+    const contentType = response.headers.get("content-type") || "";
+    return response.ok && contentType.startsWith("image/");
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function resolveBrandLogo({ companyName, email }) {
+  const fallback = companyLogoDataUrl(companyName);
+  const emailDomain = domainFromEmail(email);
+  if (emailDomain) {
+    return {
+      logoUrl: `https://logo.clearbit.com/${encodeURIComponent(emailDomain)}?size=160`,
+      domain: emailDomain,
+      provider: "clearbit",
+      fallback: false
+    };
+  }
+
+  const knownDomain = knownBrandDomains.get(normaliseCompanyKey(companyName));
+  if (knownDomain) {
+    return {
+      logoUrl: `https://logo.clearbit.com/${encodeURIComponent(knownDomain)}?size=160`,
+      domain: knownDomain,
+      provider: "clearbit",
+      fallback: false
+    };
+  }
+
+  const domains = brandDomainCandidates({ companyName, email });
+
+  for (const domain of domains) {
+    const clearbitUrl = `https://logo.clearbit.com/${encodeURIComponent(domain)}?size=160`;
+    if (await imageUrlIsUsable(clearbitUrl)) {
+      return { logoUrl: clearbitUrl, domain, provider: "clearbit", fallback: false };
+    }
+
+    if (domain === domainFromEmail(email) || knownBrandDomains.get(normaliseCompanyKey(companyName)) === domain) {
+      const faviconUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`;
+      if (await imageUrlIsUsable(faviconUrl)) {
+        return { logoUrl: faviconUrl, domain, provider: "favicon", fallback: false };
+      }
+    }
+  }
+
+  return { logoUrl: fallback, domain: null, provider: "generated", fallback: true };
+}
+
 function isWorkEmail(email) {
   const domain = String(email || "").split("@")[1]?.toLowerCase();
   if (!domain) return false;
@@ -485,6 +609,14 @@ async function handleApi(req, res) {
     return sendJson(res, 200, publicState(viewer));
   }
 
+  if (req.method === "GET" && pathname === "/api/brand-logo") {
+    const companyName = String(params.get("companyName") || "").trim().slice(0, 140);
+    const email = String(params.get("email") || "").trim().toLowerCase().slice(0, 160);
+    if (!companyName && !email) return sendJson(res, 422, { error: "Company name or work email is required" });
+    const logo = await resolveBrandLogo({ companyName, email });
+    return sendJson(res, 200, logo);
+  }
+
   if (req.method === "POST" && pathname === "/api/demo-requests") {
     const body = await readJson(req);
     const demo = {
@@ -514,16 +646,24 @@ async function handleApi(req, res) {
     if (db.agencies.has(agencyId) && db.agencies.get(agencyId).name.toLowerCase() !== companyName.toLowerCase()) {
       agencyId = `${agencyId}-${randomBytes(2).toString("hex")}`;
     }
+    const logo = await resolveBrandLogo({ companyName, email });
     const agency = db.agencies.get(agencyId) || {
       id: agencyId,
       name: companyName,
       apiKey: `tb_${randomBytes(12).toString("hex")}`,
       primaryContact: String(body.name || "Care Manager").slice(0, 120),
       webhookUrl: "",
-      logoUrl: companyLogoDataUrl(companyName),
+      logoUrl: logo.logoUrl,
+      logoDomain: logo.domain,
+      logoProvider: logo.provider,
       monthlyCap: 500,
       monthlyCommittedSpend: 0
     };
+    if (!agency.logoUrl || agency.logoProvider === "generated") {
+      agency.logoUrl = logo.logoUrl;
+      agency.logoDomain = logo.domain;
+      agency.logoProvider = logo.provider;
+    }
     db.agencies.set(agency.id, agency);
     const manager = {
       id: `cm_${randomBytes(3).toString("hex")}`,
@@ -536,7 +676,7 @@ async function handleApi(req, res) {
     };
     db.careManagers.set(email, manager);
     db.audit.push(auditEvent("auth.signup", `${manager.name} joined ${agency.name}`, { managerId: manager.id }));
-    return sendJson(res, 201, { user: sanitizeManager(manager), sessionToken: signSessionToken(manager), agency: { id: agency.id, name: agency.name, logoUrl: agency.logoUrl || companyLogoDataUrl(agency.name) } });
+    return sendJson(res, 201, { user: sanitizeManager(manager), sessionToken: signSessionToken(manager), agency: { id: agency.id, name: agency.name, logoUrl: agency.logoUrl || companyLogoDataUrl(agency.name), logoDomain: agency.logoDomain, logoProvider: agency.logoProvider } });
   }
 
   if (req.method === "POST" && pathname === "/api/auth/signin") {
@@ -547,7 +687,7 @@ async function handleApi(req, res) {
     if (manager.accessLevel !== "care") return sendJson(res, 403, { error: "Use the TaskBridge admin access point" });
     const agency = db.agencies.get(manager.agencyId);
     db.audit.push(auditEvent("auth.signin", `${manager.name} signed in`, { managerId: manager.id }));
-    return sendJson(res, 200, { user: sanitizeManager(manager), sessionToken: signSessionToken(manager), agency: { id: agency.id, name: agency.name } });
+    return sendJson(res, 200, { user: sanitizeManager(manager), sessionToken: signSessionToken(manager), agency: { id: agency.id, name: agency.name, logoUrl: agency.logoUrl, logoDomain: agency.logoDomain } });
   }
 
   if (req.method === "POST" && pathname === "/api/auth/admin-signin") {
@@ -559,7 +699,7 @@ async function handleApi(req, res) {
     }
     const agency = db.agencies.get(admin.agencyId);
     db.audit.push(auditEvent("auth.admin_signin", `${admin.name} signed in to admin`, { adminId: admin.id }));
-    return sendJson(res, 200, { user: sanitizeManager(admin), sessionToken: signSessionToken(admin), agency: { id: agency.id, name: agency.name } });
+    return sendJson(res, 200, { user: sanitizeManager(admin), sessionToken: signSessionToken(admin), agency: { id: agency.id, name: agency.name, logoUrl: agency.logoUrl, logoDomain: agency.logoDomain } });
   }
 
   if (req.method === "POST" && pathname === "/api/ai/task-plan") {
