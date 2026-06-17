@@ -241,37 +241,37 @@ function LeadPopup({ navigate, close }) {
 function MarketingHome({ navigate }) {
   return (
     <>
-      <section className="relative min-h-[760px] overflow-hidden bg-ink text-white">
-        <img className="absolute inset-0 h-full w-full object-cover opacity-58" src="https://images.unsplash.com/photo-1559757148-5c350d0d3c56?auto=format&fit=crop&w=1800&q=80" alt="Care professional reviewing home safety with an older person" />
-        <div className="absolute inset-0 bg-gradient-to-r from-ink via-ink/80 to-ink/24"></div>
-        <div className="absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-ink to-transparent"></div>
-        <div className="relative mx-auto flex min-h-[760px] max-w-7xl flex-col justify-center px-5 py-16">
-          <div className="max-w-4xl">
-            <p className="inline-flex rounded-full bg-white/12 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/20">TaskBridge for home care operations</p>
-            <h1 className="mt-6 text-6xl font-semibold leading-[1.02] tracking-tight md:text-7xl">TaskBridge</h1>
+      <section className="relative overflow-hidden bg-ink text-white">
+        <img className="absolute inset-0 h-full w-full object-cover opacity-72" src="https://images.unsplash.com/photo-1581579186913-45ac3e6efe93?auto=format&fit=crop&w=1800&q=85" alt="A safe home support visit with care and practical help" />
+        <div className="absolute inset-0 bg-gradient-to-r from-ink via-ink/76 to-ink/22"></div>
+        <div className="absolute inset-0 bg-gradient-to-t from-ink/84 via-transparent to-transparent"></div>
+        <div className="relative mx-auto flex min-h-[650px] max-w-7xl flex-col justify-center px-5 py-14 lg:min-h-[690px]">
+          <div className="max-w-3xl">
+            <p className="inline-flex rounded-full bg-white/16 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/24">For care providers, coordinators and safeguarding teams</p>
+            <h1 className="mt-6 text-5xl font-semibold leading-[1.04] tracking-tight md:text-7xl">TaskBridge</h1>
             <p className="mt-5 max-w-3xl text-3xl font-semibold leading-tight text-mint">Making home safer for our vulnerable</p>
-            <p className="mt-6 max-w-2xl text-xl leading-8 text-white/78">
-              A safeguarded middleware layer that turns care notes into approved practical tasks, checks Enhanced DBS and insurance, and routes trusted local support without exposing resident contact details.
+            <p className="mt-6 max-w-2xl text-xl leading-8 text-white/82">
+              A warm, secure bridge between care teams and trusted practical help at home, so everyday hazards can be handled quickly without exposing vulnerable residents to unmanaged marketplace risk.
             </p>
             <div className="mt-9 flex flex-wrap gap-3">
-              <button onClick={() => navigate("demo")} className="rounded bg-white px-5 py-3 font-semibold text-ink">Book a Demo</button>
-              <button onClick={() => navigate("how")} className="rounded border border-white/35 bg-white/8 px-5 py-3 font-semibold text-white backdrop-blur">See How It Works</button>
+              <button onClick={() => navigate("demo")} className="rounded bg-white px-5 py-3 font-semibold text-ink shadow-sm">Book a Demo</button>
+              <button onClick={() => navigate("how")} className="rounded border border-white/35 bg-white/10 px-5 py-3 font-semibold text-white backdrop-blur">See How It Works</button>
             </div>
           </div>
-          <HeroCommandRail />
+          <HeroWelcomePanel />
         </div>
       </section>
       <LandingTrustStrip />
       <section className="bg-white">
         <div className="mx-auto max-w-7xl px-5 py-16">
           <div className="max-w-3xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-safe">Who TaskBridge supports</p>
-            <h2 className="mt-3 text-4xl font-semibold tracking-tight">Designed for care teams, operations leaders and vulnerable residents.</h2>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-safe">Built around real homes</p>
+            <h2 className="mt-3 text-4xl font-semibold tracking-tight">Practical help made easier for care teams and safer for residents.</h2>
           </div>
           <div className="mt-8 grid gap-5 lg:grid-cols-3">
-            <AudienceCard title="Home Care Providers" body="Connect coordinator notes, field observations and care-system webhooks to a controlled practical-support workflow." link="For domiciliary care" />
-            <AudienceCard title="Care Coordinators" body="Use AI to summarise one or many hazards into clear tasks, then approve them into the TaskBridge queue." link="For care operations" />
-            <AudienceCard title="Safeguarding Leads" body="Keep vulnerable-adult jobs behind DBS, insurance, qualification, cap and audit controls before dispatch." link="For compliance teams" />
+            <AudienceCard title="For home care providers" body="Turn field observations and care-system notes into practical support without adding manual chasing to the care team." link="Connected care workflow" />
+            <AudienceCard title="For coordinators" body="Capture a concern once, review the suggested tasks, and keep families informed as safer-home work progresses." link="Simple task intake" />
+            <AudienceCard title="For safeguarding leads" body="Keep vulnerable-adult visits controlled with DBS, insurance, qualification, audit and confirmation checks before closure." link="Safety-first governance" />
           </div>
         </div>
       </section>
@@ -293,33 +293,21 @@ function MarketingHome({ navigate }) {
   );
 }
 
-function HeroCommandRail() {
+function HeroWelcomePanel() {
   return (
-    <div className="mt-12 grid max-w-5xl gap-3 md:grid-cols-[1.1fr_0.85fr_0.85fr]">
-      <div className="rounded bg-white/12 p-4 shadow-sm ring-1 ring-white/18 backdrop-blur">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mint">Live safeguard</div>
-            <div className="mt-2 text-2xl font-semibold">Ring-fence enforced</div>
-          </div>
-          <div className="rounded bg-mint px-3 py-2 text-sm font-semibold text-ink">Enhanced DBS</div>
-        </div>
-        <p className="mt-3 text-sm leading-6 text-white/74">Vulnerable-adult work stays pending until TaskBridge admin releases an active, insured, qualified trader.</p>
-      </div>
-      <div className="rounded bg-white p-4 text-ink shadow-sm">
-        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-safe">AI task split</div>
-        <div className="mt-2 text-xl font-semibold">3 hazards found</div>
-        <div className="mt-3 grid gap-2 text-xs font-semibold text-ink/64">
-          <div className="rounded bg-panel px-3 py-2">Lawn mowing</div>
-          <div className="rounded bg-panel px-3 py-2">Window cleaning</div>
-          <div className="rounded bg-panel px-3 py-2">Loose handrail</div>
-        </div>
-      </div>
-      <div className="rounded bg-white p-4 text-ink shadow-sm">
-        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-safe">Visit proof</div>
-        <div className="mt-2 text-xl font-semibold">GPS + photo</div>
-        <p className="mt-3 text-sm leading-6 text-ink/64">Tokenized mobile workflow with checkout held for care confirmation.</p>
-      </div>
+    <div className="mt-12 grid max-w-5xl gap-3 md:grid-cols-3">
+      <HeroWelcomeItem title="Care note to clear action" body="Hazards such as mossy paths, loose rails or unsafe appliances become practical tasks the care team can approve." />
+      <HeroWelcomeItem title="Trusted people at the door" body="TaskBridge keeps vulnerable-adult work behind Enhanced DBS, insurance and admin release controls." />
+      <HeroWelcomeItem title="Families see progress" body="Visits are checked in, evidenced and confirmed before the care record is updated." />
+    </div>
+  );
+}
+
+function HeroWelcomeItem({ title, body }) {
+  return (
+    <div className="rounded bg-white/92 p-4 text-ink shadow-sm ring-1 ring-white/36 backdrop-blur">
+      <h3 className="text-lg font-semibold">{title}</h3>
+      <p className="mt-2 text-sm leading-6 text-ink/64">{body}</p>
     </div>
   );
 }
@@ -329,9 +317,9 @@ function LandingTrustStrip() {
     <section className="bg-white">
       <div className="mx-auto grid max-w-7xl gap-3 px-5 py-5 sm:grid-cols-2 lg:grid-cols-4">
         <TrustSignal title="Care-platform ready" body="Birdie, PASS and Cera DCP adapters" />
-        <TrustSignal title="DBS-first dispatch" body="Amiqus Enhanced DBS verification" />
-        <TrustSignal title="Private trader pools" body="No unmanaged public marketplace feed" />
-        <TrustSignal title="Data minimised visits" body="No direct resident contact sharing" />
+        <TrustSignal title="Amiqus DBS checks" body="Enhanced DBS verification for safer visits" />
+        <TrustSignal title="Private trader pools" body="Vetted support without public task feeds" />
+        <TrustSignal title="Resident privacy" body="Tokenized visits with no direct contact sharing" />
       </div>
     </section>
   );
