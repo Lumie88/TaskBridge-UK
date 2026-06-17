@@ -301,6 +301,38 @@ function auditEvent(type, detail, meta = {}) {
   };
 }
 
+function agencyIdFromName(name) {
+  const slug = String(name || "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 44);
+  return slug || `agency-${randomBytes(3).toString("hex")}`;
+}
+
+function companyLogoDataUrl(name) {
+  const initials = String(name || "TB")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase().replace(/[^A-Z0-9]/g, ""))
+    .join("") || "TB";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="20" fill="#dff5e8"/><circle cx="70" cy="26" r="10" fill="#2563eb"/><text x="48" y="58" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#102027">${initials}</text></svg>`;
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+}
+
+function isWorkEmail(email) {
+  const domain = String(email || "").split("@")[1]?.toLowerCase();
+  if (!domain) return false;
+  const blocked = new Set([
+    "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "hotmail.com", "outlook.com",
+    "live.com", "msn.com", "icloud.com", "me.com", "mac.com", "aol.com", "proton.me",
+    "protonmail.com", "pm.me", "mail.com", "gmx.com", "gmx.co.uk", "zoho.com", "yandex.com"
+  ]);
+  return !blocked.has(domain);
+}
+
 function publicState(viewer = null, visitTask = null) {
   const serviceUsers = [...db.serviceUsers.values()].map((user) => ({
     ...user,
@@ -474,9 +506,25 @@ async function handleApi(req, res) {
     const body = await readJson(req);
     const email = String(body.email || "").trim().toLowerCase();
     if (!email || !String(body.password || "").trim()) return sendJson(res, 422, { error: "Email and password are required" });
+    if (!isWorkEmail(email)) return sendJson(res, 422, { error: "Please use your work email address. Personal email domains are not accepted." });
     if (db.careManagers.has(email)) return sendJson(res, 409, { error: "An account already exists for this email" });
-    const agencyId = String(body.agencyId || "birdie-london");
-    const agency = db.agencies.get(agencyId) || [...db.agencies.values()][0];
+    const companyName = String(body.companyName || body.organisation || "").trim().slice(0, 140);
+    if (!companyName) return sendJson(res, 422, { error: "Company name is required" });
+    let agencyId = agencyIdFromName(companyName);
+    if (db.agencies.has(agencyId) && db.agencies.get(agencyId).name.toLowerCase() !== companyName.toLowerCase()) {
+      agencyId = `${agencyId}-${randomBytes(2).toString("hex")}`;
+    }
+    const agency = db.agencies.get(agencyId) || {
+      id: agencyId,
+      name: companyName,
+      apiKey: `tb_${randomBytes(12).toString("hex")}`,
+      primaryContact: String(body.name || "Care Manager").slice(0, 120),
+      webhookUrl: "",
+      logoUrl: companyLogoDataUrl(companyName),
+      monthlyCap: 500,
+      monthlyCommittedSpend: 0
+    };
+    db.agencies.set(agency.id, agency);
     const manager = {
       id: `cm_${randomBytes(3).toString("hex")}`,
       name: String(body.name || "Care Manager").slice(0, 120),
@@ -488,7 +536,7 @@ async function handleApi(req, res) {
     };
     db.careManagers.set(email, manager);
     db.audit.push(auditEvent("auth.signup", `${manager.name} joined ${agency.name}`, { managerId: manager.id }));
-    return sendJson(res, 201, { user: sanitizeManager(manager), sessionToken: signSessionToken(manager), agency: { id: agency.id, name: agency.name } });
+    return sendJson(res, 201, { user: sanitizeManager(manager), sessionToken: signSessionToken(manager), agency: { id: agency.id, name: agency.name, logoUrl: agency.logoUrl || companyLogoDataUrl(agency.name) } });
   }
 
   if (req.method === "POST" && pathname === "/api/auth/signin") {

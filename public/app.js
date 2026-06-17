@@ -67,6 +67,7 @@ function App() {
   const [route, setRoute] = useState(routeFromPath());
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem("TaskBridgeUser") || "null"));
   const [notice, setNotice] = useState("");
+  const [showLeadPopup, setShowLeadPopup] = useState(false);
   const visitMatch = location.pathname.match(/^\/visit\/([^/]+)/);
 
   async function refresh() {
@@ -113,6 +114,17 @@ function App() {
     };
   }, [user?.sessionToken, location.pathname, location.search]);
 
+  useEffect(() => {
+    if (user || route !== "home" || sessionStorage.getItem("TaskBridgeLeadPopupDismissed")) return;
+    const timer = setTimeout(() => setShowLeadPopup(true), 1600);
+    return () => clearTimeout(timer);
+  }, [route, user]);
+
+  function closeLeadPopup() {
+    sessionStorage.setItem("TaskBridgeLeadPopupDismissed", "true");
+    setShowLeadPopup(false);
+  }
+
   if (visitMatch) {
     const task = state.tasks.find((item) => item.id === visitMatch[1]);
     return <VisitWorkflow task={task} onRefresh={refresh} />;
@@ -141,6 +153,7 @@ function App() {
         result.error ? setNotice(result.error) : saveUser(result);
       }} />}
       {route === "portal" && <Portal state={state} user={user} navigate={navigate} refresh={refresh} setNotice={setNotice} />}
+      {showLeadPopup && <LeadPopup navigate={navigate} close={closeLeadPopup} />}
     </main>
   );
 }
@@ -177,32 +190,71 @@ function Notice({ text }) {
   return <div className="mx-auto mt-4 max-w-7xl px-5"><div className="rounded border border-safe/20 bg-blue-50 px-4 py-3 text-sm text-safe">{text}</div></div>;
 }
 
+function LeadPopup({ navigate, close }) {
+  function go(route) {
+    close();
+    navigate(route);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/58 px-4 backdrop-blur-sm">
+      <section className="relative w-full max-w-3xl overflow-hidden rounded bg-white shadow-2xl ring-1 ring-white/30">
+        <button onClick={close} className="absolute right-4 top-4 z-10 grid h-9 w-9 place-items-center rounded-full bg-white/90 text-xl leading-none text-ink shadow-sm ring-1 ring-ink/10" aria-label="Close popup">×</button>
+        <div className="grid md:grid-cols-[0.92fr_1.08fr]">
+          <div className="relative min-h-72 bg-ink text-white">
+            <img className="absolute inset-0 h-full w-full object-cover opacity-60" src="https://images.unsplash.com/photo-1581579186913-45ac3e6efe93?auto=format&fit=crop&w=900&q=80" alt="Home safety support visit" />
+            <div className="absolute inset-0 bg-gradient-to-t from-ink via-ink/72 to-ink/18"></div>
+            <div className="relative flex h-full flex-col justify-end p-6">
+              <div className="rounded bg-white/12 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] ring-1 ring-white/16">2026 launch preview</div>
+              <h2 className="mt-4 text-3xl font-semibold leading-tight">See the safeguarded workflow in 15 minutes.</h2>
+            </div>
+          </div>
+          <div className="p-6">
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-safe">TaskBridge demo</p>
+            <h3 className="mt-3 text-3xl font-semibold tracking-tight">From a care note to a confirmed safer-home visit.</h3>
+            <p className="mt-4 text-sm leading-6 text-ink/65">
+              Walk through AI task extraction, care-manager approval, Enhanced DBS lock, private trader dispatch, GPS check-in and photo evidence.
+            </p>
+            <div className="mt-5 grid gap-2 text-sm font-semibold text-ink/72">
+              <div className="rounded bg-panel px-3 py-2">No public task feed</div>
+              <div className="rounded bg-panel px-3 py-2">No direct resident contact sharing</div>
+              <div className="rounded bg-panel px-3 py-2">Admin-only handyman release</div>
+            </div>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button onClick={() => go("demo")} className="rounded bg-ink px-5 py-3 font-semibold text-white">Book a Demo</button>
+              <button onClick={() => go("how")} className="rounded bg-white px-5 py-3 font-semibold text-ink ring-1 ring-ink/15">See How It Works</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function MarketingHome({ navigate }) {
   return (
     <>
-      <section className="relative overflow-hidden bg-[#f3f8f5]">
-        <div className="mx-auto grid min-h-[680px] max-w-7xl gap-10 px-5 pb-12 pt-12 lg:grid-cols-[0.92fr_1.08fr] lg:items-center">
-          <div className="relative z-[1] max-w-2xl">
-            <p className="inline-flex rounded-full bg-white px-4 py-2 text-sm font-semibold text-safe ring-1 ring-safe/15">Safeguarded practical support for home care</p>
-            <h1 className="mt-6 text-5xl font-semibold leading-tight tracking-tight text-ink md:text-6xl">
-              Making home safer for our vulnerable
-            </h1>
-            <p className="mt-5 text-xl leading-8 text-ink/70">
-              TaskBridge helps care providers turn everyday home hazards into governed handyman tasks, with AI-assisted triage, Enhanced DBS controls, care-manager approval, and secure visit evidence.
+      <section className="relative min-h-[760px] overflow-hidden bg-ink text-white">
+        <img className="absolute inset-0 h-full w-full object-cover opacity-58" src="https://images.unsplash.com/photo-1559757148-5c350d0d3c56?auto=format&fit=crop&w=1800&q=80" alt="Care professional reviewing home safety with an older person" />
+        <div className="absolute inset-0 bg-gradient-to-r from-ink via-ink/80 to-ink/24"></div>
+        <div className="absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-ink to-transparent"></div>
+        <div className="relative mx-auto flex min-h-[760px] max-w-7xl flex-col justify-center px-5 py-16">
+          <div className="max-w-4xl">
+            <p className="inline-flex rounded-full bg-white/12 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/20">TaskBridge for home care operations</p>
+            <h1 className="mt-6 text-6xl font-semibold leading-[1.02] tracking-tight md:text-7xl">TaskBridge</h1>
+            <p className="mt-5 max-w-3xl text-3xl font-semibold leading-tight text-mint">Making home safer for our vulnerable</p>
+            <p className="mt-6 max-w-2xl text-xl leading-8 text-white/78">
+              A safeguarded middleware layer that turns care notes into approved practical tasks, checks Enhanced DBS and insurance, and routes trusted local support without exposing resident contact details.
             </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <button onClick={() => navigate("demo")} className="rounded bg-ink px-5 py-3 font-semibold text-white">Book a Demo</button>
-              <button onClick={() => navigate("how")} className="rounded bg-white px-5 py-3 font-semibold text-ink ring-1 ring-ink/15">See How It Works</button>
-            </div>
-            <div className="mt-8 flex flex-wrap gap-3 text-sm font-semibold text-ink/65">
-              <span className="rounded-full bg-white px-4 py-2 ring-1 ring-ink/10">Birdie, PASS and Cera DCP ready</span>
-              <span className="rounded-full bg-white px-4 py-2 ring-1 ring-ink/10">Amiqus DBS loop</span>
-              <span className="rounded-full bg-white px-4 py-2 ring-1 ring-ink/10">Private trader dispatch</span>
+            <div className="mt-9 flex flex-wrap gap-3">
+              <button onClick={() => navigate("demo")} className="rounded bg-white px-5 py-3 font-semibold text-ink">Book a Demo</button>
+              <button onClick={() => navigate("how")} className="rounded border border-white/35 bg-white/8 px-5 py-3 font-semibold text-white backdrop-blur">See How It Works</button>
             </div>
           </div>
-          <HeroShowcase />
+          <HeroCommandRail />
         </div>
       </section>
+      <LandingTrustStrip />
       <section className="bg-white">
         <div className="mx-auto max-w-7xl px-5 py-16">
           <div className="max-w-3xl">
@@ -234,23 +286,55 @@ function MarketingHome({ navigate }) {
   );
 }
 
-function HeroShowcase() {
+function HeroCommandRail() {
   return (
-    <div className="relative min-h-[520px]">
-      <img className="absolute inset-0 h-full w-full rounded object-cover shadow-sm" src="https://images.unsplash.com/photo-1559757175-0eb30cd8c063?auto=format&fit=crop&w=1400&q=80" alt="Care professional supporting an older person at home" />
-      <div className="absolute inset-0 rounded bg-gradient-to-t from-ink/82 via-ink/18 to-transparent"></div>
-      <div className="absolute bottom-5 left-5 right-5 grid gap-3 md:grid-cols-[1fr_0.8fr]">
-        <div className="rounded bg-white p-4 text-ink shadow-sm">
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-safe">Live safeguard</div>
-          <h2 className="mt-2 text-xl font-semibold">Ring-fence enforced</h2>
-          <p className="mt-2 text-sm leading-6 text-ink/65">Vulnerable-adult tasks stay pending until TaskBridge admin approves an active Enhanced DBS trader.</p>
+    <div className="mt-12 grid max-w-5xl gap-3 md:grid-cols-[1.1fr_0.85fr_0.85fr]">
+      <div className="rounded bg-white/12 p-4 shadow-sm ring-1 ring-white/18 backdrop-blur">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mint">Live safeguard</div>
+            <div className="mt-2 text-2xl font-semibold">Ring-fence enforced</div>
+          </div>
+          <div className="rounded bg-mint px-3 py-2 text-sm font-semibold text-ink">Enhanced DBS</div>
         </div>
-        <div className="rounded bg-mint p-4 text-ink shadow-sm">
-          <div className="text-sm font-semibold">Typical task</div>
-          <div className="mt-2 text-2xl font-semibold">Garden path clearing</div>
-          <div className="mt-2 text-xs text-ink/60">AI summary, cap check, DBS lock, visit proof</div>
+        <p className="mt-3 text-sm leading-6 text-white/74">Vulnerable-adult work stays pending until TaskBridge admin releases an active, insured, qualified trader.</p>
+      </div>
+      <div className="rounded bg-white p-4 text-ink shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-safe">AI task split</div>
+        <div className="mt-2 text-xl font-semibold">3 hazards found</div>
+        <div className="mt-3 grid gap-2 text-xs font-semibold text-ink/64">
+          <div className="rounded bg-panel px-3 py-2">Lawn mowing</div>
+          <div className="rounded bg-panel px-3 py-2">Window cleaning</div>
+          <div className="rounded bg-panel px-3 py-2">Loose handrail</div>
         </div>
       </div>
+      <div className="rounded bg-white p-4 text-ink shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-safe">Visit proof</div>
+        <div className="mt-2 text-xl font-semibold">GPS + photo</div>
+        <p className="mt-3 text-sm leading-6 text-ink/64">Tokenized mobile workflow with checkout held for care confirmation.</p>
+      </div>
+    </div>
+  );
+}
+
+function LandingTrustStrip() {
+  return (
+    <section className="bg-white">
+      <div className="mx-auto grid max-w-7xl gap-3 px-5 py-5 sm:grid-cols-2 lg:grid-cols-4">
+        <TrustSignal title="Care-platform ready" body="Birdie, PASS and Cera DCP adapters" />
+        <TrustSignal title="DBS-first dispatch" body="Amiqus Enhanced DBS verification" />
+        <TrustSignal title="Private trader pools" body="No unmanaged public marketplace feed" />
+        <TrustSignal title="Data minimised visits" body="No direct resident contact sharing" />
+      </div>
+    </section>
+  );
+}
+
+function TrustSignal({ title, body }) {
+  return (
+    <div className="rounded bg-panel px-4 py-3 ring-1 ring-ink/8">
+      <div className="text-sm font-semibold">{title}</div>
+      <div className="mt-1 text-xs leading-5 text-ink/58">{body}</div>
     </div>
   );
 }
@@ -830,32 +914,67 @@ function DemoPage({ submit }) {
 }
 
 function AuthPage({ mode, agencies = [], submit, switchMode }) {
-  const [form, setForm] = useState({ name: "", email: "", password: "", role: "Care Coordinator", agencyId: agencies[0]?.id || "birdie-london" });
+  const [form, setForm] = useState({ name: "", email: "", password: "", role: "Care Coordinator", companyName: "" });
   const signup = mode === "signup";
   const admin = mode === "admin";
+  const workEmail = !form.email || isWorkEmail(form.email);
   return (
     <FormShell title={signup ? "Create your care manager account" : admin ? "TaskBridge admin access" : "Sign in to the care portal"} intro={signup ? "New accounts are created with limited care-manager access for task intake and monitoring." : admin ? "Restricted operations access for authorised TaskBridge administrators." : "Care managers and coordinators can sign in to create and monitor safeguarded home safety tasks."}>
       <form className="grid gap-4" onSubmit={(event) => {
         event.preventDefault();
+        if (signup && !isWorkEmail(form.email)) return;
         submit(form);
       }}>
         {signup && <Input label="Full name" value={form.name} onChange={(name) => setForm({ ...form, name })} />}
         <Input label="Email" type="email" value={form.email} onChange={(email) => setForm({ ...form, email })} />
+        {signup && !workEmail && <div className="rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">Please use your work email address. Personal email domains are not accepted.</div>}
         <Input label="Password" type="password" value={form.password} onChange={(password) => setForm({ ...form, password })} />
         {signup && <Input label="Role" value={form.role} onChange={(role) => setForm({ ...form, role })} />}
         {signup && (
-          <label className="grid gap-2 text-sm font-medium">
-            Agency
-            <select className="rounded border border-ink/15 bg-white px-3 py-3" value={form.agencyId} onChange={(event) => setForm({ ...form, agencyId: event.target.value })}>
-              {agencies.map((agency) => <option key={agency.id} value={agency.id}>{agency.name}</option>)}
-            </select>
-          </label>
+          <div className="grid gap-3 rounded bg-panel p-4 ring-1 ring-ink/10">
+            <Input label="Company name" value={form.companyName} onChange={(companyName) => setForm({ ...form, companyName })} />
+            <CompanyLogoPreview companyName={form.companyName} />
+          </div>
         )}
         <SubmitButton label={signup ? "Create Account" : "Sign In"} />
       </form>
       {!admin && <button onClick={switchMode} className="mt-4 text-sm font-semibold text-safe">{signup ? "Already have an account? Sign in" : "Need an account? Sign up"}</button>}
     </FormShell>
   );
+}
+
+function CompanyLogoPreview({ companyName }) {
+  const initials = companyInitials(companyName);
+  return (
+    <div className="flex items-center gap-3 rounded bg-white p-3 ring-1 ring-ink/10">
+      <div className="grid h-14 w-14 shrink-0 place-items-center rounded bg-mint text-lg font-semibold text-ink">
+        {initials}
+      </div>
+      <div>
+        <div className="text-sm font-semibold">{companyName || "Company logo preview"}</div>
+      </div>
+    </div>
+  );
+}
+
+function companyInitials(name) {
+  return String(name || "TB")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase().replace(/[^A-Z0-9]/g, ""))
+    .join("") || "TB";
+}
+
+function isWorkEmail(email) {
+  const domain = String(email || "").split("@")[1]?.toLowerCase();
+  if (!domain) return false;
+  const personalDomains = new Set([
+    "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "hotmail.com", "outlook.com",
+    "live.com", "msn.com", "icloud.com", "me.com", "mac.com", "aol.com", "proton.me",
+    "protonmail.com", "pm.me", "mail.com", "gmx.com", "gmx.co.uk", "zoho.com", "yandex.com"
+  ]);
+  return !personalDomains.has(domain);
 }
 
 function FormShell({ title, intro, children }) {
