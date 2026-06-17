@@ -305,9 +305,9 @@ function HeroWelcomePanel() {
 
 function HeroWelcomeItem({ title, body }) {
   return (
-    <div className="rounded bg-white/92 p-4 text-ink shadow-sm ring-1 ring-white/36 backdrop-blur">
-      <h3 className="text-lg font-semibold">{title}</h3>
-      <p className="mt-2 text-sm leading-6 text-ink/64">{body}</p>
+    <div className="rounded bg-white p-5 text-ink shadow-xl ring-1 ring-ink/10">
+      <h3 className="text-lg font-semibold text-ink">{title}</h3>
+      <p className="mt-2 text-sm leading-6 text-ink/72">{body}</p>
     </div>
   );
 }

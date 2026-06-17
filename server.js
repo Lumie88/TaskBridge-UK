@@ -743,15 +743,15 @@ async function handleApi(req, res) {
     const body = await readJson(req);
     if (body.event !== "session.completed") return sendJson(res, 202, { ignored: true });
     const trader = [...db.traders.values()].find((item) => item.amiqusSessionId === body.session_id);
-    if (!trader) return sendJson(res, 404, { error: "Amiqus session not mapped to a trader" });
+    if (!trader) return sendJson(res, 404, { error: "DBS verification session not mapped to a trader" });
     trader.dbsStatus = body.outcome === "clear" ? "Approved" : "Rejected";
     trader.dbsExpiryDate = trader.dbsStatus === "Approved" ? body.expires_at || oneYearFromNow() : null;
     trader.lastCheckedAt = new Date().toISOString();
-    db.audit.push(auditEvent("dbs.updated", `${trader.name} marked ${trader.dbsStatus} via Amiqus callback`, { traderId: trader.id }));
+    db.audit.push(auditEvent("dbs.updated", `${trader.name} marked ${trader.dbsStatus} via DBS verification callback`, { traderId: trader.id }));
     return sendJson(res, 200, { trader });
   }
 
-  if (req.method === "POST" && pathname.match(/^\/api\/traders\/[^/]+\/amiqus-check$/)) {
+  if (req.method === "POST" && pathname.match(/^\/api\/traders\/[^/]+\/(?:dbs-check|amiqus-check)$/)) {
     const body = await readJson(req);
     const admin = requireTaskBridgeAdminSession(body.actorEmail, body.sessionToken);
     if (!admin) return sendJson(res, 403, { error: "TaskBridge admin access required to trigger DBS checks" });
@@ -762,7 +762,7 @@ async function handleApi(req, res) {
     trader.amiqusSessionId = session.id;
     trader.dbsStatus = "Pending";
     trader.lastCheckedAt = new Date().toISOString();
-    db.audit.push(auditEvent("amiqus.session.created", `Amiqus check triggered for ${trader.name} by ${admin.name}`, { traderId, sessionId: session.id, adminId: admin.id }));
+    db.audit.push(auditEvent("dbs.session.created", `DBS verification started for ${trader.name} by ${admin.name}`, { traderId, sessionId: session.id, adminId: admin.id }));
     return sendJson(res, 200, { trader, session });
   }
 
