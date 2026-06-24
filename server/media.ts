@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { config } from "./config.js";
 
@@ -115,4 +115,15 @@ export async function verifyComplianceDocumentUpload(
   } catch {
     throw Object.assign(new Error("A compliance document could not be verified after upload"), { statusCode: 422 });
   }
+}
+
+export async function createComplianceDocumentReviewUrl(storageKey: string) {
+  if (!storageKey.startsWith("handyman-onboarding/")) {
+    throw Object.assign(new Error("Compliance document path is invalid"), { statusCode: 422 });
+  }
+  return getSignedUrl(
+    storageClient(),
+    new GetObjectCommand({ Bucket: config.objectStorageBucket, Key: storageKey }),
+    { expiresIn: 300 }
+  );
 }

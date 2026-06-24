@@ -8,6 +8,7 @@ import {
   ClipboardCheck,
   Copy,
   ExternalLink,
+  FileCheck2,
   FileWarning,
   KeyRound,
   LoaderCircle,
@@ -65,10 +66,23 @@ interface Trader {
   invitationExpiresAt: string | null;
   emailDeliveryStatus: string | null;
   services: string[];
-  electricalQualificationId: string | null;
-  electricalQualificationTitle: string | null;
-  electricalQualificationStatus: string;
-  electricalQualificationExpiry: string | null;
+}
+
+interface ComplianceDocument {
+  id: string;
+  documentType: string;
+  originalFilename: string;
+  contentType: string;
+  sizeBytes: number;
+  reference: string | null;
+  issueDate: string | null;
+  expiryDate: string | null;
+  reviewStatus: string;
+  reviewNotes: string | null;
+  reviewedAt: string | null;
+  reviewerName: string | null;
+  createdAt: string;
+  reviewUrl: string | null;
 }
 
 interface Agency {
@@ -293,6 +307,9 @@ function ComplianceHub({ traders, filter, onFilter, user, onChanged }: { traders
   const [busy, setBusy] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteResult, setInviteResult] = useState<{ invitationUrl: string; expiresAt: string; emailDeliveryStatus: string } | null>(null);
+  const [reviewingTrader, setReviewingTrader] = useState<Trader | null>(null);
+  const [documents, setDocuments] = useState<ComplianceDocument[]>([]);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
   const filteredTraders = traders.filter((trader) => filter === "approved" ? trader.dbsStatus === "approved" : filter === "action-needed" ? trader.dbsStatus !== "approved" : true);
   async function startCheck(trader: Trader) {
     setBusy(trader.id); setError("");
@@ -309,11 +326,28 @@ function ComplianceHub({ traders, filter, onFilter, user, onChanged }: { traders
     catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to record review"); }
     finally { setBusy(""); }
   }
-  async function reviewElectrical(trader: Trader, status: "approved" | "rejected") {
-    if (!window.confirm(`${status === "approved" ? "Approve" : "Reject"} the electrical qualification for ${trader.displayName}?`)) return;
-    setBusy(trader.id); setError("");
-    try { await api(`/api/admin/traders/${trader.id}/electrical-review`, { method: "POST", body: JSON.stringify({ status }) }); await onChanged(); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to review electrical qualification"); }
+  async function openDocuments(trader: Trader) {
+    setReviewingTrader(trader); setDocumentsLoading(true); setError("");
+    try {
+      const result = await api<{ documents: ComplianceDocument[] }>(`/api/admin/traders/${trader.id}/documents`);
+      setDocuments(result.documents);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load compliance documents"); setDocuments([]); }
+    finally { setDocumentsLoading(false); }
+  }
+  async function reviewDocument(document: ComplianceDocument, status: "approved" | "rejected") {
+    if (!reviewingTrader) return;
+    const reason = window.prompt(`Record the reason for ${status === "approved" ? "approval" : "rejection"}`);
+    if (!reason || reason.trim().length < 5) return;
+    const dbsExpiryDate = document.documentType === "enhanced_dbs" && status === "approved"
+      ? window.prompt("DBS review expiry date (YYYY-MM-DD)") : null;
+    if (document.documentType === "enhanced_dbs" && status === "approved" && !dbsExpiryDate) return;
+    setBusy(document.id); setError("");
+    try {
+      await api(`/api/admin/traders/${reviewingTrader.id}/documents/${document.id}/review`, {
+        method: "POST", body: JSON.stringify({ status, reason, dbsExpiryDate: dbsExpiryDate || null })
+      });
+      await openDocuments(reviewingTrader); await onChanged();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to record document review"); }
     finally { setBusy(""); }
   }
   async function inviteHandyman(event: React.FormEvent<HTMLFormElement>) {
@@ -342,7 +376,7 @@ function ComplianceHub({ traders, filter, onFilter, user, onChanged }: { traders
     finally { setBusy(""); }
   }
   return <>
-    <div className="page-title-row"><div><span className="eyebrow">Handyman compliance</span><h1>Verification registry</h1><p>Enhanced DBS, insurance and role-specific electrical qualifications are enforced by the assignment engine.</p></div>{user.role === "taskbridge_super_admin" && <button className="button button-primary" onClick={() => { setInviteOpen(!inviteOpen); setInviteResult(null); }}><UserPlus size={18} /> Register handyman</button>}</div>
+    <div className="page-title-row"><div><span className="eyebrow">Handyman compliance</span><h1>Verification registry</h1><p>Review offered services, Enhanced DBS evidence and public liability insurance before activation.</p></div>{user.role === "taskbridge_super_admin" && <button className="button button-primary" onClick={() => { setInviteOpen(!inviteOpen); setInviteResult(null); }}><UserPlus size={18} /> Register handyman</button>}</div>
     {error && <div className="alert alert-danger">{error}</div>}
     {inviteOpen && <section className="panel invite-handyman-panel">
       <div className="panel-heading"><div><h2>Register and invite a handyman</h2><p>An expiring one-use registration link will be sent to their email address.</p></div></div>
@@ -350,8 +384,29 @@ function ComplianceHub({ traders, filter, onFilter, user, onChanged }: { traders
       {inviteResult && <div className={`invitation-result ${inviteResult.emailDeliveryStatus === "sent" ? "sent" : "attention"}`}><div><strong>{inviteResult.emailDeliveryStatus === "sent" ? "Invitation email sent" : "Invitation created; email delivery needs configuration"}</strong><span>Expires {formatDate(inviteResult.expiresAt, true)}</span></div><div className="invitation-link"><input readOnly value={inviteResult.invitationUrl} aria-label="Handyman invitation URL" /><button className="icon-button" onClick={copyInvitationLink} type="button" aria-label="Copy invitation link"><Copy size={18} /></button><a className="icon-button" href={inviteResult.invitationUrl} target="_blank" rel="noreferrer" aria-label="Open invitation"><ExternalLink size={18} /></a></div></div>}
     </section>}
     <nav className="task-filter-links" aria-label="Filter handyman compliance">{[["all", "All handymen"], ["approved", "DBS approved"], ["action-needed", "Action needed"]].map(([key, label]) => <button key={key} className={filter === key ? "active" : ""} onClick={() => onFilter(key)} aria-pressed={filter === key}>{label}<span>{traders.filter((trader) => key === "approved" ? trader.dbsStatus === "approved" : key === "action-needed" ? trader.dbsStatus !== "approved" : true).length}</span></button>)}</nav>
-    <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Handyman</th><th>Onboarding</th><th>Services</th><th>Enhanced DBS</th><th>Insurance</th><th>Electrical</th><th>Quality</th><th>Action</th></tr></thead><tbody>{filteredTraders.map((trader) => <tr key={trader.id}><td><strong>{trader.displayName}</strong><small>{trader.email || trader.network || "Direct network"}</small></td><td><StatusBadge status={trader.onboardingStatus}>{humanize(trader.onboardingStatus)}</StatusBadge><small>{trader.emailDeliveryStatus ? `Email: ${humanize(trader.emailDeliveryStatus)}` : "Marketplace record"}</small></td><td><span className="service-summary">{trader.services.length ? `${trader.services.slice(0, 2).join(", ")}${trader.services.length > 2 ? ` +${trader.services.length - 2}` : ""}` : "Awaiting registration"}</span></td><td><StatusBadge status={trader.dbsStatus}>{humanize(trader.dbsStatus)}</StatusBadge><small>{trader.dbsExpiryDate ? `Expires ${formatDate(trader.dbsExpiryDate)}` : "No active expiry"}</small></td><td><StatusBadge status={trader.insuranceStatus}>{humanize(trader.insuranceStatus)}</StatusBadge><small>{trader.insuranceExpiryDate ? `Expires ${formatDate(trader.insuranceExpiryDate)}` : "No active expiry"}</small></td><td><StatusBadge status={trader.electricalQualificationStatus}>{humanize(trader.electricalQualificationStatus)}</StatusBadge><small>{trader.electricalQualificationTitle || "Not required for general work"}</small>{user.role === "taskbridge_super_admin" && trader.electricalQualificationId && trader.electricalQualificationStatus === "pending" && <div className="row-actions compact-actions"><button className="icon-button success-icon" onClick={() => reviewElectrical(trader, "approved")} aria-label="Approve electrical qualification"><BadgeCheck size={17} /></button><button className="icon-button danger-icon" onClick={() => reviewElectrical(trader, "rejected")} aria-label="Reject electrical qualification"><CircleAlert size={17} /></button></div>}</td><td><span className="rating"><Star size={15} /> {trader.qualityScore}</span></td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start check</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td></tr>)}</tbody></table></div>{!filteredTraders.length && <EmptyState icon={<BadgeCheck />} title="No handymen in this view" detail="Choose another compliance filter to review the registry." />}</section>
+    <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Handyman</th><th>Onboarding</th><th>Services</th><th>Enhanced DBS</th><th>Insurance</th><th>Quality</th><th>Action</th></tr></thead><tbody>{filteredTraders.map((trader) => <tr key={trader.id}><td><strong>{trader.displayName}</strong><small>{trader.email || trader.network || "Direct network"}</small></td><td><StatusBadge status={trader.onboardingStatus}>{humanize(trader.onboardingStatus)}</StatusBadge><small>{trader.emailDeliveryStatus ? `Email: ${humanize(trader.emailDeliveryStatus)}` : "Marketplace record"}</small></td><td><span className="service-summary" title={trader.services.join(", ")}>{trader.services.length ? `${trader.services.slice(0, 2).join(", ")}${trader.services.length > 2 ? ` +${trader.services.length - 2}` : ""}` : "Awaiting registration"}</span></td><td><StatusBadge status={trader.dbsStatus}>{humanize(trader.dbsStatus)}</StatusBadge><small>{trader.dbsExpiryDate ? `Expires ${formatDate(trader.dbsExpiryDate)}` : "No active expiry"}</small></td><td><StatusBadge status={trader.insuranceStatus}>{humanize(trader.insuranceStatus)}</StatusBadge><small>{trader.insuranceExpiryDate ? `Expires ${formatDate(trader.insuranceExpiryDate)}` : "No active expiry"}</small></td><td><span className="rating"><Star size={15} /> {trader.qualityScore}</span></td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={documentsLoading && reviewingTrader?.id === trader.id} onClick={() => openDocuments(trader)}><FileCheck2 size={15} /> Review documents</button><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start check</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td></tr>)}</tbody></table></div>{!filteredTraders.length && <EmptyState icon={<BadgeCheck />} title="No handymen in this view" detail="Choose another compliance filter to review the registry." />}</section>
+    {reviewingTrader && <ComplianceDocumentReview trader={reviewingTrader} documents={documents} loading={documentsLoading} busy={busy} onClose={() => { setReviewingTrader(null); setDocuments([]); }} onReview={reviewDocument} />}
   </>;
+}
+
+function ComplianceDocumentReview({ trader, documents, loading, busy, onClose, onReview }: {
+  trader: Trader;
+  documents: ComplianceDocument[];
+  loading: boolean;
+  busy: string;
+  onClose: () => void;
+  onReview: (document: ComplianceDocument, status: "approved" | "rejected") => Promise<void>;
+}) {
+  return <section className="panel compliance-review-panel">
+    <div className="panel-heading"><div><span className="eyebrow">Submitted evidence</span><h2>{trader.displayName}</h2><p>Services: {trader.services.length ? trader.services.join(", ") : "No services selected"}</p></div><button className="button button-secondary button-small" onClick={onClose}>Close</button></div>
+    {loading ? <div className="app-loading"><LoaderCircle className="spin" /> Loading secure documents...</div> : <div className="compliance-document-grid">{documents.map((document) => <article key={document.id} className="compliance-document-card">
+      <div className="compliance-document-heading"><span><FileCheck2 size={19} /></span><div><h3>{humanize(document.documentType)}</h3><p>{document.originalFilename}</p></div><StatusBadge status={document.reviewStatus}>{humanize(document.reviewStatus)}</StatusBadge></div>
+      <dl><div><dt>Submitted</dt><dd>{formatDate(document.createdAt, true)}</dd></div>{document.reference && <div><dt>Reference</dt><dd>{document.reference}</dd></div>}{document.issueDate && <div><dt>Issue date</dt><dd>{formatDate(document.issueDate)}</dd></div>}{document.expiryDate && <div><dt>Expiry date</dt><dd>{formatDate(document.expiryDate)}</dd></div>}<div><dt>File size</dt><dd>{Math.max(1, Math.round(document.sizeBytes / 1024))} KB</dd></div></dl>
+      {document.reviewNotes && <p className="review-note"><strong>Review note:</strong> {document.reviewNotes}</p>}
+      <div className="compliance-document-actions">{document.reviewUrl ? <a className="button button-secondary button-small" href={document.reviewUrl} target="_blank" rel="noreferrer">Open evidence <ExternalLink size={15} /></a> : <span className="document-unavailable">Secure preview unavailable</span>}{document.reviewStatus === "pending" && <><button className="button button-success button-small" disabled={busy === document.id || !document.reviewUrl} onClick={() => onReview(document, "approved")}>Approve</button><button className="button button-secondary button-small document-reject" disabled={busy === document.id} onClick={() => onReview(document, "rejected")}>Reject</button></>}</div>
+    </article>)}</div>}
+    {!loading && !documents.length && <EmptyState icon={<FileCheck2 />} title="No documents submitted" detail="The handyman has not completed document registration." />}
+  </section>;
 }
 
 function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChanged: () => Promise<void> }) {

@@ -7,6 +7,7 @@ import { config } from "../config.js";
 import { query, withTransaction } from "../db.js";
 import { dispatchToHandymanNetwork, sendHandymanOnboardingInvite, sendSecureVisitLink, sendStaffOnboardingInvite, startDbsVerification } from "../integrations.js";
 import { evaluateTrader, requiresElectricalQualification, type MatchableTask, type MatchableTrader } from "../matching.js";
+import { createComplianceDocumentReviewUrl } from "../media.js";
 import { createOpaqueToken, decryptField, encryptField, hashToken, isWorkEmail, publicId, safeInitials, slugify } from "../security.js";
 import type { UserRole } from "../types.js";
 
@@ -76,6 +77,11 @@ const createStaffInvitationSchema = z.object({
 const adminRoleSchema = z.object({ role: z.enum(["taskbridge_admin", "taskbridge_super_admin"]) });
 const adminStatusSchema = z.object({ status: z.enum(["active", "suspended"]) });
 const electricalReviewSchema = z.object({ status: z.enum(["approved", "rejected"]) });
+const documentReviewSchema = z.object({
+  status: z.enum(["approved", "rejected"]),
+  reason: z.string().trim().min(5).max(500),
+  dbsExpiryDate: z.string().date().nullable().optional()
+});
 
 export const adminRouter = Router();
 adminRouter.use(requireRoles("taskbridge_admin", "taskbridge_super_admin"));
@@ -276,17 +282,12 @@ adminRouter.get("/traders", async (_req, res) => {
     quality_score: string; status: string; dbs_status: string; dbs_expiry_date: string | null;
     insurance_status: string; insurance_expiry_date: string | null; services: string[];
     onboarding_status: string | null; invitation_expires_at: string | null; email_delivery_status: string | null;
-    electrical_qualification_id: string | null; electrical_qualification_title: string | null;
-    electrical_qualification_status: string; electrical_qualification_expiry: string | null;
   }>(
     `SELECT t.id::text, t.display_name, t.email::text, n.name AS network_name, t.hourly_rate::text, t.quality_score::text,
             t.status::text, COALESCE(d.status::text, 'not_started') AS dbs_status, d.expiry_date::text AS dbs_expiry_date,
             COALESCE(i.status::text, 'unverified') AS insurance_status, i.expiry_date::text AS insurance_expiry_date,
             COALESCE(s.services, '{}') AS services, invite.status AS onboarding_status,
-            invite.expires_at::text AS invitation_expires_at, invite.email_delivery_status,
-            eq.id::text AS electrical_qualification_id, eq.title AS electrical_qualification_title,
-            COALESCE(eq.review_status, 'not_submitted') AS electrical_qualification_status,
-            eq.expiry_date::text AS electrical_qualification_expiry
+            invite.expires_at::text AS invitation_expires_at, invite.email_delivery_status
      FROM trader.traders t
      LEFT JOIN trader.networks n ON n.id = t.network_id
      LEFT JOIN LATERAL (
@@ -303,12 +304,6 @@ adminRouter.get("/traders", async (_req, res) => {
        SELECT status, expires_at, email_delivery_status FROM trader.onboarding_invitations oi
        WHERE oi.trader_id = t.id ORDER BY oi.created_at DESC LIMIT 1
      ) invite ON true
-     LEFT JOIN LATERAL (
-       SELECT id, title, review_status, expiry_date FROM trader.qualifications q
-       WHERE q.trader_id = t.id
-         AND lower(q.qualification_type || ' ' || q.title) ~ '(electric|wiring|eicr|18th edition|part p)'
-       ORDER BY q.created_at DESC LIMIT 1
-     ) eq ON true
      WHERE t.deleted_at IS NULL ORDER BY t.display_name`
   );
   res.json({ traders: result.rows.map((row) => ({
@@ -326,13 +321,136 @@ adminRouter.get("/traders", async (_req, res) => {
     onboardingStatus: row.onboarding_status || "not_invited",
     invitationExpiresAt: row.invitation_expires_at,
     emailDeliveryStatus: row.email_delivery_status,
-    electricalQualificationId: row.electrical_qualification_id,
-    electricalQualificationTitle: row.electrical_qualification_title,
-    electricalQualificationStatus: row.electrical_qualification_status,
-    electricalQualificationExpiry: row.electrical_qualification_expiry,
     services: row.services
   })) });
 });
+
+adminRouter.get("/traders/:id/documents", asyncHandler(async (req, res) => {
+  const traderResult = await query<{ id: string; display_name: string; services: string[] }>(
+    `SELECT t.id::text, t.display_name, COALESCE(s.services, '{}') AS services
+     FROM trader.traders t
+     LEFT JOIN LATERAL (
+       SELECT array_agg(service_category ORDER BY service_category) AS services
+       FROM trader.trader_services ts WHERE ts.trader_id = t.id AND ts.active
+     ) s ON true
+     WHERE t.id = $1 AND t.deleted_at IS NULL`,
+    [req.params.id]
+  );
+  const trader = traderResult.rows[0];
+  if (!trader) return res.status(404).json({ error: "Handyman not found" });
+  const documents = await query<{
+    id: string; document_type: string; storage_key: string; original_filename_ciphertext: string;
+    content_type: string; size_bytes: number; document_reference_ciphertext: string | null;
+    issue_date: string | null; expiry_date: string | null; review_status: string; review_notes: string | null;
+    reviewed_at: string | null; reviewer_name: string | null; created_at: string;
+  }>(
+    `SELECT d.id::text, d.document_type, d.storage_key, d.original_filename_ciphertext,
+            d.content_type, d.size_bytes, d.document_reference_ciphertext,
+            d.issue_date::text, d.expiry_date::text, d.review_status, d.review_notes,
+            d.reviewed_at::text, u.full_name AS reviewer_name, d.created_at::text
+     FROM trader.onboarding_documents d
+     LEFT JOIN auth.users u ON u.id = d.reviewed_by_user_id
+     WHERE d.trader_id = $1 ORDER BY d.created_at DESC`,
+    [req.params.id]
+  );
+  const mapped = await Promise.all(documents.rows.map(async (document) => {
+    let reviewUrl: string | null = null;
+    try { reviewUrl = await createComplianceDocumentReviewUrl(document.storage_key); } catch { reviewUrl = null; }
+    return {
+      id: document.id,
+      documentType: document.document_type,
+      originalFilename: decryptField(document.original_filename_ciphertext),
+      contentType: document.content_type,
+      sizeBytes: document.size_bytes,
+      reference: document.document_reference_ciphertext ? decryptField(document.document_reference_ciphertext) : null,
+      issueDate: document.issue_date,
+      expiryDate: document.expiry_date,
+      reviewStatus: document.review_status,
+      reviewNotes: document.review_notes,
+      reviewedAt: document.reviewed_at,
+      reviewerName: document.reviewer_name,
+      createdAt: document.created_at,
+      reviewUrl
+    };
+  }));
+  res.json({ trader: { id: trader.id, displayName: trader.display_name, services: trader.services }, documents: mapped });
+}));
+
+adminRouter.post("/traders/:id/documents/:documentId/review", asyncHandler(async (req, res) => {
+  const parsed = documentReviewSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid document decision" });
+  const data = parsed.data;
+  const result = await withTransaction(req.auth!, async (client) => {
+    const documentResult = await client.query<{
+      id: string; document_type: string; storage_key: string; expiry_date: string | null;
+    }>(
+      `SELECT id::text, document_type, storage_key, expiry_date::text
+       FROM trader.onboarding_documents
+       WHERE id = $1 AND trader_id = $2 FOR UPDATE`,
+      [req.params.documentId, req.params.id]
+    );
+    const document = documentResult.rows[0];
+    if (!document) throw Object.assign(new Error("Compliance document not found"), { statusCode: 404 });
+    if (document.document_type === "enhanced_dbs" && data.status === "approved" && !data.dbsExpiryDate) {
+      throw Object.assign(new Error("Enter the DBS review expiry date"), { statusCode: 422 });
+    }
+    if (document.document_type === "public_liability_insurance" && data.status === "approved" &&
+        (!document.expiry_date || new Date(`${document.expiry_date}T23:59:59Z`) < new Date())) {
+      throw Object.assign(new Error("Expired insurance cannot be approved"), { statusCode: 409 });
+    }
+    await client.query(
+      `UPDATE trader.onboarding_documents SET review_status = $2, review_notes = $3,
+              reviewed_by_user_id = $4, reviewed_at = clock_timestamp()
+       WHERE id = $1`,
+      [document.id, data.status, data.reason, req.auth!.userId]
+    );
+    if (document.document_type === "enhanced_dbs") {
+      const dbs = await client.query(
+        `UPDATE trader.dbs_verifications SET status = $3, outcome = $4,
+                expiry_date = $5, checked_at = clock_timestamp()
+         WHERE trader_id = $1 AND evidence_reference = $2`,
+        [req.params.id, `onboarding-document:${document.id}`,
+          data.status === "approved" ? "approved" : "rejected", data.reason,
+          data.status === "approved" ? data.dbsExpiryDate : null]
+      );
+      if (!dbs.rowCount) throw Object.assign(new Error("The submitted DBS record could not be linked"), { statusCode: 409 });
+    }
+    if (document.document_type === "public_liability_insurance") {
+      const insurance = await client.query(
+        `UPDATE trader.insurance_records SET status = $3, verified_by_user_id = $4,
+                verified_at = CASE WHEN $3 = 'verified' THEN clock_timestamp() ELSE NULL END
+         WHERE trader_id = $1 AND evidence_url = $2`,
+        [req.params.id, `private-object://${document.storage_key}`,
+          data.status === "approved" ? "verified" : "rejected", req.auth!.userId]
+      );
+      if (!insurance.rowCount) throw Object.assign(new Error("The submitted insurance record could not be linked"), { statusCode: 409 });
+    }
+    const eligibility = await client.query<{ eligible: boolean }>(
+      `SELECT
+         (SELECT count(*) = 3 FROM (
+            SELECT DISTINCT ON (document_type) document_type, review_status
+            FROM trader.onboarding_documents
+            WHERE trader_id = $1 AND document_type IN ('identity', 'public_liability_insurance', 'enhanced_dbs')
+            ORDER BY document_type, created_at DESC
+          ) required_docs WHERE review_status = 'approved')
+         AND EXISTS (
+           SELECT 1 FROM trader.dbs_verifications WHERE trader_id = $1 AND status = 'approved'
+             AND expiry_date >= current_date ORDER BY created_at DESC LIMIT 1
+         )
+         AND EXISTS (
+           SELECT 1 FROM trader.insurance_records WHERE trader_id = $1 AND status = 'verified'
+             AND expiry_date >= current_date ORDER BY created_at DESC LIMIT 1
+         ) AS eligible`
+      , [req.params.id]
+    );
+    await client.query("UPDATE trader.traders SET status = $2 WHERE id = $1", [req.params.id, eligibility.rows[0]?.eligible ? "active" : "inactive"]);
+    return { documentId: document.id, documentType: document.document_type, traderActive: Boolean(eligibility.rows[0]?.eligible) };
+  });
+  await audit(req, "admin.compliance_document.reviewed", "onboarding_document", result.documentId, {
+    traderId: req.params.id, documentType: result.documentType, status: data.status, reason: data.reason
+  });
+  res.json({ id: result.documentId, status: data.status, traderActive: result.traderActive });
+}));
 
 adminRouter.post("/traders/invitations", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {
   const parsed = createHandymanInvitationSchema.safeParse(req.body);
