@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { User } from "./types";
 import { SignIn } from "./pages/AuthPages";
-import { HowItWorks, MarketingHome } from "./pages/Marketing";
+import { HowItWorks, MarketingHome, OurServices, SafeguardingProtocol, SystemIntegrations } from "./pages/Marketing";
 import { CoordinatorPortal } from "./pages/CoordinatorPortal";
 import { AdminPortal } from "./pages/AdminPortal";
 import { VisitPage } from "./pages/VisitPage";
@@ -37,6 +37,9 @@ export function App() {
   if (path.startsWith("/handyman-onboarding/")) return <HandymanOnboardingPage token={path.slice("/handyman-onboarding/".length)} />;
   if (path === "/") return <MarketingHome />;
   if (path === "/how-it-works") return <HowItWorks />;
+  if (path === "/services") return <OurServices />;
+  if (path === "/safeguarding") return <SafeguardingProtocol />;
+  if (path === "/integrations") return <SystemIntegrations />;
   if (loading) return <div className="app-loading"><span className="loading-mark" />Loading TaskBridge...</div>;
   if (path === "/sign-in") return user ? <RedirectForUser user={user} /> : <SignIn portal="care" onAuthenticated={signedIn} />;
   if (path === "/internal/taskbridge") {

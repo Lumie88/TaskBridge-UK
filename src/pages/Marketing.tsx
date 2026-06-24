@@ -1,14 +1,11 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   ArrowRight,
   BadgeCheck,
-  CalendarCheck,
   Camera,
   Check,
-  ClipboardCheck,
   Clock3,
   FileCheck2,
-  Hammer,
   Heart,
   HeartPulse,
   Link2,
@@ -24,11 +21,14 @@ import {
   Sparkles,
   Star,
   Store,
-  UsersRound,
-  Wrench
+  UsersRound
 } from "lucide-react";
 import heroImage from "../assets/home-safety-hero.jpg";
 import { DemoModal, PublicHeader } from "../components";
+import HowItWorksGuideline from "../guidelines/HowItWorksGuideline";
+import IntegrationsGuideline from "../guidelines/IntegrationsGuideline";
+import SafeguardingGuideline from "../guidelines/SafeguardingGuideline";
+import ServicesGuideline from "../guidelines/ServicesGuideline";
 
 const services = [
   "Minor home repairs",
@@ -147,47 +147,34 @@ function StudioPillar({ icon, tone, title, detail, label }: { icon: React.ReactN
 }
 
 export function HowItWorks() {
+  return <GuidelinePage><HowItWorksGuideline /></GuidelinePage>;
+}
+
+export function OurServices() {
+  return <GuidelinePage><ServicesGuideline /></GuidelinePage>;
+}
+
+export function SafeguardingProtocol() {
+  return <GuidelinePage><SafeguardingGuideline /></GuidelinePage>;
+}
+
+export function SystemIntegrations() {
+  return <GuidelinePage><IntegrationsGuideline /></GuidelinePage>;
+}
+
+function GuidelinePage({ children }: { children: ReactNode }) {
   const [demoOpen, setDemoOpen] = useState(false);
   return (
     <div className="marketing-page">
       <PublicHeader onDemo={() => setDemoOpen(true)} />
-      <main>
-        <section className="page-hero">
-          <div className="site-width page-hero-inner">
-            <div><span className="eyebrow">How it works</span><h1>A joined-up path from care note to safer home.</h1><p>TaskBridge keeps care teams in control while quietly handling the checks, matching and visit evidence behind each practical task.</p></div>
-            <div className="mini-workflow" aria-label="TaskBridge workflow summary">
-              <div><MessageSquareText /><span>Care note</span></div><ArrowRight />
-              <div><ClipboardCheck /><span>Approval</span></div><ArrowRight />
-              <div><ShieldCheck /><span>Safe match</span></div><ArrowRight />
-              <div><Hammer /><span>Visit</span></div>
-            </div>
-          </div>
-        </section>
-        <section className="section site-width journey-list">
-          <Journey number="1" icon={<MessageSquareText />} title="Record the safety concern" detail="The coordinator writes a natural care note, including timing, urgency and whether a caregiver will be present. TaskBridge can receive this from the portal or a connected care management application." />
-          <Journey number="2" icon={<Sparkles />} title="Review the suggested tasks" detail="The note is summarised into clear actions. If several jobs are mentioned, they appear separately. Nothing is released until the care team reviews and approves them." />
-          <Journey number="3" icon={<ShieldCheck />} title="Apply safeguarding controls" detail="Each approved task is checked against the resident's risk profile. Enhanced DBS status, insurance, service qualifications and expiry dates are verified where required." />
-          <Journey number="4" icon={<Wrench />} title="Select the right handyman" detail="TaskBridge evaluates verified handymen by service fit, proximity, price and availability. Candidate details remain within secure TaskBridge administration." />
-          <Journey number="5" icon={<CalendarCheck />} title="Run a secure visit" detail="The assigned handyman receives a tokenised visit link rather than personal contact details. Arrival is geofenced and identity presentation is required before work begins." />
-          <Journey number="6" icon={<Camera />} title="Evidence and care-team confirmation" detail="Completion notes and photographic evidence are submitted securely. The care team confirms the outcome before the task is closed and the care record is updated." />
-        </section>
-        <section className="section security-strip" id="security">
-          <div className="site-width security-strip-inner">
-            <div><LockKeyhole /><h3>Private by design</h3><p>Personal contact details are not shared with the handyman.</p></div>
-            <div><BadgeCheck /><h3>Enhanced DBS vetted</h3><p>Safeguarding eligibility is checked before vulnerable-adult work is released.</p></div>
-            <div><FileCheck2 /><h3>Traceable throughout</h3><p>Approvals, assignments and visit milestones are recorded.</p></div>
-          </div>
-        </section>
+      <main className="guideline-main">
+        {children}
         <StudioCallout onDemo={() => setDemoOpen(true)} />
       </main>
       <Footer />
       <DemoModal open={demoOpen} onClose={() => setDemoOpen(false)} />
     </div>
   );
-}
-
-function Journey({ number, icon, title, detail }: { number: string; icon: React.ReactNode; title: string; detail: string }) {
-  return <article className="journey"><span className="journey-number">{number}</span><span className="journey-icon">{icon}</span><div><h2>{title}</h2><p>{detail}</p></div></article>;
 }
 
 function StudioCallout({ onDemo }: { onDemo: () => void }) {
@@ -224,9 +211,9 @@ function Footer() {
       <nav className="footer-links" aria-label="System guidelines">
         <h2>System guidelines</h2>
         <a href="/how-it-works">How it works</a>
-        <a href="/#services">Our services</a>
-        <a href="/#safeguarding">Safeguarding protocol</a>
-        <a href="/#integrations">System integrations</a>
+        <a href="/services">Our services</a>
+        <a href="/safeguarding">Safeguarding protocol</a>
+        <a href="/integrations">System integrations</a>
       </nav>
 
       <section className="footer-contact" aria-label="Inquiries and support">
