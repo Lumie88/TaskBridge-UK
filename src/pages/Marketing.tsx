@@ -41,10 +41,6 @@ const services = [
 
 const faqs = [
   {
-    question: "What happens after we book a demo?",
-    answer: "We confirm the request by work email, review your organisation's care workflow and arrange a focused demonstration. After the demo, we agree the onboarding, safeguarding and integration plan. You do not need to share resident data for the demonstration."
-  },
-  {
     question: "How does TaskBridge check electrical work?",
     answer: "Electrical tasks are identified during task review and can only be matched to a professional with an approved, in-date electrical qualification and verified insurance. General handymen are blocked from regulated electrical work."
   },
@@ -59,10 +55,6 @@ const faqs = [
   {
     question: "How are care agency staff given access?",
     answer: "A TaskBridge super admin creates the agency workspace and sends the nominated manager a one-use email invitation. Additional coordinators and managers are invited into that agency only, so they cannot see another organisation's records."
-  },
-  {
-    question: "Who controls TaskBridge administrator access?",
-    answer: "Only a TaskBridge super admin can invite administrators, promote an admin to super admin, demote or suspend access, or delete an account. Every change is audited, sessions are revoked after permission changes, and the final active super admin cannot be removed."
   }
 ];
 
