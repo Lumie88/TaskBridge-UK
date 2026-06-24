@@ -1,9 +1,12 @@
 node_modules/
+dist/
+coverage/
 .env
 .env.*
 !.env.example
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+*.log
+taskbridge_db.json
+ai-studio-home.png
+taskbridge-uk-home.png
 .DS_Store
 Thumbs.db
