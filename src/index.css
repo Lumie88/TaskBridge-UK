@@ -369,6 +369,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shado
 .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
 .metric { min-height: 116px; padding: 21px; display: flex; gap: 17px; align-items: center; border: 1px solid #e2e8f0; border-radius: 15px; background: white; box-shadow: 0 2px 5px rgba(15,23,42,.03); }
 .metric-link { padding-right: 48px; position: relative; transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.admin-metrics .metric-link { width: 100%; color: inherit; text-align: left; }
 .metric-link:hover { transform: translateY(-2px); border-color: #c7d2fe; box-shadow: 0 10px 24px rgba(15,23,42,.08); }
 .metric-link:focus-visible { outline: 3px solid rgba(79,70,229,.2); outline-offset: 2px; }
 .metric-arrow { position: absolute; right: 19px; color: #94a3b8; transition: transform .18s ease, color .18s ease; }
@@ -436,11 +437,11 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shado
 .reassignment-form > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; }
 .reassignment-form .form-error { grid-column: 1 / -1; }
 .task-filter-links { margin-bottom: 18px; padding: 5px; display: flex; gap: 4px; overflow-x: auto; background: #edf1f5; border: 1px solid #e2e8f0; border-radius: 8px; scrollbar-width: thin; }
-.task-filter-links a { min-height: 38px; padding: 0 13px; display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; color: #64748b; border: 1px solid transparent; border-radius: 6px; font-size: .76rem; font-weight: 750; }
-.task-filter-links a:hover { color: #334155; background: rgba(255,255,255,.65); }
-.task-filter-links a.active { color: #4338ca; background: white; border-color: #d8deea; box-shadow: 0 2px 5px rgba(15,23,42,.06); }
-.task-filter-links a span { min-width: 21px; height: 21px; padding: 0 6px; display: inline-grid; place-items: center; color: #64748b; background: #e2e8f0; border-radius: 999px; font-size: .65rem; }
-.task-filter-links a.active span { color: white; background: #4f46e5; }
+.task-filter-links a, .task-filter-links button { min-height: 38px; padding: 0 13px; display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; color: #64748b; background: transparent; border: 1px solid transparent; border-radius: 6px; font-size: .76rem; font-weight: 750; }
+.task-filter-links a:hover, .task-filter-links button:hover { color: #334155; background: rgba(255,255,255,.65); }
+.task-filter-links a.active, .task-filter-links button.active { color: #4338ca; background: white; border-color: #d8deea; box-shadow: 0 2px 5px rgba(15,23,42,.06); }
+.task-filter-links a span, .task-filter-links button span { min-width: 21px; height: 21px; padding: 0 6px; display: inline-grid; place-items: center; color: #64748b; background: #e2e8f0; border-radius: 999px; font-size: .65rem; }
+.task-filter-links a.active span, .task-filter-links button.active span { color: white; background: #4f46e5; }
 .resident-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 420px); gap: 24px; align-items: start; }
 .resident-register { min-width: 0; }
 .resident-list { display: grid; }
@@ -487,6 +488,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shado
 .admin-task-row { min-height: 94px; padding: 16px 20px; display: grid; grid-template-columns: 40px 1fr auto auto; align-items: center; gap: 13px; border-bottom: 1px solid var(--line); }
 .admin-task-row:last-child { border-bottom: 0; }
 .admin-task-row.selected { background: #edf5ff; box-shadow: inset 3px 0 var(--blue); }
+.admin-task-row.interactive { cursor: pointer; transition: background .16s ease, box-shadow .16s ease; }
+.admin-task-row.interactive:hover { background: #f4f8fc; }
+.admin-task-row.interactive:focus-visible { outline: 3px solid rgba(37,99,235,.22); outline-offset: -3px; }
+.integration-endpoint { display: block; max-width: 260px; overflow-wrap: anywhere; color: #52656b; font-size: .76rem; }
 .selectable { max-height: calc(100vh - 205px); overflow-y: auto; }
 .candidate-heading { justify-content: space-between; }
 .candidate-heading > div { flex: 1; }

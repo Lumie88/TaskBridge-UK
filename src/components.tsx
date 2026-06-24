@@ -154,7 +154,8 @@ export function PortalShell({ user, area, active, onActive, onSignOut, workspace
   const adminItems = [
     ["overview", "Control centre"],
     ["tasks", "Assignments"],
-    ["traders", "Handyman compliance"]
+    ["traders", "Handyman compliance"],
+    ["integrations", "Integrations"]
   ];
   if (user.role === "taskbridge_super_admin") adminItems.push(["agencies", "Agency onboarding"]);
   if (user.role === "taskbridge_super_admin") adminItems.push(["access", "Access control"]);

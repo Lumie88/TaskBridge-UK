@@ -3,6 +3,7 @@ import {
   Activity,
   BadgeCheck,
   Building2,
+  ChevronRight,
   CircleAlert,
   ClipboardCheck,
   Copy,
@@ -32,6 +33,20 @@ interface AdminDashboard {
   tasks: Record<string, number>;
   traders: Record<string, number>;
   integrationFailures: number;
+}
+
+interface IntegrationFailure {
+  id: string;
+  agencyName: string | null;
+  direction: string;
+  endpoint: string;
+  eventType: string;
+  status: string;
+  responseStatus: number | null;
+  errorMessage: string | null;
+  retryCount: number;
+  nextRetryAt: string | null;
+  createdAt: string;
 }
 
 interface Trader {
@@ -92,53 +107,78 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   const [accessInvitations, setAccessInvitations] = useState<AccessInvitation[]>([]);
+  const [integrationFailures, setIntegrationFailures] = useState<IntegrationFailure[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [selectedTask, setSelectedTask] = useState<AdminTask | null>(null);
+  const [taskFilter, setTaskFilter] = useState("all");
+  const [traderFilter, setTraderFilter] = useState("all");
 
   async function load() {
     setLoading(true);
     setError("");
     try {
-      const [summary, taskResult, traderResult, agencyResult, accessResult] = await Promise.all([
+      const [summary, taskResult, traderResult, agencyResult, accessResult, integrationResult] = await Promise.all([
         api<AdminDashboard>("/api/admin/dashboard"),
         api<{ tasks: AdminTask[] }>("/api/admin/tasks"),
         api<{ traders: Trader[] }>("/api/admin/traders"),
         user.role === "taskbridge_super_admin" ? api<{ agencies: Agency[] }>("/api/admin/agencies") : Promise.resolve({ agencies: [] }),
-        user.role === "taskbridge_super_admin" ? api<{ users: AccessUser[]; invitations: AccessInvitation[] }>("/api/admin/access/users") : Promise.resolve({ users: [], invitations: [] })
+        user.role === "taskbridge_super_admin" ? api<{ users: AccessUser[]; invitations: AccessInvitation[] }>("/api/admin/access/users") : Promise.resolve({ users: [], invitations: [] }),
+        api<{ failures: IntegrationFailure[] }>("/api/admin/integrations/failures")
       ]);
       setDashboard(summary); setTasks(taskResult.tasks); setTraders(traderResult.traders); setAgencies(agencyResult.agencies);
       setAccessUsers(accessResult.users); setAccessInvitations(accessResult.invitations);
+      setIntegrationFailures(integrationResult.failures);
+      setSelectedTask((current) => current ? taskResult.tasks.find((task) => task.id === current.id) || null : null);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load administration"); }
     finally { setLoading(false); }
   }
 
   useEffect(() => { void load(); }, []);
 
-  return <PortalShell user={user} area="admin" active={active} onActive={setActive} onSignOut={onSignOut}>
+  function openOperationalView(view: string, filter = "all") {
+    if (view === "tasks") taskFilter !== filter && setTaskFilter(filter);
+    if (view === "traders") traderFilter !== filter && setTraderFilter(filter);
+    setActive(view);
+  }
+
+  function changeActive(view: string) {
+    if (view === "tasks") setTaskFilter("all");
+    if (view === "traders") setTraderFilter("all");
+    setActive(view);
+  }
+
+  return <PortalShell user={user} area="admin" active={active} onActive={changeActive} onSignOut={onSignOut}>
     {error && <div className="alert alert-danger">{error}<button onClick={load}><RefreshCw size={16} /> Retry</button></div>}
     {loading && !dashboard ? <div className="app-loading"><LoaderCircle className="spin" /> Loading secure operations...</div> : active === "overview"
-      ? <AdminOverview dashboard={dashboard} tasks={tasks} onReview={(task) => { setSelectedTask(task); setActive("tasks"); }} />
+      ? <AdminOverview dashboard={dashboard} tasks={tasks} onOpenView={openOperationalView} onReview={(task) => { setSelectedTask(task); setTaskFilter("awaiting"); setActive("tasks"); }} />
       : active === "tasks"
-        ? <AssignmentDesk tasks={tasks} selectedTask={selectedTask} onSelect={setSelectedTask} onChanged={load} />
+        ? <AssignmentDesk tasks={tasks} filter={taskFilter} onFilter={setTaskFilter} selectedTask={selectedTask} onSelect={setSelectedTask} onChanged={load} />
+        : active === "integrations"
+          ? <IntegrationMonitor failures={integrationFailures} onRefresh={load} />
         : active === "agencies" && user.role === "taskbridge_super_admin"
           ? <AgencyOnboarding agencies={agencies} onChanged={load} />
           : active === "access" && user.role === "taskbridge_super_admin"
             ? <AccessControl currentUser={user} users={accessUsers} invitations={accessInvitations} agencies={agencies} onChanged={load} />
-          : <ComplianceHub traders={traders} user={user} onChanged={load} />}
+          : <ComplianceHub traders={traders} filter={traderFilter} onFilter={setTraderFilter} user={user} onChanged={load} />}
   </PortalShell>;
 }
 
-function AdminOverview({ dashboard, tasks, onReview }: { dashboard: AdminDashboard | null; tasks: AdminTask[]; onReview: (task: AdminTask) => void }) {
+function AdminOverview({ dashboard, tasks, onReview, onOpenView }: {
+  dashboard: AdminDashboard | null;
+  tasks: AdminTask[];
+  onReview: (task: AdminTask) => void;
+  onOpenView: (view: string, filter?: string) => void;
+}) {
   const taskCounts = dashboard?.tasks || {};
   const pending = (taskCounts.pending_taskbridge_assignment || 0) + (taskCounts.assignment_review || 0);
   return <>
     <div className="page-title-row"><div><span className="eyebrow">Operations control centre</span><h1>Safeguarding and dispatch overview</h1><p>Review exceptions, verify compliance and release approved assignments.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Restricted workspace</span></div>
     <div className="metric-grid admin-metrics">
-      <MetricAdmin icon={<ClipboardCheck />} label="Awaiting assignment" value={pending} tone="amber" />
-      <MetricAdmin icon={<BadgeCheck />} label="DBS approved" value={dashboard?.traders.approved || 0} tone="green" />
-      <MetricAdmin icon={<FileWarning />} label="DBS action needed" value={(dashboard?.traders.pending || 0) + (dashboard?.traders.unclear || 0)} tone="blue" />
-      <MetricAdmin icon={<CircleAlert />} label="Integration failures" value={dashboard?.integrationFailures || 0} tone="red" />
+      <MetricAdmin icon={<ClipboardCheck />} label="Awaiting assignment" value={pending} tone="amber" onClick={() => onOpenView("tasks", "awaiting")} />
+      <MetricAdmin icon={<BadgeCheck />} label="DBS approved" value={dashboard?.traders.approved || 0} tone="green" onClick={() => onOpenView("traders", "approved")} />
+      <MetricAdmin icon={<FileWarning />} label="DBS action needed" value={(dashboard?.traders.pending || 0) + (dashboard?.traders.unclear || 0) + (dashboard?.traders.rejected || 0) + (dashboard?.traders.not_started || 0)} tone="blue" onClick={() => onOpenView("traders", "action-needed")} />
+      <MetricAdmin icon={<CircleAlert />} label="Integration failures" value={dashboard?.integrationFailures || 0} tone="red" onClick={() => onOpenView("integrations")} />
     </div>
     <section className="panel">
       <div className="panel-heading"><div><h2>Assignment queue</h2><p>Tasks waiting for secure candidate evaluation.</p></div></div>
@@ -148,22 +188,45 @@ function AdminOverview({ dashboard, tasks, onReview }: { dashboard: AdminDashboa
   </>;
 }
 
-function MetricAdmin({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: number; tone: string }) {
-  return <article className={`metric metric-${tone}`}><span>{icon}</span><div><strong>{value}</strong><small>{label}</small></div></article>;
+function MetricAdmin({ icon, label, value, tone, onClick }: { icon: React.ReactNode; label: string; value: number; tone: string; onClick: () => void }) {
+  return <button className={`metric metric-link metric-${tone}`} onClick={onClick} aria-label={`Open ${label.toLowerCase()}`}><span>{icon}</span><div><strong>{value}</strong><small>{label}</small></div><ChevronRight className="metric-arrow" size={19} /></button>;
 }
 
-function AssignmentDesk({ tasks, selectedTask, onSelect, onChanged }: { tasks: AdminTask[]; selectedTask: AdminTask | null; onSelect: (task: AdminTask) => void; onChanged: () => Promise<void> }) {
+function taskMatchesAdminFilter(task: AdminTask, filter: string) {
+  if (filter === "awaiting") return ["pending_taskbridge_assignment", "assignment_review"].includes(task.status);
+  if (filter === "in-progress") return ["dispatched", "visit_scheduled", "checked_in", "awaiting_evidence_review", "awaiting_care_confirmation"].includes(task.status);
+  if (filter === "completed") return task.status === "completed";
+  return true;
+}
+
+function AssignmentDesk({ tasks, filter, onFilter, selectedTask, onSelect, onChanged }: {
+  tasks: AdminTask[];
+  filter: string;
+  onFilter: (filter: string) => void;
+  selectedTask: AdminTask | null;
+  onSelect: (task: AdminTask) => void;
+  onChanged: () => Promise<void>;
+}) {
+  const filteredTasks = tasks.filter((task) => taskMatchesAdminFilter(task, filter));
+  useEffect(() => {
+    if (selectedTask && filteredTasks.some((task) => task.id === selectedTask.id)) return;
+    const nextTask = filteredTasks.find((task) => ["pending_taskbridge_assignment", "assignment_review"].includes(task.status)) || filteredTasks[0];
+    if (nextTask) onSelect(nextTask);
+  }, [filter, tasks, selectedTask?.id]);
   return <div className="assignment-layout">
     <section>
       <div className="page-title-row compact"><div><span className="eyebrow">Secure assignment desk</span><h1>Review and release work</h1><p>Only eligible handymen can be approved for dispatch.</p></div></div>
-      <div className="panel admin-task-list selectable">{tasks.map((task) => <AdminTaskRow key={task.id} task={task} selected={selectedTask?.id === task.id} action={<button className="icon-button" onClick={() => onSelect(task)} aria-label={`Review ${task.id}`}><Search size={18} /></button>} />)}</div>
+      <nav className="task-filter-links" aria-label="Filter assignment tasks">{[
+        ["all", "All tasks"], ["awaiting", "Awaiting review"], ["in-progress", "In progress"], ["completed", "Completed"]
+      ].map(([key, label]) => <button key={key} className={filter === key ? "active" : ""} onClick={() => onFilter(key)} aria-pressed={filter === key}>{label}<span>{tasks.filter((task) => taskMatchesAdminFilter(task, key)).length}</span></button>)}</nav>
+      <div className="panel admin-task-list selectable">{filteredTasks.map((task) => <AdminTaskRow key={task.id} task={task} selected={selectedTask?.id === task.id} onSelect={() => onSelect(task)} action={<button className="button button-secondary button-small" onClick={(event) => { event.stopPropagation(); onSelect(task); }}>Review task</button>} />)}{!filteredTasks.length && <EmptyState icon={<ClipboardCheck />} title="No tasks in this view" detail="Choose another status filter to review other work." />}</div>
     </section>
-    <CandidatePanel task={selectedTask} onChanged={onChanged} />
+    <CandidatePanel task={selectedTask && filteredTasks.some((task) => task.id === selectedTask.id) ? selectedTask : null} onChanged={onChanged} />
   </div>;
 }
 
-function AdminTaskRow({ task, action, selected = false }: { task: AdminTask; action: React.ReactNode; selected?: boolean }) {
-  return <article className={`admin-task-row ${selected ? "selected" : ""}`}>
+function AdminTaskRow({ task, action, selected = false, onSelect }: { task: AdminTask; action: React.ReactNode; selected?: boolean; onSelect?: () => void }) {
+  return <article className={`admin-task-row ${selected ? "selected" : ""} ${onSelect ? "interactive" : ""}`} onClick={onSelect}>
     <span className="resident-avatar">{task.residentInitials}</span>
     <div><div className="task-title-line"><h3>{task.category}</h3>{task.ringFenceRequired && <span className="ring-badge"><ShieldCheck size={13} /> Ring-Fence</span>}</div><p>{task.summary}</p><small>{task.agencyName} · {task.id} · {formatDate(task.createdAt, true)}</small></div>
     <StatusBadge status={task.status}>{humanize(task.status)}</StatusBadge>{action}
@@ -184,7 +247,7 @@ function CandidatePanel({ task, onChanged }: { task: AdminTask | null; onChanged
       .then((result) => setCandidates(result.candidates))
       .catch((caught) => setError(caught instanceof Error ? caught.message : "Unable to evaluate candidates"))
       .finally(() => setLoading(false));
-  }, [task?.id]);
+  }, [task?.id, task?.status]);
 
   async function dispatch(candidate: Candidate) {
     if (!task) return;
@@ -213,11 +276,24 @@ function CandidatePanel({ task, onChanged }: { task: AdminTask | null; onChanged
   </aside>;
 }
 
-function ComplianceHub({ traders, user, onChanged }: { traders: Trader[]; user: User; onChanged: () => Promise<void> }) {
+function IntegrationMonitor({ failures, onRefresh }: { failures: IntegrationFailure[]; onRefresh: () => Promise<void> }) {
+  const [refreshing, setRefreshing] = useState(false);
+  async function refresh() {
+    setRefreshing(true);
+    try { await onRefresh(); } finally { setRefreshing(false); }
+  }
+  return <>
+    <div className="page-title-row"><div><span className="eyebrow">Integration operations</span><h1>Delivery failures</h1><p>Review failed and retrying care-platform callbacks and inbound events.</p></div><button className="button button-secondary" onClick={refresh} disabled={refreshing}>{refreshing ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />} Refresh</button></div>
+    <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Care agency</th><th>Event</th><th>Endpoint</th><th>Status</th><th>Attempts</th><th>Received</th></tr></thead><tbody>{failures.map((failure) => <tr key={failure.id}><td><strong>{failure.agencyName || "Platform"}</strong><small>{humanize(failure.direction)}</small></td><td><strong>{humanize(failure.eventType)}</strong><small>{failure.errorMessage || (failure.responseStatus ? `HTTP ${failure.responseStatus}` : "Provider response unavailable")}</small></td><td><span className="integration-endpoint">{failure.endpoint}</span></td><td><StatusBadge status={failure.status}>{humanize(failure.status)}</StatusBadge>{failure.nextRetryAt && <small>Next retry {formatDate(failure.nextRetryAt, true)}</small>}</td><td>{failure.retryCount}</td><td>{formatDate(failure.createdAt, true)}</td></tr>)}</tbody></table></div>{!failures.length && <EmptyState icon={<BadgeCheck />} title="No integration failures" detail="Inbound events and care-platform callbacks are currently clear." />}</section>
+  </>;
+}
+
+function ComplianceHub({ traders, filter, onFilter, user, onChanged }: { traders: Trader[]; filter: string; onFilter: (filter: string) => void; user: User; onChanged: () => Promise<void> }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteResult, setInviteResult] = useState<{ invitationUrl: string; expiresAt: string; emailDeliveryStatus: string } | null>(null);
+  const filteredTraders = traders.filter((trader) => filter === "approved" ? trader.dbsStatus === "approved" : filter === "action-needed" ? trader.dbsStatus !== "approved" : true);
   async function startCheck(trader: Trader) {
     setBusy(trader.id); setError("");
     try { await api(`/api/admin/traders/${trader.id}/dbs-check`, { method: "POST" }); await onChanged(); }
@@ -273,7 +349,8 @@ function ComplianceHub({ traders, user, onChanged }: { traders: Trader[]; user: 
       <form className="invite-handyman-form" onSubmit={inviteHandyman}><label>Full name<input required name="fullName" minLength={2} autoComplete="off" /></label><label>Email address<input required name="email" type="email" autoComplete="off" /></label><button className="button button-primary" disabled={busy === "invite"} type="submit">{busy === "invite" ? <><LoaderCircle className="spin" size={17} /> Sending...</> : <><Send size={17} /> Send registration link</>}</button></form>
       {inviteResult && <div className={`invitation-result ${inviteResult.emailDeliveryStatus === "sent" ? "sent" : "attention"}`}><div><strong>{inviteResult.emailDeliveryStatus === "sent" ? "Invitation email sent" : "Invitation created; email delivery needs configuration"}</strong><span>Expires {formatDate(inviteResult.expiresAt, true)}</span></div><div className="invitation-link"><input readOnly value={inviteResult.invitationUrl} aria-label="Handyman invitation URL" /><button className="icon-button" onClick={copyInvitationLink} type="button" aria-label="Copy invitation link"><Copy size={18} /></button><a className="icon-button" href={inviteResult.invitationUrl} target="_blank" rel="noreferrer" aria-label="Open invitation"><ExternalLink size={18} /></a></div></div>}
     </section>}
-    <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Handyman</th><th>Onboarding</th><th>Services</th><th>Enhanced DBS</th><th>Insurance</th><th>Electrical</th><th>Quality</th><th>Action</th></tr></thead><tbody>{traders.map((trader) => <tr key={trader.id}><td><strong>{trader.displayName}</strong><small>{trader.email || trader.network || "Direct network"}</small></td><td><StatusBadge status={trader.onboardingStatus}>{humanize(trader.onboardingStatus)}</StatusBadge><small>{trader.emailDeliveryStatus ? `Email: ${humanize(trader.emailDeliveryStatus)}` : "Marketplace record"}</small></td><td><span className="service-summary">{trader.services.length ? `${trader.services.slice(0, 2).join(", ")}${trader.services.length > 2 ? ` +${trader.services.length - 2}` : ""}` : "Awaiting registration"}</span></td><td><StatusBadge status={trader.dbsStatus}>{humanize(trader.dbsStatus)}</StatusBadge><small>{trader.dbsExpiryDate ? `Expires ${formatDate(trader.dbsExpiryDate)}` : "No active expiry"}</small></td><td><StatusBadge status={trader.insuranceStatus}>{humanize(trader.insuranceStatus)}</StatusBadge><small>{trader.insuranceExpiryDate ? `Expires ${formatDate(trader.insuranceExpiryDate)}` : "No active expiry"}</small></td><td><StatusBadge status={trader.electricalQualificationStatus}>{humanize(trader.electricalQualificationStatus)}</StatusBadge><small>{trader.electricalQualificationTitle || "Not required for general work"}</small>{user.role === "taskbridge_super_admin" && trader.electricalQualificationId && trader.electricalQualificationStatus === "pending" && <div className="row-actions compact-actions"><button className="icon-button success-icon" onClick={() => reviewElectrical(trader, "approved")} aria-label="Approve electrical qualification"><BadgeCheck size={17} /></button><button className="icon-button danger-icon" onClick={() => reviewElectrical(trader, "rejected")} aria-label="Reject electrical qualification"><CircleAlert size={17} /></button></div>}</td><td><span className="rating"><Star size={15} /> {trader.qualityScore}</span></td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start check</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td></tr>)}</tbody></table></div></section>
+    <nav className="task-filter-links" aria-label="Filter handyman compliance">{[["all", "All handymen"], ["approved", "DBS approved"], ["action-needed", "Action needed"]].map(([key, label]) => <button key={key} className={filter === key ? "active" : ""} onClick={() => onFilter(key)} aria-pressed={filter === key}>{label}<span>{traders.filter((trader) => key === "approved" ? trader.dbsStatus === "approved" : key === "action-needed" ? trader.dbsStatus !== "approved" : true).length}</span></button>)}</nav>
+    <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Handyman</th><th>Onboarding</th><th>Services</th><th>Enhanced DBS</th><th>Insurance</th><th>Electrical</th><th>Quality</th><th>Action</th></tr></thead><tbody>{filteredTraders.map((trader) => <tr key={trader.id}><td><strong>{trader.displayName}</strong><small>{trader.email || trader.network || "Direct network"}</small></td><td><StatusBadge status={trader.onboardingStatus}>{humanize(trader.onboardingStatus)}</StatusBadge><small>{trader.emailDeliveryStatus ? `Email: ${humanize(trader.emailDeliveryStatus)}` : "Marketplace record"}</small></td><td><span className="service-summary">{trader.services.length ? `${trader.services.slice(0, 2).join(", ")}${trader.services.length > 2 ? ` +${trader.services.length - 2}` : ""}` : "Awaiting registration"}</span></td><td><StatusBadge status={trader.dbsStatus}>{humanize(trader.dbsStatus)}</StatusBadge><small>{trader.dbsExpiryDate ? `Expires ${formatDate(trader.dbsExpiryDate)}` : "No active expiry"}</small></td><td><StatusBadge status={trader.insuranceStatus}>{humanize(trader.insuranceStatus)}</StatusBadge><small>{trader.insuranceExpiryDate ? `Expires ${formatDate(trader.insuranceExpiryDate)}` : "No active expiry"}</small></td><td><StatusBadge status={trader.electricalQualificationStatus}>{humanize(trader.electricalQualificationStatus)}</StatusBadge><small>{trader.electricalQualificationTitle || "Not required for general work"}</small>{user.role === "taskbridge_super_admin" && trader.electricalQualificationId && trader.electricalQualificationStatus === "pending" && <div className="row-actions compact-actions"><button className="icon-button success-icon" onClick={() => reviewElectrical(trader, "approved")} aria-label="Approve electrical qualification"><BadgeCheck size={17} /></button><button className="icon-button danger-icon" onClick={() => reviewElectrical(trader, "rejected")} aria-label="Reject electrical qualification"><CircleAlert size={17} /></button></div>}</td><td><span className="rating"><Star size={15} /> {trader.qualityScore}</span></td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start check</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td></tr>)}</tbody></table></div>{!filteredTraders.length && <EmptyState icon={<BadgeCheck />} title="No handymen in this view" detail="Choose another compliance filter to review the registry." />}</section>
   </>;
 }
 

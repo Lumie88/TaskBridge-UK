@@ -100,6 +100,35 @@ adminRouter.get("/dashboard", async (_req, res) => {
   });
 });
 
+adminRouter.get("/integrations/failures", async (_req, res) => {
+  const result = await query<{
+    id: string; agency_name: string | null; direction: string; endpoint: string; event_type: string;
+    status: string; response_status: number | null; error_message: string | null; retry_count: number;
+    next_retry_at: string | null; created_at: string;
+  }>(
+    `SELECT w.id::text, a.name AS agency_name, w.direction::text, w.endpoint, w.event_type,
+            w.status::text, w.response_status, w.error_message, w.retry_count,
+            w.next_retry_at::text, w.created_at::text
+     FROM integration.webhook_logs w
+     LEFT JOIN tenant.agencies a ON a.id = w.agency_id
+     WHERE w.status IN ('failed', 'retrying')
+     ORDER BY w.created_at DESC LIMIT 100`
+  );
+  res.json({ failures: result.rows.map((row) => ({
+    id: row.id,
+    agencyName: row.agency_name,
+    direction: row.direction,
+    endpoint: row.endpoint,
+    eventType: row.event_type,
+    status: row.status,
+    responseStatus: row.response_status,
+    errorMessage: row.error_message,
+    retryCount: row.retry_count,
+    nextRetryAt: row.next_retry_at,
+    createdAt: row.created_at
+  })) });
+});
+
 adminRouter.get("/tasks", async (_req, res) => {
   const result = await query<{
     public_id: string; agency_name: string; encrypted_name: string; category: string; urgency: string;
