@@ -1,0 +1,51 @@
+import "dotenv/config";
+
+function booleanEnv(value: string | undefined, fallback = false) {
+  if (value === undefined) return fallback;
+  return value.toLowerCase() === "true";
+}
+
+function numberEnv(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export const config = {
+  nodeEnv: process.env.NODE_ENV || "development",
+  port: numberEnv(process.env.PORT, 4173),
+  appOrigin: process.env.APP_ORIGIN || "http://localhost:4173",
+  databaseUrl: process.env.DATABASE_URL || "",
+  databaseSsl: booleanEnv(process.env.DATABASE_SSL),
+  sessionTtlHours: numberEnv(process.env.SESSION_TTL_HOURS, 8),
+  encryptionKey: process.env.ENCRYPTION_KEY || "development-only-taskbridge-key-change-me",
+  dbsProviderApiUrl: process.env.DBS_PROVIDER_API_URL || "",
+  dbsProviderApiKey: process.env.DBS_PROVIDER_API_KEY || "",
+  dbsWebhookSecret: process.env.DBS_PROVIDER_WEBHOOK_SECRET || "",
+  handymanNetworkApiUrl: process.env.HANDYMAN_NETWORK_API_URL || "",
+  handymanNetworkApiKey: process.env.HANDYMAN_NETWORK_API_KEY || "",
+  handymanNetworkCancelApiUrl: process.env.HANDYMAN_NETWORK_CANCEL_API_URL || "",
+  smsProviderApiUrl: process.env.SMS_PROVIDER_API_URL || "",
+  smsProviderApiKey: process.env.SMS_PROVIDER_API_KEY || "",
+  emailProviderApiUrl: process.env.EMAIL_PROVIDER_API_URL || "https://api.resend.com/emails",
+  emailProviderApiKey: process.env.EMAIL_PROVIDER_API_KEY || "",
+  emailFromAddress: process.env.EMAIL_FROM_ADDRESS || "",
+  aiTaskPlannerUrl: process.env.AI_TASK_PLANNER_URL || "",
+  aiTaskPlannerApiKey: process.env.AI_TASK_PLANNER_API_KEY || "",
+  objectStorageEndpoint: process.env.OBJECT_STORAGE_ENDPOINT || "",
+  objectStorageRegion: process.env.OBJECT_STORAGE_REGION || "auto",
+  objectStorageAccessKeyId: process.env.OBJECT_STORAGE_ACCESS_KEY_ID || "",
+  objectStorageSecretAccessKey: process.env.OBJECT_STORAGE_SECRET_ACCESS_KEY || "",
+  objectStorageBucket: process.env.OBJECT_STORAGE_BUCKET || "",
+  objectStoragePublicBaseUrl: process.env.OBJECT_STORAGE_PUBLIC_BASE_URL || ""
+};
+
+export const isProduction = config.nodeEnv === "production";
+
+export function productionConfigErrors() {
+  if (!isProduction) return [];
+  const missing: string[] = [];
+  if (!config.databaseUrl) missing.push("DATABASE_URL");
+  if (!process.env.ENCRYPTION_KEY) missing.push("ENCRYPTION_KEY");
+  if (!process.env.APP_ORIGIN) missing.push("APP_ORIGIN");
+  return missing;
+}
