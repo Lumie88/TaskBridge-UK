@@ -4,6 +4,7 @@ export interface MatchableTask {
   latitude: number;
   longitude: number;
   radiusMiles: number;
+  requiresElectricalQualification?: boolean;
 }
 
 export interface MatchableTrader {
@@ -19,6 +20,7 @@ export interface MatchableTrader {
   hourlyRate: number;
   qualityScore: number;
   available: boolean;
+  electricalQualificationActive?: boolean;
 }
 
 export interface MatchEvaluation {
@@ -57,6 +59,9 @@ export function evaluateTrader(task: MatchableTask, trader: MatchableTrader, now
   if (task.vulnerableAdult && (trader.dbsStatus !== "approved" || !dateIsActive(trader.dbsExpiryDate, now))) {
     reasons.push("Active Enhanced DBS approval is required");
   }
+  if (task.requiresElectricalQualification && !trader.electricalQualificationActive) {
+    reasons.push("Approved in-date electrical qualification is required");
+  }
   const score = Math.max(0, trader.qualityScore - distanceMiles * 2 - trader.hourlyRate * 0.15);
   return {
     traderId: trader.id,
@@ -65,4 +70,9 @@ export function evaluateTrader(task: MatchableTask, trader: MatchableTrader, now
     distanceMiles: Number(distanceMiles.toFixed(2)),
     score: Number(score.toFixed(2))
   };
+}
+
+export function requiresElectricalQualification(category: string, summary = "") {
+  return /\b(electric(?:al|ian|ity)?|wiring|rewire|socket|fuse|consumer unit|circuit|light fitting|eicr|pat test)\b/i
+    .test(`${category} ${summary}`);
 }

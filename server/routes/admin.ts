@@ -5,9 +5,10 @@ import { audit } from "../audit.js";
 import { requireRoles } from "../auth.js";
 import { config } from "../config.js";
 import { query, withTransaction } from "../db.js";
-import { dispatchToHandymanNetwork, sendHandymanOnboardingInvite, sendSecureVisitLink, startDbsVerification } from "../integrations.js";
-import { evaluateTrader, type MatchableTask, type MatchableTrader } from "../matching.js";
+import { dispatchToHandymanNetwork, sendHandymanOnboardingInvite, sendSecureVisitLink, sendStaffOnboardingInvite, startDbsVerification } from "../integrations.js";
+import { evaluateTrader, requiresElectricalQualification, type MatchableTask, type MatchableTrader } from "../matching.js";
 import { createOpaqueToken, decryptField, encryptField, hashToken, isWorkEmail, publicId, safeInitials, slugify } from "../security.js";
+import type { UserRole } from "../types.js";
 
 interface CandidateTaskRow {
   id: string;
@@ -41,6 +42,7 @@ interface CandidateTraderRow {
   available: boolean;
   network_name: string | null;
   external_trader_id: string | null;
+  electrical_qualification_active: boolean;
 }
 
 interface EvaluatedCandidate {
@@ -65,6 +67,15 @@ const createHandymanInvitationSchema = z.object({
   fullName: z.string().trim().min(2).max(160),
   email: z.string().trim().email().max(200)
 });
+const createStaffInvitationSchema = z.object({
+  fullName: z.string().trim().min(2).max(160),
+  email: z.string().trim().email().max(200),
+  role: z.enum(["care_coordinator", "care_manager", "taskbridge_admin", "taskbridge_super_admin"]),
+  agencyId: z.string().uuid().nullable().optional()
+});
+const adminRoleSchema = z.object({ role: z.enum(["taskbridge_admin", "taskbridge_super_admin"]) });
+const adminStatusSchema = z.object({ status: z.enum(["active", "suspended"]) });
+const electricalReviewSchema = z.object({ status: z.enum(["approved", "rejected"]) });
 
 export const adminRouter = Router();
 adminRouter.use(requireRoles("taskbridge_admin", "taskbridge_super_admin"));
@@ -218,6 +229,14 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
       end: candidates.task.preferred_window_end
     }
   });
+  const smsStatus = ["sent", "queued", "not_configured"].includes(String(smsResult.status)) ? String(smsResult.status) : "sent";
+  await query(
+    `INSERT INTO integration.notification_deliveries
+      (channel, purpose, recipient_reference, provider, provider_message_id, status, metadata)
+     VALUES ('sms', 'secure_visit_link', $1, $2, $3, $4, $5)`,
+    [hashToken(decryptField(selected.trader.encrypted_mobile)), String(smsResult.provider || "configured_provider"),
+      smsResult.providerMessageId || null, smsStatus, { taskId: req.params.publicId, visitId: created.visitId }]
+  );
   await audit(req, "admin.task.dispatched", "task", created.taskId, { traderId: selected.trader.id, smsStatus: smsResult.status });
   res.json({ id: req.params.publicId, status: "dispatched", visitUrl: `${config.appOrigin}${visitPath}`, smsStatus: smsResult.status });
 });
@@ -228,12 +247,17 @@ adminRouter.get("/traders", async (_req, res) => {
     quality_score: string; status: string; dbs_status: string; dbs_expiry_date: string | null;
     insurance_status: string; insurance_expiry_date: string | null; services: string[];
     onboarding_status: string | null; invitation_expires_at: string | null; email_delivery_status: string | null;
+    electrical_qualification_id: string | null; electrical_qualification_title: string | null;
+    electrical_qualification_status: string; electrical_qualification_expiry: string | null;
   }>(
     `SELECT t.id::text, t.display_name, t.email::text, n.name AS network_name, t.hourly_rate::text, t.quality_score::text,
             t.status::text, COALESCE(d.status::text, 'not_started') AS dbs_status, d.expiry_date::text AS dbs_expiry_date,
             COALESCE(i.status::text, 'unverified') AS insurance_status, i.expiry_date::text AS insurance_expiry_date,
             COALESCE(s.services, '{}') AS services, invite.status AS onboarding_status,
-            invite.expires_at::text AS invitation_expires_at, invite.email_delivery_status
+            invite.expires_at::text AS invitation_expires_at, invite.email_delivery_status,
+            eq.id::text AS electrical_qualification_id, eq.title AS electrical_qualification_title,
+            COALESCE(eq.review_status, 'not_submitted') AS electrical_qualification_status,
+            eq.expiry_date::text AS electrical_qualification_expiry
      FROM trader.traders t
      LEFT JOIN trader.networks n ON n.id = t.network_id
      LEFT JOIN LATERAL (
@@ -250,6 +274,12 @@ adminRouter.get("/traders", async (_req, res) => {
        SELECT status, expires_at, email_delivery_status FROM trader.onboarding_invitations oi
        WHERE oi.trader_id = t.id ORDER BY oi.created_at DESC LIMIT 1
      ) invite ON true
+     LEFT JOIN LATERAL (
+       SELECT id, title, review_status, expiry_date FROM trader.qualifications q
+       WHERE q.trader_id = t.id
+         AND lower(q.qualification_type || ' ' || q.title) ~ '(electric|wiring|eicr|18th edition|part p)'
+       ORDER BY q.created_at DESC LIMIT 1
+     ) eq ON true
      WHERE t.deleted_at IS NULL ORDER BY t.display_name`
   );
   res.json({ traders: result.rows.map((row) => ({
@@ -267,6 +297,10 @@ adminRouter.get("/traders", async (_req, res) => {
     onboardingStatus: row.onboarding_status || "not_invited",
     invitationExpiresAt: row.invitation_expires_at,
     emailDeliveryStatus: row.email_delivery_status,
+    electricalQualificationId: row.electrical_qualification_id,
+    electricalQualificationTitle: row.electrical_qualification_title,
+    electricalQualificationStatus: row.electrical_qualification_status,
+    electricalQualificationExpiry: row.electrical_qualification_expiry,
     services: row.services
   })) });
 });
@@ -383,6 +417,29 @@ adminRouter.post("/traders/:id/dbs-review", requireRoles("taskbridge_super_admin
   res.json({ traderId: req.params.id, status: parsed.data.status });
 });
 
+adminRouter.post("/traders/:id/electrical-review", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {
+  const parsed = electricalReviewSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: "Select a valid qualification decision" });
+  const result = await query<{ id: string }>(
+    `UPDATE trader.qualifications q SET
+       review_status = $2,
+       verified_by_user_id = CASE WHEN $2 = 'approved' THEN $3::uuid ELSE NULL END,
+       verified_at = CASE WHEN $2 = 'approved' THEN clock_timestamp() ELSE NULL END
+     WHERE q.id = (
+       SELECT id FROM trader.qualifications
+       WHERE trader_id = $1
+         AND lower(qualification_type || ' ' || title) ~ '(electric|wiring|eicr|18th edition|part p)'
+       ORDER BY created_at DESC LIMIT 1
+     ) RETURNING q.id::text`,
+    [req.params.id, parsed.data.status, req.auth!.userId]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: "No electrical qualification is available for review" });
+  await audit(req, "super_admin.electrical_qualification.reviewed", "qualification", result.rows[0].id, {
+    traderId: req.params.id, status: parsed.data.status
+  });
+  res.json({ traderId: req.params.id, status: parsed.data.status });
+}));
+
 adminRouter.get("/agencies", requireRoles("taskbridge_super_admin"), asyncHandler(async (_req, res) => {
   const result = await query(
     `SELECT a.id::text, a.public_id, a.name, a.slug, a.primary_contact_name, a.primary_contact_email::text,
@@ -420,6 +477,8 @@ adminRouter.post("/agencies", requireRoles("taskbridge_super_admin"), async (req
   const data = parsed.data;
   if (!isWorkEmail(data.primaryContactEmail)) return res.status(422).json({ error: "Primary contact must use a work email address" });
   const rawApiKey = `tb_live_${createOpaqueToken(32)}`;
+  const rawStaffToken = createOpaqueToken(36);
+  const invitationExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   const result = await withTransaction(req.auth!, async (client) => {
     const agency = await client.query<{ id: string; public_id: string }>(
       `INSERT INTO tenant.agencies
@@ -435,11 +494,176 @@ adminRouter.post("/agencies", requireRoles("taskbridge_super_admin"), async (req
        VALUES ($1, 'Primary integration key', $2, $3, $4, ARRAY['tasks:write']::text[])`,
       [agency.rows[0].id, rawApiKey.slice(0, 16), hashToken(rawApiKey), rawApiKey.length]
     );
-    return agency.rows[0];
+    const invitation = await client.query<{ id: string }>(
+      `INSERT INTO auth.user_invitations
+        (agency_id, full_name, email, role, token_hash, created_by_user_id, expires_at)
+       VALUES ($1, $2, $3, 'care_manager', $4, $5, $6) RETURNING id::text`,
+      [agency.rows[0].id, data.primaryContactName, data.primaryContactEmail.toLowerCase(),
+        hashToken(rawStaffToken), req.auth!.userId, invitationExpiresAt]
+    );
+    return { ...agency.rows[0], invitationId: invitation.rows[0].id };
   });
+  const invitationUrl = `${config.appOrigin}/staff-onboarding/${rawStaffToken}`;
+  const delivery = await sendStaffOnboardingInvite({
+    email: data.primaryContactEmail.toLowerCase(),
+    fullName: data.primaryContactName,
+    organisationName: data.name,
+    roleLabel: "care manager",
+    invitationUrl,
+    expiresAt: invitationExpiresAt.toISOString()
+  });
+  await query(
+    `UPDATE auth.user_invitations SET email_delivery_status = $2, provider_message_id = $3,
+       sent_at = CASE WHEN $2 = 'sent' THEN clock_timestamp() ELSE sent_at END WHERE id = $1`,
+    [result.invitationId, delivery.status, delivery.providerMessageId]
+  );
   await audit(req, "super_admin.agency.created", "agency", result.id);
-  res.status(201).json({ id: result.public_id, status: "onboarding", apiKey: rawApiKey });
+  res.status(201).json({
+    id: result.public_id, status: "onboarding", apiKey: rawApiKey, invitationUrl,
+    invitationExpiresAt: invitationExpiresAt.toISOString(), emailDeliveryStatus: delivery.status
+  });
 });
+
+adminRouter.get("/access/users", requireRoles("taskbridge_super_admin"), asyncHandler(async (_req, res) => {
+  const [users, invitations] = await Promise.all([
+    query(
+      `SELECT u.id::text, u.full_name, u.email::text, u.role::text, u.status::text,
+              u.last_login_at::text, u.created_at::text, a.name AS agency_name
+       FROM auth.users u LEFT JOIN tenant.agencies a ON a.id = u.agency_id
+       WHERE u.deleted_at IS NULL ORDER BY u.role DESC, u.full_name`
+    ),
+    query(
+      `SELECT i.id::text, i.full_name, i.email::text, i.role::text, i.status,
+              i.expires_at::text, i.email_delivery_status, a.name AS agency_name
+       FROM auth.user_invitations i LEFT JOIN tenant.agencies a ON a.id = i.agency_id
+       WHERE i.status = 'pending' AND i.expires_at > clock_timestamp()
+       ORDER BY i.created_at DESC`
+    )
+  ]);
+  res.json({ users: users.rows, invitations: invitations.rows });
+}));
+
+adminRouter.post("/access/invitations", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {
+  const parsed = createStaffInvitationSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid staff invitation" });
+  const data = parsed.data;
+  const email = data.email.toLowerCase();
+  if (!isWorkEmail(email)) return res.status(422).json({ error: "Staff invitations require a work email address" });
+  const isCareRole = data.role === "care_coordinator" || data.role === "care_manager";
+  if (isCareRole !== Boolean(data.agencyId)) return res.status(422).json({ error: isCareRole ? "Select a care agency" : "TaskBridge administrators cannot belong to a care agency" });
+
+  let organisationName = "TaskBridge";
+  if (data.agencyId) {
+    const agency = await query<{ name: string; work_email_domain: string }>(
+      "SELECT name, work_email_domain::text FROM tenant.agencies WHERE id = $1 AND deleted_at IS NULL",
+      [data.agencyId]
+    );
+    if (!agency.rows[0]) return res.status(404).json({ error: "Care agency not found" });
+    if (email.split("@")[1] !== agency.rows[0].work_email_domain.toLowerCase()) {
+      return res.status(422).json({ error: `Email must use the approved ${agency.rows[0].work_email_domain} domain` });
+    }
+    organisationName = agency.rows[0].name;
+  }
+
+  const existing = await query("SELECT 1 FROM auth.users WHERE email = $1 AND deleted_at IS NULL", [email]);
+  if (existing.rowCount) return res.status(409).json({ error: "An account already exists for this email" });
+  const rawToken = createOpaqueToken(36);
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const invitation = await query<{ id: string }>(
+    `INSERT INTO auth.user_invitations
+      (agency_id, full_name, email, role, token_hash, created_by_user_id, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id::text`,
+    [data.agencyId || null, data.fullName, email, data.role, hashToken(rawToken), req.auth!.userId, expiresAt]
+  );
+  const invitationUrl = `${config.appOrigin}/staff-onboarding/${rawToken}`;
+  const delivery = await sendStaffOnboardingInvite({
+    email, fullName: data.fullName, organisationName,
+    roleLabel: data.role.replaceAll("_", " "), invitationUrl, expiresAt: expiresAt.toISOString()
+  });
+  await query(
+    `UPDATE auth.user_invitations SET email_delivery_status = $2, provider_message_id = $3,
+       sent_at = CASE WHEN $2 = 'sent' THEN clock_timestamp() ELSE sent_at END WHERE id = $1`,
+    [invitation.rows[0].id, delivery.status, delivery.providerMessageId]
+  );
+  await audit(req, "super_admin.staff.invited", "user_invitation", invitation.rows[0].id, { role: data.role, agencyId: data.agencyId || null });
+  res.status(201).json({ invitationUrl, expiresAt: expiresAt.toISOString(), emailDeliveryStatus: delivery.status });
+}));
+
+adminRouter.patch("/access/users/:id/role", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {
+  const parsed = adminRoleSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: "Select a valid TaskBridge role" });
+  if (req.params.id === req.auth!.userId) return res.status(409).json({ error: "You cannot change your own super-admin role" });
+  const changed = await withTransaction(req.auth!, async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('taskbridge-super-admin-roster'))");
+    const target = await client.query<{ role: UserRole }>(
+      `SELECT role FROM auth.users WHERE id = $1 AND role IN ('taskbridge_admin', 'taskbridge_super_admin')
+       AND deleted_at IS NULL FOR UPDATE`, [req.params.id]
+    );
+    if (!target.rows[0]) throw Object.assign(new Error("TaskBridge administrator not found"), { statusCode: 404 });
+    if (target.rows[0].role === "taskbridge_super_admin" && parsed.data.role !== "taskbridge_super_admin") {
+      const remaining = await client.query<{ count: string }>(
+        `SELECT count(*)::text FROM auth.users WHERE role = 'taskbridge_super_admin' AND status = 'active'
+         AND deleted_at IS NULL AND id <> $1`, [req.params.id]
+      );
+      if (Number(remaining.rows[0].count) < 1) throw Object.assign(new Error("The final active super admin cannot be demoted"), { statusCode: 409 });
+    }
+    await client.query("UPDATE auth.users SET role = $2 WHERE id = $1", [req.params.id, parsed.data.role]);
+    await client.query("UPDATE auth.sessions SET revoked_at = clock_timestamp() WHERE user_id = $1 AND revoked_at IS NULL", [req.params.id]);
+    return target.rows[0].role;
+  });
+  await audit(req, "super_admin.user.role_changed", "user", req.params.id, { previousRole: changed, role: parsed.data.role });
+  res.json({ id: req.params.id, role: parsed.data.role });
+}));
+
+adminRouter.patch("/access/users/:id/status", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {
+  const parsed = adminStatusSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: "Select a valid account status" });
+  if (req.params.id === req.auth!.userId) return res.status(409).json({ error: "You cannot suspend your own account" });
+  await withTransaction(req.auth!, async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('taskbridge-super-admin-roster'))");
+    const target = await client.query<{ role: UserRole }>(
+      `SELECT role FROM auth.users WHERE id = $1 AND role IN ('taskbridge_admin', 'taskbridge_super_admin')
+       AND deleted_at IS NULL FOR UPDATE`, [req.params.id]
+    );
+    if (!target.rows[0]) throw Object.assign(new Error("TaskBridge administrator not found"), { statusCode: 404 });
+    if (parsed.data.status === "suspended" && target.rows[0].role === "taskbridge_super_admin") {
+      const remaining = await client.query<{ count: string }>(
+        `SELECT count(*)::text FROM auth.users WHERE role = 'taskbridge_super_admin' AND status = 'active'
+         AND deleted_at IS NULL AND id <> $1`, [req.params.id]
+      );
+      if (Number(remaining.rows[0].count) < 1) throw Object.assign(new Error("The final active super admin cannot be suspended"), { statusCode: 409 });
+    }
+    await client.query("UPDATE auth.users SET status = $2 WHERE id = $1", [req.params.id, parsed.data.status]);
+    if (parsed.data.status === "suspended") {
+      await client.query("UPDATE auth.sessions SET revoked_at = clock_timestamp() WHERE user_id = $1 AND revoked_at IS NULL", [req.params.id]);
+    }
+  });
+  await audit(req, "super_admin.user.status_changed", "user", req.params.id, { status: parsed.data.status });
+  res.json({ id: req.params.id, status: parsed.data.status });
+}));
+
+adminRouter.delete("/access/users/:id", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {
+  if (req.params.id === req.auth!.userId) return res.status(409).json({ error: "You cannot delete your own account" });
+  await withTransaction(req.auth!, async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('taskbridge-super-admin-roster'))");
+    const target = await client.query<{ role: UserRole }>(
+      `SELECT role FROM auth.users WHERE id = $1 AND role IN ('taskbridge_admin', 'taskbridge_super_admin')
+       AND deleted_at IS NULL FOR UPDATE`, [req.params.id]
+    );
+    if (!target.rows[0]) throw Object.assign(new Error("TaskBridge administrator not found"), { statusCode: 404 });
+    if (target.rows[0].role === "taskbridge_super_admin") {
+      const remaining = await client.query<{ count: string }>(
+        `SELECT count(*)::text FROM auth.users WHERE role = 'taskbridge_super_admin' AND status = 'active'
+         AND deleted_at IS NULL AND id <> $1`, [req.params.id]
+      );
+      if (Number(remaining.rows[0].count) < 1) throw Object.assign(new Error("The final active super admin cannot be deleted"), { statusCode: 409 });
+    }
+    await client.query("UPDATE auth.sessions SET revoked_at = clock_timestamp() WHERE user_id = $1 AND revoked_at IS NULL", [req.params.id]);
+    await client.query("UPDATE auth.users SET status = 'disabled', deleted_at = clock_timestamp() WHERE id = $1", [req.params.id]);
+  });
+  await audit(req, "super_admin.user.deleted", "user", req.params.id);
+  res.status(204).end();
+}));
 
 adminRouter.get("/audit", requireRoles("taskbridge_super_admin"), async (_req, res) => {
   const result = await query(
@@ -476,7 +700,13 @@ async function evaluateCandidates(publicTaskId: string) {
             COALESCE(dbs.status::text, 'not_started') AS dbs_status, dbs.expiry_date::text AS dbs_expiry_date,
             COALESCE(ins.status::text, 'unverified') AS insurance_status, ins.expiry_date::text AS insurance_expiry_date,
             t.latitude::text, t.longitude::text, COALESCE(t.hourly_rate, 0)::text AS hourly_rate,
-            t.quality_score::text, availability.available, n.name AS network_name, t.external_trader_id
+            t.quality_score::text, availability.available, n.name AS network_name, t.external_trader_id,
+            EXISTS (
+              SELECT 1 FROM trader.qualifications q
+              WHERE q.trader_id = t.id AND q.review_status = 'approved' AND q.verified_at IS NOT NULL
+                AND (q.expiry_date IS NULL OR q.expiry_date >= current_date)
+                AND lower(q.qualification_type || ' ' || q.title) ~ '(electric|wiring|eicr|18th edition|part p)'
+            ) AS electrical_qualification_active
      FROM trader.traders t
      LEFT JOIN trader.networks n ON n.id = t.network_id
      LEFT JOIN LATERAL (
@@ -509,7 +739,8 @@ async function evaluateCandidates(publicTaskId: string) {
     vulnerableAdult: task.vulnerable_adult,
     latitude: Number(task.latitude),
     longitude: Number(task.longitude),
-    radiusMiles: Number(task.radius_miles)
+    radiusMiles: Number(task.radius_miles),
+    requiresElectricalQualification: requiresElectricalQualification(task.category, task.summary)
   };
   const evaluated: EvaluatedCandidate[] = traderResult.rows.map((trader) => {
     const matchTrader: MatchableTrader = {
@@ -524,7 +755,8 @@ async function evaluateCandidates(publicTaskId: string) {
       longitude: Number(trader.longitude),
       hourlyRate: Number(trader.hourly_rate),
       qualityScore: Number(trader.quality_score),
-      available: trader.available
+      available: trader.available,
+      electricalQualificationActive: trader.electrical_qualification_active
     };
     return { trader, evaluation: evaluateTrader(matchTask, matchTrader) };
   }).sort((a, b) => Number(b.evaluation.eligible) - Number(a.evaluation.eligible) || b.evaluation.score - a.evaluation.score);

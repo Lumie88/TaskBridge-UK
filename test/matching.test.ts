@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { evaluateTrader, haversineMiles, type MatchableTask, type MatchableTrader } from "../server/matching.js";
+import { evaluateTrader, haversineMiles, requiresElectricalQualification, type MatchableTask, type MatchableTrader } from "../server/matching.js";
 
 const task: MatchableTask = {
   category: "Garden Path Clearing",
@@ -43,8 +43,21 @@ test("expired insurance blocks all assignments", () => {
   assert.match(result.reasons.join(" "), /insurance/);
 });
 
+test("regulated electrical work requires an approved electrical qualification", () => {
+  const electricalTask = { ...task, category: "Electrical Safety", requiresElectricalQualification: true };
+  const blocked = evaluateTrader(electricalTask, { ...eligibleTrader, services: ["Electrical Safety"], electricalQualificationActive: false });
+  const eligible = evaluateTrader(electricalTask, { ...eligibleTrader, services: ["Electrical Safety"], electricalQualificationActive: true });
+  assert.equal(blocked.eligible, false);
+  assert.match(blocked.reasons.join(" "), /electrical qualification/);
+  assert.equal(eligible.eligible, true);
+});
+
+test("electrical task wording is detected in the category or summary", () => {
+  assert.equal(requiresElectricalQualification("Appliance Safety", "Replace a damaged electrical socket"), true);
+  assert.equal(requiresElectricalQualification("Garden Path Clearing", "Remove moss from paving"), false);
+});
+
 test("Haversine distance returns a plausible London to Birmingham distance", () => {
   const miles = haversineMiles(51.5074, -0.1278, 52.4862, -1.8904);
   assert.ok(miles > 95 && miles < 110);
 });
-

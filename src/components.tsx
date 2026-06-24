@@ -157,6 +157,7 @@ export function PortalShell({ user, area, active, onActive, onSignOut, workspace
     ["traders", "Handyman compliance"]
   ];
   if (user.role === "taskbridge_super_admin") adminItems.push(["agencies", "Agency onboarding"]);
+  if (user.role === "taskbridge_super_admin") adminItems.push(["access", "Access control"]);
   const items = area === "care" ? careItems : adminItems;
   return (
     <div className="portal-frame">

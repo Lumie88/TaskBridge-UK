@@ -2,9 +2,11 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { audit } from "../audit.js";
+import { asyncHandler } from "../async-handler.js";
 import { createSession, publicUser, revokeSession } from "../auth.js";
-import { query } from "../db.js";
-import { isWorkEmail, verifyPassword } from "../security.js";
+import { query, withTransaction } from "../db.js";
+import { sendDemoRequestReceipt } from "../integrations.js";
+import { hashPassword, hashToken, isWorkEmail, verifyPassword } from "../security.js";
 import type { UserRole } from "../types.js";
 
 interface UserRow {
@@ -31,21 +33,91 @@ const demoRequestSchema = z.object({
   workEmail: z.string().email().max(200),
   message: z.string().max(1000).optional().default("")
 });
+const acceptInvitationSchema = z.object({
+  password: z.string().min(12).max(200)
+    .refine((value) => /[A-Z]/.test(value) && /[a-z]/.test(value) && /\d/.test(value), "Use upper and lower case letters and a number")
+});
 
 export const authRouter = Router();
 
-authRouter.post("/demo-request", signInLimiter, async (req, res) => {
+authRouter.post("/demo-request", signInLimiter, asyncHandler(async (req, res) => {
   const parsed = demoRequestSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: "Enter valid organisation details" });
   const email = parsed.data.workEmail.trim().toLowerCase();
   if (!isWorkEmail(email)) return res.status(422).json({ error: "Please use a work email address" });
-  await query(
+  const created = await query<{ id: string }>(
     `INSERT INTO tenant.demo_requests (full_name, organisation_name, work_email, message, ip_address)
-     VALUES ($1, $2, $3, $4, $5)`,
+     VALUES ($1, $2, $3, $4, $5) RETURNING id::text`,
     [parsed.data.fullName, parsed.data.organisationName, email, parsed.data.message || null, req.ip]
   );
-  res.status(201).json({ status: "received" });
-});
+  const delivery = await sendDemoRequestReceipt({
+    email,
+    fullName: parsed.data.fullName,
+    organisationName: parsed.data.organisationName
+  });
+  await query(
+    `INSERT INTO integration.notification_deliveries
+      (channel, purpose, recipient_reference, provider, provider_message_id, status, metadata)
+     VALUES ('email', 'demo_request_receipt', $1, 'email_provider', $2, $3, $4)`,
+    [email, delivery.providerMessageId, delivery.status, { demoRequestId: created.rows[0].id }]
+  );
+  res.status(201).json({ status: "received", emailDeliveryStatus: delivery.status });
+}));
+
+authRouter.get("/staff-invitations/:token", asyncHandler(async (req, res) => {
+  const result = await query<{
+    full_name: string; email: string; role: UserRole; expires_at: string; organisation_name: string;
+  }>(
+    `SELECT i.full_name, i.email::text, i.role, i.expires_at::text,
+            COALESCE(a.name, 'TaskBridge') AS organisation_name
+     FROM auth.user_invitations i
+     LEFT JOIN tenant.agencies a ON a.id = i.agency_id
+     WHERE i.token_hash = $1 AND i.status = 'pending' AND i.expires_at > clock_timestamp()`,
+    [hashToken(req.params.token)]
+  );
+  const invitation = result.rows[0];
+  if (!invitation) return res.status(404).json({ error: "This invitation is invalid or has expired" });
+  res.json({ invitation: {
+    fullName: invitation.full_name,
+    email: invitation.email,
+    role: invitation.role,
+    organisationName: invitation.organisation_name,
+    expiresAt: invitation.expires_at
+  } });
+}));
+
+authRouter.post("/staff-invitations/:token/accept", signInLimiter, asyncHandler(async (req, res) => {
+  const parsed = acceptInvitationSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Use a stronger password" });
+  const passwordHash = await hashPassword(parsed.data.password);
+  const accepted = await withTransaction(null, async (client) => {
+    const invitationResult = await client.query<{
+      id: string; agency_id: string | null; full_name: string; email: string; role: UserRole;
+    }>(
+      `SELECT id::text, agency_id::text, full_name, email::text, role
+       FROM auth.user_invitations
+       WHERE token_hash = $1 AND status = 'pending' AND expires_at > clock_timestamp()
+       FOR UPDATE`,
+      [hashToken(req.params.token)]
+    );
+    const invitation = invitationResult.rows[0];
+    if (!invitation) throw Object.assign(new Error("This invitation is invalid or has expired"), { statusCode: 404 });
+    const existing = await client.query("SELECT 1 FROM auth.users WHERE email = $1 AND deleted_at IS NULL", [invitation.email]);
+    if (existing.rowCount) throw Object.assign(new Error("An active account already exists for this email"), { statusCode: 409 });
+    const user = await client.query<{ id: string }>(
+      `INSERT INTO auth.users (agency_id, full_name, email, password_hash, role, status)
+       VALUES ($1, $2, $3, $4, $5, 'active') RETURNING id::text`,
+      [invitation.agency_id, invitation.full_name, invitation.email, passwordHash, invitation.role]
+    );
+    await client.query(
+      `UPDATE auth.user_invitations SET status = 'accepted', accepted_at = clock_timestamp() WHERE id = $1`,
+      [invitation.id]
+    );
+    return { userId: user.rows[0].id, role: invitation.role };
+  });
+  await audit(req, "auth.staff_invitation.accepted", "user", accepted.userId, { role: accepted.role });
+  res.status(201).json({ status: "active", portal: accepted.role.startsWith("taskbridge_") ? "admin" : "care" });
+}));
 
 authRouter.get("/me", (req, res) => {
   if (!req.auth) return res.status(401).json({ error: "Not signed in" });

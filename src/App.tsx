@@ -7,6 +7,7 @@ import { CoordinatorPortal } from "./pages/CoordinatorPortal";
 import { AdminPortal } from "./pages/AdminPortal";
 import { VisitPage } from "./pages/VisitPage";
 import { HandymanOnboardingPage } from "./pages/HandymanOnboardingPage";
+import { StaffOnboardingPage } from "./pages/StaffOnboardingPage";
 
 export function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -35,6 +36,7 @@ export function App() {
 
   if (path.startsWith("/visit/")) return <VisitPage token={path.slice("/visit/".length)} />;
   if (path.startsWith("/handyman-onboarding/")) return <HandymanOnboardingPage token={path.slice("/handyman-onboarding/".length)} />;
+  if (path.startsWith("/staff-onboarding/")) return <StaffOnboardingPage token={path.slice("/staff-onboarding/".length)} />;
   if (path === "/") return <MarketingHome />;
   if (path === "/how-it-works") return <HowItWorks />;
   if (path === "/services") return <OurServices />;

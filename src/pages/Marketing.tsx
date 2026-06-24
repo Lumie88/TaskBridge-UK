@@ -39,6 +39,33 @@ const services = [
   "Locks, doors and access"
 ];
 
+const faqs = [
+  {
+    question: "What happens after we book a demo?",
+    answer: "We confirm the request by work email, review your organisation's care workflow and arrange a focused demonstration. After the demo, we agree the onboarding, safeguarding and integration plan. You do not need to share resident data for the demonstration."
+  },
+  {
+    question: "How does TaskBridge check electrical work?",
+    answer: "Electrical tasks are identified during task review and can only be matched to a professional with an approved, in-date electrical qualification and verified insurance. General handymen are blocked from regulated electrical work."
+  },
+  {
+    question: "How are vulnerable service users safeguarded?",
+    answer: "Care-team approval is required before assignment. Vulnerable-adult visits require an active Enhanced DBS check, verified insurance, service suitability and a secure visit record. Resident contact and access details remain protected."
+  },
+  {
+    question: "How does the handyman receive and complete a task?",
+    answer: "Once approved, the handyman receives a tokenised SMS link. The link supports geofenced check-in, visit instructions, photographic evidence and check-out without exposing the service user's direct contact details."
+  },
+  {
+    question: "How are care agency staff given access?",
+    answer: "A TaskBridge super admin creates the agency workspace and sends the nominated manager a one-use email invitation. Additional coordinators and managers are invited into that agency only, so they cannot see another organisation's records."
+  },
+  {
+    question: "Who controls TaskBridge administrator access?",
+    answer: "Only a TaskBridge super admin can invite administrators, promote an admin to super admin, demote or suspend access, or delete an account. Every change is audited, sessions are revoked after permission changes, and the final active super admin cannot be removed."
+  }
+];
+
 export function MarketingHome() {
   const [demoOpen, setDemoOpen] = useState(false);
   return (
@@ -127,6 +154,17 @@ export function MarketingHome() {
               <div><FileCheck2 /><strong>Better evidence</strong><span>Visit activity recorded end to end</span></div>
               <div><ShieldCheck /><strong>Stronger safeguards</strong><span>Controls applied before dispatch</span></div>
             </div>
+          </div>
+        </section>
+
+        <section className="section site-width faq-section" id="faq">
+          <div className="section-heading section-heading-centered">
+            <span className="eyebrow">Questions, answered clearly</span>
+            <h2>What care teams need to know.</h2>
+            <p>Practical detail about onboarding, safeguarding, compliance and secure visits.</p>
+          </div>
+          <div className="faq-list">
+            {faqs.map((item) => <details key={item.question}><summary>{item.question}<span aria-hidden="true">+</span></summary><p>{item.answer}</p></details>)}
           </div>
         </section>
 
