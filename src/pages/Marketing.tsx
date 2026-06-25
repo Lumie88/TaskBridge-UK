@@ -192,6 +192,107 @@ export function SystemIntegrations() {
   return <GuidelinePage><IntegrationsGuideline /></GuidelinePage>;
 }
 
+export function GDPRShieldPolicy() {
+  return <PolicyPage
+    eyebrow="Privacy and data protection"
+    title="GDPR Shield Policy"
+    intro="TaskBridge is designed to minimise resident data exposure while helping care organisations coordinate approved home-safety tasks. This policy explains the practical privacy controls used across the platform."
+    sections={[
+      {
+        title: "Data minimisation",
+        body: "TaskBridge asks care teams to share only the information needed to identify the service user, understand the practical task, coordinate the visit and evidence completion. Clinical notes, unnecessary medical details and unrelated family information should not be entered into task summaries."
+      },
+      {
+        title: "Protected resident identity",
+        body: "Service user names, addresses, postcode details, keysafe notes and safeguarding notes are encrypted at rest. Handymen receive a limited secure visit workflow and do not receive unrestricted resident contact details."
+      },
+      {
+        title: "Role-based access",
+        body: "Care coordinators can view their own organisation's service users, tasks and evidence. TaskBridge administrators can review assignment and compliance information required for safe operations. Super-admin access is restricted to privileged operational and governance functions."
+      },
+      {
+        title: "Visit evidence",
+        body: "GPS check-in data, before-and-after photos, completion notes and visit timestamps are used to evidence attendance and task completion. Access to this evidence is restricted to authorised users and retained only for operational, safeguarding, audit or dispute needs."
+      },
+      {
+        title: "Care-platform integrations",
+        body: "Inbound and outbound integrations use API keys, idempotency controls, retry logs and audit records. Completion callbacks should contain the minimum operational information needed to update the originating care record."
+      },
+      {
+        title: "Data rights and contact",
+        body: "Care organisations, handymen and relevant data subjects may raise privacy questions through privacy@taskbridge.tech. Production deployment should be supported by a Data Processing Agreement, retention schedule and solicitor-reviewed privacy notice."
+      }
+    ]}
+  />;
+}
+
+export function SafeguardingSLA() {
+  return <PolicyPage
+    eyebrow="Operational safeguarding"
+    title="Safeguarding SLA"
+    intro="TaskBridge operates as a safeguarded coordination layer for practical home-safety tasks. This SLA sets expectations for review, escalation, visit controls and evidence handling during pilot operations."
+    sections={[
+      {
+        title: "Care-team approval",
+        body: "Tasks must be reviewed and approved by the care organisation before TaskBridge releases them for assignment. AI-generated suggestions remain editable and must not replace professional judgement."
+      },
+      {
+        title: "Enhanced DBS and insurance controls",
+        body: "Vulnerable-adult work is assigned only to handymen who meet TaskBridge policy requirements, including active Enhanced DBS status where required, verified identity, verified insurance, service suitability and proximity checks."
+      },
+      {
+        title: "Target operational response",
+        body: "New care-approved tasks should be reviewed by TaskBridge operations during business hours, with urgent safeguarding-sensitive items prioritised for same-day review where possible. Failed dispatches, missing compliance records and unclear task scope are held for admin decision."
+      },
+      {
+        title: "Secure visit workflow",
+        body: "Handymen use a tokenised visit link for check-in, evidence upload and checkout. They must present identification to the resident or attending caregiver and must not request direct payment, personal contact details or unrelated work."
+      },
+      {
+        title: "Incident escalation",
+        body: "Safeguarding concerns, property damage, poor workmanship, failed attendance or data concerns are escalated to TaskBridge administration. Serious safeguarding concerns should also be escalated through the care agency's safeguarding route without delay."
+      },
+      {
+        title: "Completion and payout hold",
+        body: "Tasks are not treated as fully complete until visit evidence is submitted and the care team confirms the outcome. Payment and payout records may remain on hold where evidence, complaints, disputes or safeguarding concerns require review."
+      }
+    ]}
+  />;
+}
+
+function PolicyPage({ eyebrow, title, intro, sections }: {
+  eyebrow: string;
+  title: string;
+  intro: string;
+  sections: Array<{ title: string; body: string }>;
+}) {
+  const [demoOpen, setDemoOpen] = useState(false);
+  return <div className="marketing-page">
+    <PublicHeader onDemo={() => setDemoOpen(true)} />
+    <main className="policy-main">
+      <section className="site-width policy-hero">
+        <span className="eyebrow">{eyebrow}</span>
+        <h1>{title}</h1>
+        <p>{intro}</p>
+        <small>Draft operational policy for pilot use. Final production wording should be reviewed by a UK solicitor and data protection adviser.</small>
+      </section>
+      <section className="site-width policy-grid">
+        {sections.map((section) => <article key={section.title} className="policy-card">
+          <span><ShieldCheck size={18} /></span>
+          <h2>{section.title}</h2>
+          <p>{section.body}</p>
+        </article>)}
+      </section>
+      <section className="site-width policy-contact">
+        <div><h2>Need the formal pack?</h2><p>For agency onboarding, request the full privacy, safeguarding, DPA and operational policy pack from TaskBridge.</p></div>
+        <a className="button button-primary" href="mailto:privacy@taskbridge.tech">Contact privacy team <ArrowRight size={17} /></a>
+      </section>
+    </main>
+    <Footer />
+    <DemoModal open={demoOpen} onClose={() => setDemoOpen(false)} />
+  </div>;
+}
+
 function GuidelinePage({ children }: { children: ReactNode }) {
   const [demoOpen, setDemoOpen] = useState(false);
   return (
@@ -266,8 +367,8 @@ function Footer() {
       <div><p>© 2026 TaskBridge Systems Ltd. All rights reserved.</p><small>TaskBridge is a HealthTech and care operations middleware platform. Enhanced DBS validation supports vulnerable-adult safeguarding controls.</small></div>
       <nav aria-label="Security and legal">
         <a href="/how-it-works#security">Security standards</a>
-        <a href="mailto:privacy@taskbridge.tech?subject=TaskBridge%20privacy%20policy">GDPR shield policy</a>
-        <a href="mailto:integrations@taskbridge.tech?subject=TaskBridge%20safeguarding%20SLA">Safeguarding SLA</a>
+        <a href="/gdpr-shield-policy">GDPR shield policy</a>
+        <a href="/safeguarding-sla">Safeguarding SLA</a>
       </nav>
     </div>
   </footer>;
