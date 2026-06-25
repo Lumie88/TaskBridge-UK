@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   ArrowRight,
   BadgeCheck,
@@ -14,11 +14,13 @@ import {
   Mail,
   MapPin,
   MessageSquareText,
+  Pause,
   Play,
   Phone,
   ShieldCheck,
   ShieldAlert,
   Sparkles,
+  Square,
   Star,
   Store,
   UsersRound
@@ -112,6 +114,8 @@ export function MarketingHome() {
           </div>
         </section>
 
+        <CoordinatorDemoVideo />
+
         <section className="process-band" id="safeguarding">
           <div className="site-width">
             <div className="section-heading section-heading-centered">
@@ -174,6 +178,76 @@ function ProcessStep({ number, icon, title, detail }: { number: string; icon: Re
 
 function StudioPillar({ icon, tone, title, detail, label }: { icon: React.ReactNode; tone: string; title: string; detail: string; label: string }) {
   return <article className="studio-pillar"><span className={`studio-pillar-icon ${tone}`}>{icon}</span><h3>{title}</h3><p>{detail}</p><footer><span>{label}</span><i /></footer></article>;
+}
+
+const demoScenes = [
+  { title: "Care coordinator dashboard", subtitle: "Start inside a personalised care workspace.", nav: "Dashboard", badge: "Primrose Care workspace", screen: "dashboard" },
+  { title: "Create a task from a care note", subtitle: "Paste the daily note and select the service user.", nav: "Create task", badge: "AI ingestion", screen: "create" },
+  { title: "Review suggested safety tasks", subtitle: "One note can become multiple care-approved actions.", nav: "Create task", badge: "Review before dispatch", screen: "review" },
+  { title: "Check progress on the status board", subtitle: "Care teams see progress without seeing hidden candidate scoring.", nav: "Status board", badge: "Pending assignment", screen: "status" }
+];
+
+function CoordinatorDemoVideo() {
+  const [playing, setPlaying] = useState(false);
+  const [sceneIndex, setSceneIndex] = useState(0);
+  const scene = demoScenes[sceneIndex];
+  useEffect(() => {
+    if (!playing) return;
+    const timer = window.setTimeout(() => {
+      setSceneIndex((current) => current === demoScenes.length - 1 ? 0 : current + 1);
+    }, 3200);
+    return () => window.clearTimeout(timer);
+  }, [playing, sceneIndex]);
+  function stop() {
+    setPlaying(false);
+    setSceneIndex(0);
+  }
+  return <section className="demo-video-section">
+    <div className="site-width demo-video-grid">
+      <div className="demo-video-copy">
+        <span className="eyebrow">Portal walkthrough</span>
+        <h2>Watch how a coordinator creates and tracks a home-safety task.</h2>
+        <p>This guided demo shows the care workspace journey from navigation to care-note evaluation, task approval and progress tracking.</p>
+      </div>
+      <div className="demo-video-player" aria-label="Care coordinator portal demo video">
+        <div className="demo-video-topbar"><span>{scene.badge}</span><small>{sceneIndex + 1} / {demoScenes.length}</small></div>
+        <div className="demo-video-stage">
+          <aside>{["Dashboard", "Create task", "Status board", "Service users"].map((item) => <span key={item} className={scene.nav === item ? "active" : ""}>{item}</span>)}</aside>
+          <div className="demo-video-screen">
+            <header><small>{scene.subtitle}</small><h3>{scene.title}</h3></header>
+            <DemoScreen type={scene.screen} />
+          </div>
+        </div>
+        <div className="demo-video-progress"><span style={{ width: `${((sceneIndex + 1) / demoScenes.length) * 100}%` }} /></div>
+        <div className="demo-video-controls">
+          <button aria-label={playing ? "Pause demo" : "Play demo"} onClick={() => setPlaying(!playing)}>{playing ? <Pause size={18} /> : <Play size={18} />}</button>
+          <button aria-label="Stop demo" onClick={stop}><Square size={16} /></button>
+          <strong>{scene.title}</strong>
+        </div>
+      </div>
+    </div>
+  </section>;
+}
+
+function DemoScreen({ type }: { type: string }) {
+  if (type === "dashboard") return <div className="demo-dashboard">
+    <div><strong>18</strong><span>Open tasks</span></div><div><strong>5</strong><span>Pending assignment</span></div><div><strong>9</strong><span>Completed</span></div>
+    <article><h4>Loose rail repair</h4><p>Ring-Fence enforced · Awaiting assignment</p></article>
+  </div>;
+  if (type === "create") return <div className="demo-create">
+    <label>Service user<input readOnly value="Mary W. · vulnerable adult" /></label>
+    <label>Care note<textarea readOnly value={"Back path is slippery with moss. Kitchen cupboard handle loose. Carer on site Tuesday 10:00."} /></label>
+    <button>Evaluate care note</button>
+  </div>;
+  if (type === "review") return <div className="demo-review">
+    <article><BadgeCheck size={18} /><div><h4>Path clearing</h4><p>High urgency · Enhanced DBS required</p></div></article>
+    <article><BadgeCheck size={18} /><div><h4>Minor repair</h4><p>Medium urgency · Carer window recorded</p></div></article>
+    <button>Approve tasks for TaskBridge</button>
+  </div>;
+  return <div className="demo-status-board">
+    {["Pending assignment", "Assigned", "Checked in", "Completed"].map((status, index) => <article key={status} className={index === 0 ? "active" : ""}><span>{status}</span><strong>{index === 0 ? "2" : index === 1 ? "4" : index === 2 ? "1" : "11"}</strong></article>)}
+    <p>Open the task drawer to see before/after photos, secure timeline events and completion status.</p>
+  </div>;
 }
 
 export function HowItWorks() {
