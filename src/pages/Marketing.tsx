@@ -41,8 +41,8 @@ const services = [
 
 const faqs = [
   {
-    question: "How does TaskBridge check electrical work?",
-    answer: "Electrical tasks are identified during task review and can only be matched to a professional with an approved, in-date electrical qualification and verified insurance. General handymen are blocked from regulated electrical work."
+    question: "How does TaskBridge handle work outside normal handyman scope?",
+    answer: "Tasks are reviewed before release. Anything specialist, unsafe or outside an approved home-support category is held for TaskBridge operations review instead of being sent to a general handyman."
   },
   {
     question: "How are vulnerable service users safeguarded?",
@@ -70,7 +70,7 @@ export function MarketingHome() {
               <span className="studio-trust-pill"><ShieldCheck size={16} /> Compliant care operations middleware</span>
               <h1>Connecting care teams with trusted, <span>vetted home safety</span> support.</h1>
               <blockquote>“Making home safer for our vulnerable”</blockquote>
-              <p>TaskBridge bridges the gap between care management and home safety. Convert carer observations into approved, trackable home inspections, garden safety and repairs while keeping resident identity and contact details secure.</p>
+              <p>TaskBridge bridges the gap between care management and home safety. Convert carer observations into approved, trackable practical tasks while keeping resident identity and contact details secure.</p>
               <div className="studio-assurance" aria-label="Service assurances">
                 <span><BadgeCheck size={19} /> Enhanced DBS-checked operatives</span>
                 <span><BadgeCheck size={19} /> GDPR compliant</span>

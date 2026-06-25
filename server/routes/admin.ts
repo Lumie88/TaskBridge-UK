@@ -8,6 +8,7 @@ import { query, withTransaction } from "../db.js";
 import { dispatchToHandymanNetwork, sendHandymanOnboardingInvite, sendSecureVisitLink, sendStaffOnboardingInvite, startDbsVerification } from "../integrations.js";
 import { evaluateTrader, requiresElectricalQualification, type MatchableTask, type MatchableTrader } from "../matching.js";
 import { createComplianceDocumentReviewUrl } from "../media.js";
+import { processRetryQueue } from "../retry-worker.js";
 import { createOpaqueToken, decryptField, encryptField, hashToken, isWorkEmail, publicId, safeInitials, slugify } from "../security.js";
 import type { UserRole } from "../types.js";
 
@@ -82,12 +83,35 @@ const documentReviewSchema = z.object({
   reason: z.string().trim().min(5).max(500),
   dbsExpiryDate: z.string().date().nullable().optional()
 });
+const demoRequestUpdateSchema = z.object({
+  status: z.enum(["new", "contacted", "qualified", "closed"]),
+  internalNotes: z.string().trim().max(2000).optional().default("")
+});
+const agencySettingsSchema = z.object({
+  vulnerableAdultRequiresEnhancedDbs: z.boolean(),
+  completionRequiresCareConfirmation: z.boolean(),
+  supervisedVisitExceptionAllowed: z.boolean(),
+  taskbridgeAssignmentRequiresAdminReview: z.boolean(),
+  defaultVisitRadiusMiles: z.number().min(0.1).max(50),
+  goLiveStatus: z.enum(["pilot_setup", "pilot_live", "paused", "suspended"]),
+  monthlyCap: z.number().min(0).max(100000)
+});
+const settlementUpdateSchema = z.object({
+  settlementStatus: z.enum(["not_invoiced", "invoiced", "agency_paid", "disputed", "written_off"]),
+  settlementReference: z.string().trim().max(120).optional().nullable(),
+  settlementDueAt: z.string().date().optional().nullable(),
+  settlementNotes: z.string().trim().max(2000).optional().nullable()
+});
+const disputeSchema = z.object({
+  reason: z.string().trim().min(5).max(1000),
+  refundAmount: z.number().min(0).max(100000).default(0)
+});
 
 export const adminRouter = Router();
 adminRouter.use(requireRoles("taskbridge_admin", "taskbridge_super_admin"));
 
 adminRouter.get("/dashboard", async (_req, res) => {
-  const [taskCounts, traderCounts, integrationFailures] = await Promise.all([
+  const [taskCounts, traderCounts, integrationFailures, demoRequests, paymentHolds] = await Promise.all([
     query<{ status: string; count: string }>("SELECT status::text, count(*)::text FROM ops.tasks WHERE deleted_at IS NULL GROUP BY status"),
     query<{ dbs_status: string; count: string }>(
       `SELECT COALESCE(d.status::text, 'not_started') AS dbs_status, count(*)::text
@@ -97,12 +121,16 @@ adminRouter.get("/dashboard", async (_req, res) => {
        ) d ON true
        WHERE t.deleted_at IS NULL GROUP BY d.status`
     ),
-    query<{ count: string }>("SELECT count(*)::text FROM integration.webhook_logs WHERE status IN ('failed', 'retrying')")
+    query<{ count: string }>("SELECT count(*)::text FROM integration.webhook_logs WHERE status IN ('failed', 'retrying')"),
+    query<{ count: string }>("SELECT count(*)::text FROM tenant.demo_requests WHERE status IN ('new', 'contacted')"),
+    query<{ count: string }>("SELECT count(*)::text FROM billing.payouts WHERE status = 'hold'")
   ]);
   res.json({
     tasks: Object.fromEntries(taskCounts.rows.map((row) => [row.status, Number(row.count)])),
     traders: Object.fromEntries(traderCounts.rows.map((row) => [row.dbs_status, Number(row.count)])),
-    integrationFailures: Number(integrationFailures.rows[0]?.count || 0)
+    integrationFailures: Number(integrationFailures.rows[0]?.count || 0),
+    demoRequests: Number(demoRequests.rows[0]?.count || 0),
+    paymentHolds: Number(paymentHolds.rows[0]?.count || 0)
   });
 });
 
@@ -134,6 +162,56 @@ adminRouter.get("/integrations/failures", async (_req, res) => {
     createdAt: row.created_at
   })) });
 });
+
+adminRouter.post("/integrations/retry/run", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {
+  const limit = Math.min(25, Math.max(1, Number(req.body?.limit || 10)));
+  const results = await withTransaction(req.auth!, (client) => processRetryQueue(client, limit));
+  await audit(req, "super_admin.integration_retry.run", "retry_queue", "batch", { count: results.length });
+  res.json({ processed: results.length, results });
+}));
+
+adminRouter.get("/demo-requests", asyncHandler(async (_req, res) => {
+  const result = await query<{
+    id: string; full_name: string; organisation_name: string; work_email: string; message: string | null;
+    status: string; internal_notes: string | null; owner_name: string | null; last_contacted_at: string | null; created_at: string;
+  }>(
+    `SELECT d.id::text, d.full_name, d.organisation_name, d.work_email::text, d.message,
+            d.status, d.internal_notes, u.full_name AS owner_name,
+            d.last_contacted_at::text, d.created_at::text
+     FROM tenant.demo_requests d
+     LEFT JOIN auth.users u ON u.id = d.owner_user_id
+     ORDER BY d.created_at DESC LIMIT 200`
+  );
+  res.json({ requests: result.rows.map((row) => ({
+    id: row.id,
+    fullName: row.full_name,
+    organisationName: row.organisation_name,
+    workEmail: row.work_email,
+    message: row.message,
+    status: row.status,
+    internalNotes: row.internal_notes,
+    ownerName: row.owner_name,
+    lastContactedAt: row.last_contacted_at,
+    createdAt: row.created_at
+  })) });
+}));
+
+adminRouter.patch("/demo-requests/:id", asyncHandler(async (req, res) => {
+  const parsed = demoRequestUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid demo request update" });
+  const result = await query<{ id: string }>(
+    `UPDATE tenant.demo_requests
+     SET status = $2, internal_notes = NULLIF($3, ''),
+         owner_user_id = COALESCE(owner_user_id, $4),
+         last_contacted_at = CASE WHEN $2 IN ('contacted', 'qualified') THEN COALESCE(last_contacted_at, clock_timestamp()) ELSE last_contacted_at END
+     WHERE id = $1
+     RETURNING id::text`,
+    [req.params.id, parsed.data.status, parsed.data.internalNotes, req.auth!.userId]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: "Demo request not found" });
+  await audit(req, "admin.demo_request.updated", "demo_request", result.rows[0].id, { status: parsed.data.status });
+  res.json({ id: result.rows[0].id, status: parsed.data.status });
+}));
 
 adminRouter.get("/tasks", async (_req, res) => {
   const result = await query<{
@@ -203,6 +281,13 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
   const selected = candidates.evaluated.find((candidate) => candidate.trader.id === parsed.data.traderId);
   if (!selected) return res.status(404).json({ error: "Handyman not found in the eligible pool" });
   if (!selected.evaluation.eligible) return res.status(409).json({ error: selected.evaluation.reasons.join("; ") });
+  const quote = Number(selected.trader.hourly_rate);
+  const precheck = await monthlyCapCheck(candidates.task.agency_id, quote);
+  if (!precheck.allowed) {
+    return res.status(409).json({
+      error: `Agency monthly cap exceeded. Used £${precheck.used.toFixed(2)} of £${precheck.monthlyCap.toFixed(2)}; this dispatch requires £${precheck.totalAmount.toFixed(2)}.`
+    });
+  }
 
   const rawVisitToken = createOpaqueToken(36);
   const visitPath = `/visit/${rawVisitToken}`;
@@ -226,6 +311,31 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
     if (!["pending_taskbridge_assignment", "assignment_review"].includes(task.status)) {
       throw Object.assign(new Error("Task is no longer available for assignment"), { statusCode: 409 });
     }
+    const cap = await client.query<{ monthly_cap: string | null; used: string }>(
+      `SELECT bp.monthly_cap::text,
+              COALESCE(SUM(tc.total_amount) FILTER (
+                WHERE tc.created_at >= date_trunc('month', clock_timestamp())
+                  AND tc.settlement_status <> 'written_off'
+              ), 0)::text AS used
+       FROM billing.agency_billing_profiles bp
+       LEFT JOIN billing.task_charges tc ON tc.agency_id = bp.agency_id
+       WHERE bp.agency_id = $1
+       GROUP BY bp.monthly_cap`,
+      [task.agency_id]
+    );
+    const monthlyCap = Number(cap.rows[0]?.monthly_cap || 500);
+    const used = Number(cap.rows[0]?.used || 0);
+    const totalAmount = Number((quote * 1.15).toFixed(2));
+    if (used + totalAmount > monthlyCap) {
+      await client.query(
+        `INSERT INTO ops.task_status_events
+          (task_id, agency_id, previous_status, new_status, changed_by_user_id, reason, metadata)
+         VALUES ($1, $2, $3, 'blocked', $4, 'Agency monthly cap would be exceeded before dispatch', $5)`,
+        [task.id, task.agency_id, task.status, req.auth!.userId, { monthlyCap, used, requested: totalAmount }]
+      );
+      await client.query("UPDATE ops.tasks SET status = 'blocked' WHERE id = $1", [task.id]);
+      throw Object.assign(new Error(`Agency monthly cap exceeded. Used £${used.toFixed(2)} of £${monthlyCap.toFixed(2)}; this dispatch requires £${totalAmount.toFixed(2)}.`), { statusCode: 409 });
+    }
     const assignment = await client.query<{ id: string }>(
       `INSERT INTO ops.assignments
         (task_id, agency_id, trader_id, status, selected_by_user_id, provider_booking_id,
@@ -234,7 +344,23 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
        RETURNING id::text`,
       [task.id, task.agency_id, selected.trader.id, req.auth!.userId,
         String(dispatchReceipt.providerBookingId || ""), selected.evaluation.distanceMiles,
-        Number(selected.trader.hourly_rate), candidates.task.preferred_window_start, candidates.task.preferred_window_end]
+        quote, candidates.task.preferred_window_start, candidates.task.preferred_window_end]
+    );
+    const charge = await client.query<{ id: string }>(
+      `INSERT INTO billing.task_charges
+        (task_id, agency_id, assignment_id, handyman_amount, agency_coordination_fee,
+         platform_fee, total_amount, status, settlement_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', 'not_invoiced')
+       ON CONFLICT (task_id) DO UPDATE SET assignment_id = EXCLUDED.assignment_id
+       RETURNING id::text`,
+      [task.id, task.agency_id, assignment.rows[0].id, quote, Number((quote * 0.05).toFixed(2)),
+        Number((quote * 0.10).toFixed(2)), totalAmount]
+    );
+    await client.query(
+      `INSERT INTO billing.payouts (trader_id, assignment_id, amount, currency, status, hold_reason)
+       VALUES ($1, $2, $3, 'GBP', 'hold', 'Awaiting visit evidence and care confirmation')
+       ON CONFLICT (assignment_id) DO NOTHING`,
+      [selected.trader.id, assignment.rows[0].id, quote]
     );
     const visit = await client.query<{ id: string }>(
       `INSERT INTO ops.visits (task_id, agency_id, assignment_id, trader_id, status)
@@ -592,8 +718,18 @@ adminRouter.get("/agencies", requireRoles("taskbridge_super_admin"), asyncHandle
     `SELECT a.id::text, a.public_id, a.name, a.slug, a.primary_contact_name, a.primary_contact_email::text,
             a.work_email_domain::text, a.status::text, a.created_at::text,
             COALESCE(workorders.active_workorders, 0)::text AS active_workorders,
-            api_key.key_prefix, api_key.key_length, api_key.created_at::text AS api_key_created_at
+            api_key.key_prefix, api_key.key_length, api_key.created_at::text AS api_key_created_at,
+            settings.vulnerable_adult_requires_enhanced_dbs,
+            settings.completion_requires_care_confirmation,
+            settings.supervised_visit_exception_allowed,
+            settings.taskbridge_assignment_requires_admin_review,
+            settings.default_visit_radius_miles::text,
+            settings.go_live_status,
+            billing.monthly_cap::text,
+            billing.status AS billing_status
      FROM tenant.agencies a
+     LEFT JOIN tenant.agency_settings settings ON settings.agency_id = a.id
+     LEFT JOIN billing.agency_billing_profiles billing ON billing.agency_id = a.id
      LEFT JOIN LATERAL (
        SELECT count(*) AS active_workorders FROM ops.tasks t
        WHERE t.agency_id = a.id AND t.deleted_at IS NULL AND t.status NOT IN ('completed', 'cancelled')
@@ -609,6 +745,16 @@ adminRouter.get("/agencies", requireRoles("taskbridge_super_admin"), asyncHandle
   res.json({ agencies: result.rows.map((row: Record<string, unknown>) => ({
     ...row,
     activeWorkorders: Number(row.active_workorders || 0),
+    settings: {
+      vulnerableAdultRequiresEnhancedDbs: row.vulnerable_adult_requires_enhanced_dbs,
+      completionRequiresCareConfirmation: row.completion_requires_care_confirmation,
+      supervisedVisitExceptionAllowed: row.supervised_visit_exception_allowed,
+      taskbridgeAssignmentRequiresAdminReview: row.taskbridge_assignment_requires_admin_review,
+      defaultVisitRadiusMiles: Number(row.default_visit_radius_miles || 15),
+      goLiveStatus: row.go_live_status || "pilot_setup",
+      monthlyCap: Number(row.monthly_cap || 500),
+      billingStatus: row.billing_status || "active"
+    },
     secretApiKey: row.key_prefix ? {
       masked: `${row.key_prefix}${"•".repeat(12)}`,
       length: Number(row.key_length || 0),
@@ -635,6 +781,11 @@ adminRouter.post("/agencies", requireRoles("taskbridge_super_admin"), async (req
         data.primaryContactEmail.toLowerCase(), data.workEmailDomain.toLowerCase()]
     );
     await client.query("INSERT INTO tenant.agency_settings (agency_id) VALUES ($1)", [agency.rows[0].id]);
+    await client.query(
+      `INSERT INTO billing.agency_billing_profiles (agency_id, billing_email, monthly_cap, currency, status)
+       VALUES ($1, $2, 500, 'GBP', 'active')`,
+      [agency.rows[0].id, data.primaryContactEmail.toLowerCase()]
+    );
     await client.query(
       `INSERT INTO tenant.agency_api_keys
         (agency_id, name, key_prefix, key_hash, key_length, scopes)
@@ -670,6 +821,128 @@ adminRouter.post("/agencies", requireRoles("taskbridge_super_admin"), async (req
     invitationExpiresAt: invitationExpiresAt.toISOString(), emailDeliveryStatus: delivery.status
   });
 });
+
+adminRouter.patch("/agencies/:id/settings", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {
+  const parsed = agencySettingsSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid agency settings" });
+  const data = parsed.data;
+  const result = await withTransaction(req.auth!, async (client) => {
+    const agency = await client.query<{ id: string }>(
+      "SELECT id::text FROM tenant.agencies WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+      [req.params.id]
+    );
+    if (!agency.rows[0]) return null;
+    await client.query(
+      `UPDATE tenant.agency_settings SET
+         vulnerable_adult_requires_enhanced_dbs = $2,
+         completion_requires_care_confirmation = $3,
+         supervised_visit_exception_allowed = $4,
+         taskbridge_assignment_requires_admin_review = $5,
+         default_visit_radius_miles = $6,
+         go_live_status = $7
+       WHERE agency_id = $1`,
+      [req.params.id, data.vulnerableAdultRequiresEnhancedDbs, data.completionRequiresCareConfirmation,
+        data.supervisedVisitExceptionAllowed, data.taskbridgeAssignmentRequiresAdminReview,
+        data.defaultVisitRadiusMiles, data.goLiveStatus]
+    );
+    await client.query(
+      `INSERT INTO billing.agency_billing_profiles (agency_id, monthly_cap, currency, status)
+       VALUES ($1, $2, 'GBP', 'active')
+       ON CONFLICT (agency_id) DO UPDATE SET monthly_cap = EXCLUDED.monthly_cap`,
+      [req.params.id, data.monthlyCap]
+    );
+    return agency.rows[0].id;
+  });
+  if (!result) return res.status(404).json({ error: "Care agency not found" });
+  await audit(req, "super_admin.agency_settings.updated", "agency", result, data);
+  res.json({ id: result, settings: data });
+}));
+
+adminRouter.get("/billing/task-charges", asyncHandler(async (_req, res) => {
+  const result = await query<{
+    id: string; task_id: string; public_id: string; agency_name: string; handyman_name: string | null;
+    handyman_amount: string; agency_coordination_fee: string; platform_fee: string; total_amount: string;
+    status: string; settlement_status: string; settlement_reference: string | null; settlement_due_at: string | null;
+    settlement_notes: string | null; created_at: string; payout_status: string | null; payable_after: string | null;
+  }>(
+    `SELECT tc.id::text, t.id::text AS task_id, t.public_id, ag.name AS agency_name,
+            tr.display_name AS handyman_name, tc.handyman_amount::text, tc.agency_coordination_fee::text,
+            tc.platform_fee::text, tc.total_amount::text, tc.status, tc.settlement_status,
+            tc.settlement_reference, tc.settlement_due_at::text, tc.settlement_notes, tc.created_at::text,
+            p.status AS payout_status, p.payable_after::text
+     FROM billing.task_charges tc
+     JOIN ops.tasks t ON t.id = tc.task_id
+     JOIN tenant.agencies ag ON ag.id = tc.agency_id
+     LEFT JOIN ops.assignments a ON a.id = tc.assignment_id
+     LEFT JOIN trader.traders tr ON tr.id = a.trader_id
+     LEFT JOIN billing.payouts p ON p.assignment_id = a.id
+     ORDER BY tc.created_at DESC LIMIT 200`
+  );
+  res.json({ charges: result.rows.map((row) => ({
+    id: row.id,
+    taskId: row.public_id,
+    agencyName: row.agency_name,
+    handymanName: row.handyman_name,
+    handymanAmount: Number(row.handyman_amount),
+    agencyCoordinationFee: Number(row.agency_coordination_fee),
+    platformFee: Number(row.platform_fee),
+    totalAmount: Number(row.total_amount),
+    status: row.status,
+    settlementStatus: row.settlement_status,
+    settlementReference: row.settlement_reference,
+    settlementDueAt: row.settlement_due_at,
+    settlementNotes: row.settlement_notes,
+    payoutStatus: row.payout_status,
+    payableAfter: row.payable_after,
+    createdAt: row.created_at
+  })) });
+}));
+
+adminRouter.patch("/billing/task-charges/:id/settlement", asyncHandler(async (req, res) => {
+  const parsed = settlementUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid settlement update" });
+  const data = parsed.data;
+  const result = await query<{ id: string }>(
+    `UPDATE billing.task_charges
+     SET settlement_status = $2, settlement_reference = $3, settlement_due_at = $4, settlement_notes = $5,
+         status = CASE WHEN $2 = 'agency_paid' THEN 'settled' ELSE status END
+     WHERE id = $1 RETURNING id::text`,
+    [req.params.id, data.settlementStatus, data.settlementReference || null, data.settlementDueAt || null, data.settlementNotes || null]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: "Task charge not found" });
+  await audit(req, "admin.billing.settlement_updated", "task_charge", result.rows[0].id, data);
+  res.json({ id: result.rows[0].id, settlementStatus: data.settlementStatus });
+}));
+
+adminRouter.post("/billing/task-charges/:id/disputes", asyncHandler(async (req, res) => {
+  const parsed = disputeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid dispute" });
+  const data = parsed.data;
+  const dispute = await withTransaction(req.auth!, async (client) => {
+    const charge = await client.query<{ id: string; agency_id: string; task_id: string; assignment_id: string | null }>(
+      "SELECT id::text, agency_id::text, task_id::text, assignment_id::text FROM billing.task_charges WHERE id = $1 FOR UPDATE",
+      [req.params.id]
+    );
+    if (!charge.rows[0]) return null;
+    const created = await client.query<{ id: string }>(
+      `INSERT INTO billing.payment_disputes
+        (task_charge_id, agency_id, task_id, opened_by_user_id, reason, refund_amount, payout_hold)
+       VALUES ($1, $2, $3, $4, $5, $6, true) RETURNING id::text`,
+      [charge.rows[0].id, charge.rows[0].agency_id, charge.rows[0].task_id, req.auth!.userId, data.reason, data.refundAmount]
+    );
+    await client.query("UPDATE billing.task_charges SET settlement_status = 'disputed', status = 'disputed' WHERE id = $1", [charge.rows[0].id]);
+    if (charge.rows[0].assignment_id) {
+      await client.query(
+        "UPDATE billing.payouts SET status = 'hold', hold_reason = $2 WHERE assignment_id = $1",
+        [charge.rows[0].assignment_id, `Dispute opened: ${data.reason}`]
+      );
+    }
+    return created.rows[0].id;
+  });
+  if (!dispute) return res.status(404).json({ error: "Task charge not found" });
+  await audit(req, "admin.billing.dispute_opened", "payment_dispute", dispute, { taskChargeId: req.params.id, reason: data.reason });
+  res.status(201).json({ id: dispute, status: "open" });
+}));
 
 adminRouter.get("/access/users", requireRoles("taskbridge_super_admin"), asyncHandler(async (_req, res) => {
   const [users, invitations] = await Promise.all([
@@ -823,6 +1096,25 @@ adminRouter.get("/audit", requireRoles("taskbridge_super_admin"), async (_req, r
   );
   res.json({ events: result.rows });
 });
+
+async function monthlyCapCheck(agencyId: string, handymanAmount: number) {
+  const totalAmount = Number((handymanAmount * 1.15).toFixed(2));
+  const result = await query<{ monthly_cap: string | null; used: string }>(
+    `SELECT bp.monthly_cap::text,
+            COALESCE(SUM(tc.total_amount) FILTER (
+              WHERE tc.created_at >= date_trunc('month', clock_timestamp())
+                AND tc.settlement_status <> 'written_off'
+            ), 0)::text AS used
+     FROM billing.agency_billing_profiles bp
+     LEFT JOIN billing.task_charges tc ON tc.agency_id = bp.agency_id
+     WHERE bp.agency_id = $1
+     GROUP BY bp.monthly_cap`,
+    [agencyId]
+  );
+  const monthlyCap = Number(result.rows[0]?.monthly_cap || 500);
+  const used = Number(result.rows[0]?.used || 0);
+  return { allowed: used + totalAmount <= monthlyCap, monthlyCap, used, totalAmount };
+}
 
 async function evaluateCandidates(publicTaskId: string) {
   const taskResult = await query<CandidateTaskRow>(

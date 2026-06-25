@@ -34,6 +34,8 @@ interface AdminDashboard {
   tasks: Record<string, number>;
   traders: Record<string, number>;
   integrationFailures: number;
+  demoRequests: number;
+  paymentHolds: number;
 }
 
 interface IntegrationFailure {
@@ -95,12 +97,54 @@ interface Agency {
   status: string;
   created_at: string;
   activeWorkorders: number;
+  settings?: {
+    vulnerableAdultRequiresEnhancedDbs: boolean;
+    completionRequiresCareConfirmation: boolean;
+    supervisedVisitExceptionAllowed: boolean;
+    taskbridgeAssignmentRequiresAdminReview: boolean;
+    defaultVisitRadiusMiles: number;
+    goLiveStatus: string;
+    monthlyCap: number;
+    billingStatus: string;
+  };
   secretApiKey: null | {
     masked: string;
     length: number;
     encryptionRepresentation: string;
     issuedAt: string;
   };
+}
+
+interface DemoRequest {
+  id: string;
+  fullName: string;
+  organisationName: string;
+  workEmail: string;
+  message: string | null;
+  status: string;
+  internalNotes: string | null;
+  ownerName: string | null;
+  lastContactedAt: string | null;
+  createdAt: string;
+}
+
+interface BillingCharge {
+  id: string;
+  taskId: string;
+  agencyName: string;
+  handymanName: string | null;
+  handymanAmount: number;
+  agencyCoordinationFee: number;
+  platformFee: number;
+  totalAmount: number;
+  status: string;
+  settlementStatus: string;
+  settlementReference: string | null;
+  settlementDueAt: string | null;
+  settlementNotes: string | null;
+  payoutStatus: string | null;
+  payableAfter: string | null;
+  createdAt: string;
 }
 
 interface AccessUser {
@@ -122,6 +166,8 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   const [accessInvitations, setAccessInvitations] = useState<AccessInvitation[]>([]);
   const [integrationFailures, setIntegrationFailures] = useState<IntegrationFailure[]>([]);
+  const [demoRequests, setDemoRequests] = useState<DemoRequest[]>([]);
+  const [billingCharges, setBillingCharges] = useState<BillingCharge[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [selectedTask, setSelectedTask] = useState<AdminTask | null>(null);
@@ -132,17 +178,21 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
     setLoading(true);
     setError("");
     try {
-      const [summary, taskResult, traderResult, agencyResult, accessResult, integrationResult] = await Promise.all([
+      const [summary, taskResult, traderResult, agencyResult, accessResult, integrationResult, demoResult, billingResult] = await Promise.all([
         api<AdminDashboard>("/api/admin/dashboard"),
         api<{ tasks: AdminTask[] }>("/api/admin/tasks"),
         api<{ traders: Trader[] }>("/api/admin/traders"),
         user.role === "taskbridge_super_admin" ? api<{ agencies: Agency[] }>("/api/admin/agencies") : Promise.resolve({ agencies: [] }),
         user.role === "taskbridge_super_admin" ? api<{ users: AccessUser[]; invitations: AccessInvitation[] }>("/api/admin/access/users") : Promise.resolve({ users: [], invitations: [] }),
-        api<{ failures: IntegrationFailure[] }>("/api/admin/integrations/failures")
+        api<{ failures: IntegrationFailure[] }>("/api/admin/integrations/failures"),
+        api<{ requests: DemoRequest[] }>("/api/admin/demo-requests"),
+        api<{ charges: BillingCharge[] }>("/api/admin/billing/task-charges")
       ]);
       setDashboard(summary); setTasks(taskResult.tasks); setTraders(traderResult.traders); setAgencies(agencyResult.agencies);
       setAccessUsers(accessResult.users); setAccessInvitations(accessResult.invitations);
       setIntegrationFailures(integrationResult.failures);
+      setDemoRequests(demoResult.requests);
+      setBillingCharges(billingResult.charges);
       setSelectedTask((current) => current ? taskResult.tasks.find((task) => task.id === current.id) || null : null);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load administration"); }
     finally { setLoading(false); }
@@ -166,10 +216,14 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
     {error && <div className="alert alert-danger">{error}<button onClick={load}><RefreshCw size={16} /> Retry</button></div>}
     {loading && !dashboard ? <div className="app-loading"><LoaderCircle className="spin" /> Loading secure operations...</div> : active === "overview"
       ? <AdminOverview dashboard={dashboard} tasks={tasks} onOpenView={openOperationalView} onReview={(task) => { setSelectedTask(task); setTaskFilter("awaiting"); setActive("tasks"); }} />
-      : active === "tasks"
+      : active === "demo-requests"
+        ? <DemoRequestDesk requests={demoRequests} onChanged={load} />
+        : active === "tasks"
         ? <AssignmentDesk tasks={tasks} filter={taskFilter} onFilter={setTaskFilter} selectedTask={selectedTask} onSelect={setSelectedTask} onChanged={load} />
         : active === "integrations"
           ? <IntegrationMonitor failures={integrationFailures} onRefresh={load} />
+        : active === "billing"
+          ? <FinanceControls charges={billingCharges} onChanged={load} />
         : active === "agencies" && user.role === "taskbridge_super_admin"
           ? <AgencyOnboarding agencies={agencies} onChanged={load} />
           : active === "access" && user.role === "taskbridge_super_admin"
@@ -193,6 +247,8 @@ function AdminOverview({ dashboard, tasks, onReview, onOpenView }: {
       <MetricAdmin icon={<BadgeCheck />} label="DBS approved" value={dashboard?.traders.approved || 0} tone="green" onClick={() => onOpenView("traders", "approved")} />
       <MetricAdmin icon={<FileWarning />} label="DBS action needed" value={(dashboard?.traders.pending || 0) + (dashboard?.traders.unclear || 0) + (dashboard?.traders.rejected || 0) + (dashboard?.traders.not_started || 0)} tone="blue" onClick={() => onOpenView("traders", "action-needed")} />
       <MetricAdmin icon={<CircleAlert />} label="Integration failures" value={dashboard?.integrationFailures || 0} tone="red" onClick={() => onOpenView("integrations")} />
+      <MetricAdmin icon={<Mail />} label="Demo follow-ups" value={dashboard?.demoRequests || 0} tone="blue" onClick={() => onOpenView("demo-requests")} />
+      <MetricAdmin icon={<FileWarning />} label="Payout holds" value={dashboard?.paymentHolds || 0} tone="amber" onClick={() => onOpenView("billing")} />
     </div>
     <section className="panel">
       <div className="panel-heading"><div><h2>Assignment queue</h2><p>Tasks waiting for secure candidate evaluation.</p></div></div>
@@ -292,13 +348,70 @@ function CandidatePanel({ task, onChanged }: { task: AdminTask | null; onChanged
 
 function IntegrationMonitor({ failures, onRefresh }: { failures: IntegrationFailure[]; onRefresh: () => Promise<void> }) {
   const [refreshing, setRefreshing] = useState(false);
+  const [running, setRunning] = useState(false);
   async function refresh() {
     setRefreshing(true);
     try { await onRefresh(); } finally { setRefreshing(false); }
   }
+  async function runRetries() {
+    setRunning(true);
+    try {
+      await api("/api/admin/integrations/retry/run", { method: "POST", body: JSON.stringify({ limit: 10 }) });
+      await onRefresh();
+    } finally { setRunning(false); }
+  }
   return <>
-    <div className="page-title-row"><div><span className="eyebrow">Integration operations</span><h1>Delivery failures</h1><p>Review failed and retrying care-platform callbacks and inbound events.</p></div><button className="button button-secondary" onClick={refresh} disabled={refreshing}>{refreshing ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />} Refresh</button></div>
+    <div className="page-title-row"><div><span className="eyebrow">Integration operations</span><h1>Delivery failures</h1><p>Review failed and retrying care-platform callbacks and inbound events.</p></div><div className="row-actions"><button className="button button-secondary" onClick={runRetries} disabled={running}>{running ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />} Run retries</button><button className="button button-secondary" onClick={refresh} disabled={refreshing}>{refreshing ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />} Refresh</button></div></div>
     <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Care agency</th><th>Event</th><th>Endpoint</th><th>Status</th><th>Attempts</th><th>Received</th></tr></thead><tbody>{failures.map((failure) => <tr key={failure.id}><td><strong>{failure.agencyName || "Platform"}</strong><small>{humanize(failure.direction)}</small></td><td><strong>{humanize(failure.eventType)}</strong><small>{failure.errorMessage || (failure.responseStatus ? `HTTP ${failure.responseStatus}` : "Provider response unavailable")}</small></td><td><span className="integration-endpoint">{failure.endpoint}</span></td><td><StatusBadge status={failure.status}>{humanize(failure.status)}</StatusBadge>{failure.nextRetryAt && <small>Next retry {formatDate(failure.nextRetryAt, true)}</small>}</td><td>{failure.retryCount}</td><td>{formatDate(failure.createdAt, true)}</td></tr>)}</tbody></table></div>{!failures.length && <EmptyState icon={<BadgeCheck />} title="No integration failures" detail="Inbound events and care-platform callbacks are currently clear." />}</section>
+  </>;
+}
+
+function DemoRequestDesk({ requests, onChanged }: { requests: DemoRequest[]; onChanged: () => Promise<void> }) {
+  const [filter, setFilter] = useState("open");
+  const [busy, setBusy] = useState("");
+  const filtered = requests.filter((item) => filter === "open" ? item.status !== "closed" : filter === "all" ? true : item.status === filter);
+  async function update(item: DemoRequest, status: string) {
+    const notes = window.prompt("Add an internal note for this demo request", item.internalNotes || "");
+    setBusy(item.id);
+    try {
+      await api(`/api/admin/demo-requests/${item.id}`, { method: "PATCH", body: JSON.stringify({ status, internalNotes: notes || "" }) });
+      await onChanged();
+    } finally { setBusy(""); }
+  }
+  return <>
+    <div className="page-title-row"><div><span className="eyebrow">Landing-page enquiries</span><h1>Demo request queue</h1><p>Track new care-company interest from request through qualification.</p></div></div>
+    <nav className="task-filter-links" aria-label="Filter demo requests">{[["open", "Open"], ["new", "New"], ["contacted", "Contacted"], ["qualified", "Qualified"], ["closed", "Closed"], ["all", "All"]].map(([key, label]) => <button key={key} className={filter === key ? "active" : ""} onClick={() => setFilter(key)}>{label}<span>{requests.filter((item) => key === "open" ? item.status !== "closed" : key === "all" ? true : item.status === key).length}</span></button>)}</nav>
+    <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Organisation</th><th>Contact</th><th>Status</th><th>Need</th><th>Actions</th></tr></thead><tbody>{filtered.map((item) => <tr key={item.id}><td><strong>{item.organisationName}</strong><small>{formatDate(item.createdAt, true)}</small></td><td><strong>{item.fullName}</strong><small>{item.workEmail}</small></td><td><StatusBadge status={item.status}>{humanize(item.status)}</StatusBadge>{item.ownerName && <small>Owner: {item.ownerName}</small>}</td><td><span className="integration-endpoint">{item.message || "No extra note"}</span>{item.internalNotes && <small>Internal: {item.internalNotes}</small>}</td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === item.id} onClick={() => update(item, "contacted")}>Contacted</button><button className="button button-secondary button-small" disabled={busy === item.id} onClick={() => update(item, "qualified")}>Qualify</button><button className="button button-secondary button-small" disabled={busy === item.id} onClick={() => update(item, "closed")}>Close</button></div></td></tr>)}</tbody></table></div>{!filtered.length && <EmptyState icon={<Mail />} title="No demo requests in this view" detail="New book-demo submissions will appear here." />}</section>
+  </>;
+}
+
+function FinanceControls({ charges, onChanged }: { charges: BillingCharge[]; onChanged: () => Promise<void> }) {
+  const [busy, setBusy] = useState("");
+  async function settlement(charge: BillingCharge) {
+    const settlementStatus = window.prompt("Settlement status: not_invoiced, invoiced, agency_paid, disputed, written_off", charge.settlementStatus);
+    if (!settlementStatus) return;
+    const settlementReference = window.prompt("Invoice or settlement reference", charge.settlementReference || "");
+    setBusy(charge.id);
+    try {
+      await api(`/api/admin/billing/task-charges/${charge.id}/settlement`, {
+        method: "PATCH",
+        body: JSON.stringify({ settlementStatus, settlementReference, settlementDueAt: charge.settlementDueAt, settlementNotes: charge.settlementNotes })
+      });
+      await onChanged();
+    } finally { setBusy(""); }
+  }
+  async function dispute(charge: BillingCharge) {
+    const reason = window.prompt("Why is this task disputed or on payment hold?");
+    if (!reason || reason.length < 5) return;
+    setBusy(charge.id);
+    try {
+      await api(`/api/admin/billing/task-charges/${charge.id}/disputes`, { method: "POST", body: JSON.stringify({ reason, refundAmount: 0 }) });
+      await onChanged();
+    } finally { setBusy(""); }
+  }
+  return <>
+    <div className="page-title-row"><div><span className="eyebrow">Pilot finance control</span><h1>Invoices, settlement and payout holds</h1><p>Track agency-billed task charges and hold payouts when evidence, confirmation or disputes require review.</p></div></div>
+    <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Task</th><th>Agency</th><th>Amounts</th><th>Settlement</th><th>Payout</th><th>Actions</th></tr></thead><tbody>{charges.map((charge) => <tr key={charge.id}><td><strong>{charge.taskId}</strong><small>{formatDate(charge.createdAt, true)}</small></td><td><strong>{charge.agencyName}</strong><small>{charge.handymanName || "No handyman"}</small></td><td><strong>£{charge.totalAmount.toFixed(2)}</strong><small>Handyman £{charge.handymanAmount.toFixed(2)} · Agency £{charge.agencyCoordinationFee.toFixed(2)} · Platform £{charge.platformFee.toFixed(2)}</small></td><td><StatusBadge status={charge.settlementStatus}>{humanize(charge.settlementStatus)}</StatusBadge>{charge.settlementReference && <small>{charge.settlementReference}</small>}</td><td><StatusBadge status={charge.payoutStatus || "pending"}>{humanize(charge.payoutStatus || "pending")}</StatusBadge>{charge.payableAfter && <small>Eligible {formatDate(charge.payableAfter, true)}</small>}</td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === charge.id} onClick={() => settlement(charge)}>Settlement</button><button className="button button-secondary button-small document-reject" disabled={busy === charge.id} onClick={() => dispute(charge)}>Dispute / hold</button></div></td></tr>)}</tbody></table></div>{!charges.length && <EmptyState icon={<FileCheck2 />} title="No charge records yet" detail="Charges are created when a TaskBridge admin dispatches a handyman." />}</section>
   </>;
 }
 
@@ -411,6 +524,7 @@ function ComplianceDocumentReview({ trader, documents, loading, busy, onClose, o
 
 function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChanged: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
+  const [settingsBusy, setSettingsBusy] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [issuedKey, setIssuedKey] = useState("");
@@ -434,10 +548,31 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to onboard care agency"); }
     finally { setBusy(false); }
   }
+  async function updateSettings(agency: Agency) {
+    const current = agency.settings;
+    const monthlyCap = Number(window.prompt("Monthly cap in GBP", String(current?.monthlyCap || 500)));
+    if (!Number.isFinite(monthlyCap)) return;
+    const goLiveStatus = window.prompt("Go-live status: pilot_setup, pilot_live, paused, suspended", current?.goLiveStatus || "pilot_setup");
+    if (!goLiveStatus) return;
+    setSettingsBusy(agency.id); setError("");
+    try {
+      await api(`/api/admin/agencies/${agency.id}/settings`, { method: "PATCH", body: JSON.stringify({
+        vulnerableAdultRequiresEnhancedDbs: current?.vulnerableAdultRequiresEnhancedDbs ?? true,
+        completionRequiresCareConfirmation: current?.completionRequiresCareConfirmation ?? true,
+        supervisedVisitExceptionAllowed: current?.supervisedVisitExceptionAllowed ?? false,
+        taskbridgeAssignmentRequiresAdminReview: current?.taskbridgeAssignmentRequiresAdminReview ?? true,
+        defaultVisitRadiusMiles: current?.defaultVisitRadiusMiles ?? 15,
+        goLiveStatus,
+        monthlyCap
+      }) });
+      await onChanged();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to update agency settings"); }
+    finally { setSettingsBusy(""); }
+  }
   return <>
     <div className="page-title-row"><div><span className="eyebrow">Super-admin control</span><h1>Care agency onboarding</h1><p>Only TaskBridge super administrators can create a care-organisation workspace.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Super admin only</span></div>
     <div className="agency-onboarding-layout">
-      <section className="panel"><div className="panel-heading"><div><h2>Care agencies</h2><p>{agencies.length} organisation{agencies.length === 1 ? "" : "s"} registered.</p></div></div><div className="agency-list agency-key-list">{agencies.map((agency) => <article key={agency.id}><span><Building2 size={19} /></span><div><h3>{agency.name}</h3><p><Mail size={14} /> {agency.primary_contact_email}</p><small>{agency.public_id} / {agency.work_email_domain}</small><div className="agency-operational-meta"><span><ClipboardCheck size={14} /> {agency.activeWorkorders} active workorder{agency.activeWorkorders === 1 ? "" : "s"}</span>{agency.secretApiKey ? <span title={agency.secretApiKey.encryptionRepresentation}><KeyRound size={14} /> {agency.secretApiKey.masked} / {agency.secretApiKey.length} characters / {agency.secretApiKey.encryptionRepresentation}</span> : <span><KeyRound size={14} /> Integration key not issued</span>}</div></div><StatusBadge status={agency.status}>{humanize(agency.status)}</StatusBadge></article>)}</div></section>
+      <section className="panel"><div className="panel-heading"><div><h2>Care agencies</h2><p>{agencies.length} organisation{agencies.length === 1 ? "" : "s"} registered.</p></div></div><div className="agency-list agency-key-list">{agencies.map((agency) => <article key={agency.id}><span><Building2 size={19} /></span><div><h3>{agency.name}</h3><p><Mail size={14} /> {agency.primary_contact_email}</p><small>{agency.public_id} / {agency.work_email_domain}</small><div className="agency-operational-meta"><span><ClipboardCheck size={14} /> {agency.activeWorkorders} active workorder{agency.activeWorkorders === 1 ? "" : "s"}</span><span><ShieldCheck size={14} /> {humanize(agency.settings?.goLiveStatus || "pilot_setup")} · £{(agency.settings?.monthlyCap || 500).toFixed(0)} cap</span>{agency.secretApiKey ? <span title={agency.secretApiKey.encryptionRepresentation}><KeyRound size={14} /> {agency.secretApiKey.masked} / {agency.secretApiKey.length} characters / {agency.secretApiKey.encryptionRepresentation}</span> : <span><KeyRound size={14} /> Integration key not issued</span>}</div></div><div className="row-actions"><StatusBadge status={agency.status}>{humanize(agency.status)}</StatusBadge><button className="button button-secondary button-small" disabled={settingsBusy === agency.id} onClick={() => updateSettings(agency)}>Settings</button></div></article>)}</div></section>
       <aside className="agency-create-panel"><div className="resident-create-heading"><span><Plus size={20} /></span><div><h2>Onboard a care agency</h2><p>Create the tenant and invite its first care manager.</p></div></div><form className="stack" onSubmit={createAgency}><label>Agency name<input required name="name" minLength={2} /></label><label>Primary contact name<input required name="primaryContactName" minLength={2} /></label><label>Primary contact work email<input required name="primaryContactEmail" type="email" /></label><label>Approved work email domain<input required name="workEmailDomain" placeholder="careagency.co.uk" /></label>{error && <p className="form-error">{error}</p>}{success && <p className="form-success">{success}</p>}{staffInvitation && <div className="invitation-link"><input readOnly value={staffInvitation.url} aria-label="Care manager invitation URL" /><button className="icon-button" type="button" onClick={() => navigator.clipboard.writeText(staffInvitation.url)} aria-label="Copy manager invitation"><Copy size={18} /></button></div>}{issuedKey && <div className="issued-api-key"><strong>Copy the integration key now</strong><p>For security, the full secret is shown only once.</p><div><input readOnly value={issuedKey} aria-label="New agency API key" /><button className="icon-button" type="button" onClick={() => navigator.clipboard.writeText(issuedKey)} aria-label="Copy API key"><Copy size={18} /></button></div></div>}<button className="button button-primary button-full" disabled={busy} type="submit">{busy ? <><LoaderCircle className="spin" size={17} /> Creating...</> : <><Building2 size={17} /> Create agency workspace</>}</button></form></aside>
     </div>
   </>;

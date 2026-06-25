@@ -44,6 +44,10 @@ export function deterministicTaskPlan(note: string, vulnerable: boolean): TaskSu
 }
 
 export async function createTaskPlan(note: string, vulnerable: boolean) {
+  if (config.googleGeminiApiKey) {
+    const gemini = await createGeminiTaskPlan(note, vulnerable);
+    if (gemini.length) return gemini;
+  }
   if (!config.aiTaskPlannerUrl) return deterministicTaskPlan(note, vulnerable);
   const response = await fetch(config.aiTaskPlannerUrl, {
     method: "POST",
@@ -60,6 +64,43 @@ export async function createTaskPlan(note: string, vulnerable: boolean) {
   });
   if (!response.ok) throw new Error(`AI task planner failed with status ${response.status}`);
   return plannerResponseSchema.parse(await response.json()).suggestions;
+}
+
+async function createGeminiTaskPlan(note: string, vulnerable: boolean) {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.googleGeminiModel)}:generateContent?key=${encodeURIComponent(config.googleGeminiApiKey)}`;
+  const prompt = [
+    "You are TaskBridge's care-note safety task planner for UK homecare operations.",
+    "Return only valid JSON matching this exact shape:",
+    '{"suggestions":[{"category":"string","summary":"string","urgency":"low|medium|high|urgent","safeguardingApplies":true}]}',
+    "Rules:",
+    "- Split a note into separate practical home-safety tasks when it contains more than one issue.",
+    "- Keep summaries free of keysafe codes, phone numbers, and unnecessary resident personal data.",
+    "- Use only practical low-risk home support categories unless the note clearly requires escalation.",
+    "- Mark safeguardingApplies from the vulnerableAdult flag.",
+    `Allowed categories: ${categoryRules.map((rule) => rule.category).join(", ")}.`,
+    `vulnerableAdult: ${vulnerable}`,
+    `Care note: ${note}`
+  ].join("\n");
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: "application/json", temperature: 0.2 }
+      }),
+      signal: AbortSignal.timeout(12_000)
+    });
+    if (!response.ok) return [];
+    const payload = await response.json() as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
+    if (!text) return [];
+    return plannerResponseSchema.parse(JSON.parse(text)).suggestions;
+  } catch {
+    return [];
+  }
 }
 
 export function extractKeysafeInfo(note: string) {

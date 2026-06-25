@@ -16,12 +16,52 @@ async function providerPost(url: string, apiKey: string, payload: unknown) {
 
 export async function startDbsVerification(payload: Record<string, unknown>) {
   if (!config.dbsProviderApiUrl) throw new Error("DBS verification provider is not configured");
+  if (config.dbsProviderKind.toLowerCase() === "amiqus") {
+    return providerPost(`${config.dbsProviderApiUrl.replace(/\/$/, "")}/v1/sessions`, config.dbsProviderApiKey, {
+      type: "enhanced_dbs",
+      candidate: {
+        external_id: payload.handymanId,
+        name: payload.fullName,
+        mobile: payload.mobile
+      },
+      callback_url: payload.callbackUrl,
+      metadata: {
+        taskbridgeHandymanId: payload.handymanId,
+        requestedCheck: payload.checkType
+      }
+    });
+  }
   return providerPost(config.dbsProviderApiUrl, config.dbsProviderApiKey, payload);
 }
 
 export async function dispatchToHandymanNetwork(payload: Record<string, unknown>) {
   if (!config.handymanNetworkApiUrl) {
     return { providerBookingId: `internal_${Date.now()}`, status: "recorded_without_provider" };
+  }
+  const provider = config.handymanNetworkProvider.toLowerCase();
+  if (provider === "taskrabbit") {
+    return providerPost(`${config.handymanNetworkApiUrl.replace(/\/$/, "")}/v3/restricted-booking`, config.handymanNetworkApiKey, {
+      restricted_pool: true,
+      task_id: payload.taskId,
+      trader_id: payload.selectedTraderId,
+      category: payload.category,
+      notes: payload.taskSummary,
+      visit_url: payload.visitUrl,
+      scheduled_window: payload.scheduledWindow,
+      safeguards: payload.requiredSafeguards
+    });
+  }
+  if (provider === "checkatrade") {
+    return providerPost(`${config.handymanNetworkApiUrl.replace(/\/$/, "")}/api/v1/dispatched-jobs`, config.handymanNetworkApiKey, {
+      job_reference: payload.taskId,
+      member_reference: payload.selectedTraderId,
+      category: payload.category,
+      summary: payload.taskSummary,
+      private_pool_only: true,
+      secure_visit_url: payload.visitUrl,
+      scheduled_window: payload.scheduledWindow,
+      required_safeguards: payload.requiredSafeguards
+    });
   }
   return providerPost(config.handymanNetworkApiUrl, config.handymanNetworkApiKey, payload);
 }

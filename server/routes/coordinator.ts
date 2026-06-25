@@ -419,6 +419,21 @@ coordinatorRouter.post("/tasks/:publicId/confirm", async (req, res) => {
        VALUES ($1, $2, 'awaiting_care_confirmation', 'completed', $3, 'Completion confirmed by care team')`,
       [task.rows[0].id, req.auth!.agencyId, req.auth!.userId]
     );
+    await client.query(
+      `UPDATE billing.task_charges
+       SET status = 'confirmed'
+       WHERE task_id = $1 AND status <> 'disputed'`,
+      [task.rows[0].id]
+    );
+    await client.query(
+      `UPDATE billing.payouts p
+       SET status = CASE WHEN p.status = 'hold' AND p.hold_reason = 'Awaiting visit evidence and care confirmation' THEN 'pending' ELSE p.status END,
+           payable_after = COALESCE(p.payable_after, clock_timestamp() + interval '48 hours'),
+           hold_reason = CASE WHEN p.hold_reason = 'Awaiting visit evidence and care confirmation' THEN NULL ELSE p.hold_reason END
+       FROM ops.assignments a
+       WHERE p.assignment_id = a.id AND a.task_id = $1`,
+      [task.rows[0].id]
+    );
     const log = await client.query<{ id: string }>(
       `INSERT INTO integration.webhook_logs
         (agency_id, direction, endpoint, event_type, idempotency_key, status, request_metadata)
