@@ -9,11 +9,14 @@ interface VisitAccessRow {
   visit_id: string;
   task_id: string;
   agency_id: string;
+  assignment_id: string;
   visit_status: string;
   task_status: string;
   category: string;
   summary: string;
   encrypted_address: string;
+  preferred_window_start: string | null;
+  preferred_window_end: string | null;
   latitude: string | null;
   longitude: string | null;
   trader_name: string;
@@ -43,6 +46,10 @@ const evidenceSchema = z.object({
   fileUrl: z.string().url().max(2000)
 });
 
+const declineSchema = z.object({
+  reason: z.string().trim().min(5).max(500).optional().default("Handyman declined the assigned task")
+});
+
 export const visitRouter = Router();
 
 visitRouter.get("/:token", async (req, res) => {
@@ -55,9 +62,64 @@ visitRouter.get("/:token", async (req, res) => {
       summary: access.summary,
       address: decryptField(access.encrypted_address),
       handyman: access.trader_name,
+      preferredWindow: {
+        start: access.preferred_window_start,
+        end: access.preferred_window_end
+      },
       mandatedInstruction: "Present physical identification to the resident or attending caregiver before work begins."
     }
   });
+});
+
+visitRouter.post("/:token/accept", async (req, res) => {
+  const access = await findVisit(req.params.token);
+  if (!access) return res.status(404).json({ error: "Visit link is invalid or expired" });
+  if (!["link_sent", "pending"].includes(access.visit_status)) {
+    return res.status(409).json({ error: "This task can no longer be accepted from this link" });
+  }
+  await withTransaction(null, async (client) => {
+    await client.query("UPDATE ops.visits SET status = 'accepted' WHERE id = $1", [access.visit_id]);
+    await client.query("UPDATE ops.tasks SET status = 'visit_scheduled' WHERE id = $1", [access.task_id]);
+    await client.query(
+      `INSERT INTO ops.task_status_events
+        (task_id, agency_id, previous_status, new_status, reason)
+       VALUES ($1, $2, $3, 'visit_scheduled', 'Handyman accepted the assigned task')`,
+      [access.task_id, access.agency_id, access.task_status]
+    );
+  });
+  res.json({ status: "accepted" });
+});
+
+visitRouter.post("/:token/decline", async (req, res) => {
+  const parsed = declineSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: "Record a short reason for declining the task" });
+  const access = await findVisit(req.params.token);
+  if (!access) return res.status(404).json({ error: "Visit link is invalid or expired" });
+  if (!["link_sent", "pending", "accepted"].includes(access.visit_status)) {
+    return res.status(409).json({ error: "This task can no longer be declined from this link" });
+  }
+  await withTransaction(null, async (client) => {
+    await client.query("UPDATE ops.visits SET status = 'cancelled', disputed_reason = $2 WHERE id = $1", [access.visit_id, parsed.data.reason]);
+    await client.query("UPDATE ops.assignments SET status = 'rejected', blocked_reason = $2 WHERE id = $1", [access.assignment_id, parsed.data.reason]);
+    await client.query(
+      "UPDATE ops.visit_tokens SET revoked_at = clock_timestamp() WHERE visit_id = $1 AND revoked_at IS NULL",
+      [access.visit_id]
+    );
+    await client.query(
+      `UPDATE billing.payouts SET status = 'hold', hold_reason = 'Assignment declined before visit'
+       WHERE assignment_id = $1`,
+      [access.assignment_id]
+    );
+    await client.query("DELETE FROM ops.assignment_candidates WHERE task_id = $1", [access.task_id]);
+    await client.query("UPDATE ops.tasks SET status = 'pending_taskbridge_assignment' WHERE id = $1", [access.task_id]);
+    await client.query(
+      `INSERT INTO ops.task_status_events
+        (task_id, agency_id, previous_status, new_status, reason, metadata)
+       VALUES ($1, $2, $3, 'pending_taskbridge_assignment', $4, $5)`,
+      [access.task_id, access.agency_id, access.task_status, `Handyman declined assignment: ${parsed.data.reason}`, { assignmentId: access.assignment_id }]
+    );
+  });
+  res.json({ status: "declined" });
 });
 
 visitRouter.post("/:token/check-in", async (req, res) => {
@@ -65,6 +127,7 @@ visitRouter.post("/:token/check-in", async (req, res) => {
   if (!parsed.success) return res.status(422).json({ error: "A valid device location is required" });
   const access = await findVisit(req.params.token);
   if (!access) return res.status(404).json({ error: "Visit link is invalid or expired" });
+  if (access.visit_status !== "accepted") return res.status(409).json({ error: "Accept the assigned task before checking in" });
   if (access.latitude === null || access.longitude === null) return res.status(409).json({ error: "Resident location is not configured" });
   const distance = haversineMiles(
     parsed.data.latitude,
@@ -173,8 +236,10 @@ visitRouter.post("/:token/complete", async (req, res) => {
 
 async function findVisit(rawToken: string) {
   const result = await query<VisitAccessRow>(
-    `SELECT v.id::text AS visit_id, t.id::text AS task_id, t.agency_id::text, v.status::text AS visit_status,
+    `SELECT v.id::text AS visit_id, t.id::text AS task_id, t.agency_id::text,
+            v.assignment_id::text, v.status::text AS visit_status,
             t.status::text AS task_status, t.category, t.summary, su.encrypted_address,
+            t.preferred_window_start::text, t.preferred_window_end::text,
             su.latitude::text, su.longitude::text, tr.display_name AS trader_name,
             vt.expires_at::text, vt.revoked_at::text
      FROM ops.visit_tokens vt

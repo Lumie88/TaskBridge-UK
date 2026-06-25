@@ -623,6 +623,13 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 .visit-location small, .visit-location strong { display: block; }
 .visit-location small { color: var(--muted); font-size: .7rem; }
 .visit-location strong { margin-top: 3px; font-size: .88rem; }
+.visit-meta-row { margin-top: 10px; padding: 12px 14px; display: flex; align-items: center; gap: 10px; color: #334155; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-size: .78rem; font-weight: 700; }
+.visit-meta-row svg { color: #4f46e5; flex: 0 0 auto; }
+.visit-decision { margin-top: 18px; padding: 18px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
+.visit-decision h2 { margin-bottom: 8px; font-size: 1.25rem; }
+.visit-decision p { color: var(--muted); font-size: .86rem; }
+.visit-decision-actions { margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.visit-declined > svg { color: #b83242; }
 .identity-alert { margin: 14px 0 22px; padding: 15px; display: flex; gap: 12px; color: #0d4c92; background: #eaf3ff; border: 1px solid #cbdff8; border-radius: 6px; }
 .identity-alert svg { flex: 0 0 auto; }
 .identity-alert strong { font-size: .72rem; letter-spacing: .06em; }
@@ -805,6 +812,7 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .studio-pillar { min-height: 235px; padding: 19px; }
   .visit-page { padding: 0; align-items: start; background: white; }
   .visit-card { min-height: 100vh; border: 0; box-shadow: none; border-radius: 0; }
+  .visit-decision-actions { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 480px) {
