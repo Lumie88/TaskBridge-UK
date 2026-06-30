@@ -102,6 +102,7 @@ interface Agency {
     completionRequiresCareConfirmation: boolean;
     supervisedVisitExceptionAllowed: boolean;
     taskbridgeAssignmentRequiresAdminReview: boolean;
+    healthAnalyticsEnabled: boolean;
     defaultVisitRadiusMiles: number;
     goLiveStatus: string;
     monthlyCap: number;
@@ -554,6 +555,9 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
     if (!Number.isFinite(monthlyCap)) return;
     const goLiveStatus = window.prompt("Go-live status: pilot_setup, pilot_live, paused, suspended", current?.goLiveStatus || "pilot_setup");
     if (!goLiveStatus) return;
+    const analytics = window.prompt("Free care analytics access: unlocked or locked", current?.healthAnalyticsEnabled ? "unlocked" : "locked");
+    if (!analytics) return;
+    const healthAnalyticsEnabled = analytics.trim().toLowerCase() === "unlocked";
     setSettingsBusy(agency.id); setError("");
     try {
       await api(`/api/admin/agencies/${agency.id}/settings`, { method: "PATCH", body: JSON.stringify({
@@ -561,6 +565,7 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
         completionRequiresCareConfirmation: current?.completionRequiresCareConfirmation ?? true,
         supervisedVisitExceptionAllowed: current?.supervisedVisitExceptionAllowed ?? false,
         taskbridgeAssignmentRequiresAdminReview: current?.taskbridgeAssignmentRequiresAdminReview ?? true,
+        healthAnalyticsEnabled,
         defaultVisitRadiusMiles: current?.defaultVisitRadiusMiles ?? 15,
         goLiveStatus,
         monthlyCap

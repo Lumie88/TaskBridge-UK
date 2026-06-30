@@ -1,6 +1,8 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import {
+  Activity,
   ArrowRight,
+  BarChart3,
   BellRing,
   CalendarDays,
   Camera,
@@ -25,7 +27,10 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  TrendingDown,
+  TrendingUp,
   Trash2,
+  UploadCloud,
   UserPlus,
   UserRoundCheck,
   UsersRound,
@@ -71,6 +76,27 @@ interface TaskDetail {
   keysafePasscode: string;
   timeline: Array<{ id: string; previousStatus: string | null; status: string; reason: string | null; actor: string; createdAt: string }>;
   evidence: Array<{ type: string; url: string | null; createdAt: string }>;
+}
+
+interface AnalyticsDashboard {
+  enabled: boolean;
+  summary: { serviceUsersTracked: number; observations: number; deteriorating: number; stable: number; improving: number };
+  uploads: Array<{ id: string; fileName: string; rowCount: number; createdAt: string }>;
+  serviceUsers: Array<{
+    serviceUserId: string;
+    reference: string;
+    name: string;
+    overallTrend: "deteriorating" | "stable" | "improving";
+    latestObservationDate: string;
+    metrics: Array<{
+      metricType: string;
+      trend: "deteriorating" | "stable" | "improving";
+      first: number | null;
+      latest: number | null;
+      unit: string;
+      points: Array<{ date: string; value: number | null; unit: string; outcome: string; notes: string }>;
+    }>;
+  }>;
 }
 
 type TaskFilter = "all" | "open" | "pending" | "assigned" | "confirmation" | "completed";
@@ -202,6 +228,8 @@ export function CoordinatorPortal({ user, onSignOut }: { user: User; onSignOut: 
           ? <TaskIntake serviceUsers={serviceUsers} onCreated={async () => { await load(); openTaskFilter("all"); }} />
           : active === "service-users"
             ? <ServiceUserDirectory serviceUsers={serviceUsers} onChanged={load} />
+            : active === "analytics"
+              ? <CareAnalyticsDashboard />
             : active === "notifications"
               ? <NotificationsHub notifications={notifications} onOpen={openNotification} />
               : <StatusBoard tasks={tasks} filter={taskFilter} onFilter={openTaskFilter} onOpenTask={openTask} />}
@@ -433,6 +461,115 @@ function TaskIntake({ serviceUsers, onCreated }: { serviceUsers: ServiceUser[]; 
   </div>;
 }
 
+function CareAnalyticsDashboard() {
+  const [analytics, setAnalytics] = useState<AnalyticsDashboard | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  async function loadAnalytics() {
+    setLoading(true);
+    setError("");
+    try {
+      setAnalytics(await api<AnalyticsDashboard>("/api/coordinator/analytics"));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to load care analytics");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void loadAnalytics(); }, []);
+
+  async function uploadCsv(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const file = new FormData(event.currentTarget).get("csv") as File | null;
+    if (!file || file.size === 0) return setError("Choose a CSV file to upload.");
+    setUploading(true);
+    setError("");
+    setSuccess("");
+    try {
+      const csvText = await file.text();
+      const result = await api<{ id: string; rowCount: number }>("/api/coordinator/analytics/uploads", {
+        method: "POST",
+        body: JSON.stringify({ fileName: file.name, csvText })
+      });
+      setSuccess(`${result.rowCount} health observation${result.rowCount === 1 ? "" : "s"} imported.`);
+      event.currentTarget.reset();
+      await loadAnalytics();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to upload the CSV file");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  if (loading && !analytics) return <Loading />;
+  if (!analytics?.enabled) return <AnalyticsLocked />;
+  const summary = analytics.summary;
+  return <>
+    <div className="page-title-row"><div><span className="eyebrow">Free feature</span><h1>Care analytics dashboard</h1><p>Upload service-user health CSV data and review deterioration, stability and outcome trends.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Agency unlocked</span></div>
+    {error && <div className="alert alert-danger">{error}<button onClick={loadAnalytics}><RefreshCw size={16} /> Retry</button></div>}
+    <div className="metric-grid coordinator-metrics analytics-metrics">
+      <article className="metric metric-blue"><span><UsersRound /></span><div><strong>{summary.serviceUsersTracked}</strong><small>Service users tracked</small></div></article>
+      <article className="metric metric-amber"><span><TrendingDown /></span><div><strong>{summary.deteriorating}</strong><small>Showing deterioration</small></div></article>
+      <article className="metric metric-green"><span><TrendingUp /></span><div><strong>{summary.improving}</strong><small>Improving outcomes</small></div></article>
+      <article className="metric metric-navy"><span><Activity /></span><div><strong>{summary.observations}</strong><small>Health observations</small></div></article>
+    </div>
+    <div className="analytics-layout">
+      <section className="panel analytics-panel">
+        <div className="panel-heading"><div><h2>Service-user trend visualisation</h2><p>Potential deterioration is highlighted first for coordinator review.</p></div></div>
+        <div className="analytics-service-list">{analytics.serviceUsers.map((serviceUser) => <article key={serviceUser.serviceUserId} className={`analytics-card trend-${serviceUser.overallTrend}`}>
+          <header><div><h3>{serviceUser.name}</h3><p>{serviceUser.reference} / Latest {formatDate(serviceUser.latestObservationDate)}</p></div><StatusBadge status={serviceUser.overallTrend === "deteriorating" ? "failed" : serviceUser.overallTrend === "improving" ? "approved" : "pending"}>{humanize(serviceUser.overallTrend)}</StatusBadge></header>
+          <div className="metric-trend-list">{serviceUser.metrics.map((metric) => <MetricTrend key={metric.metricType} metric={metric} />)}</div>
+        </article>)}</div>
+        {!analytics.serviceUsers.length && <EmptyState icon={<BarChart3 />} title="No analytics data yet" detail="Upload a CSV file to begin health trend visualisation." />}
+      </section>
+      <aside className="analytics-upload-panel">
+        <section className="panel">
+          <div className="resident-create-heading"><span><UploadCloud size={21} /></span><div><h2>Upload CSV health data</h2><p>Use columns: service_user_reference, date, metric, value, unit, outcome, notes.</p></div></div>
+          <form className="stack" onSubmit={uploadCsv}>
+            <label>CSV file<input name="csv" type="file" accept=".csv,text/csv" required /></label>
+            <div className="resident-privacy-note"><ShieldAlert size={18} /><p>Rows are agency-scoped. Notes are encrypted at rest and only visible to authorised care users.</p></div>
+            {success && <p className="form-success">{success}</p>}
+            <button className="button button-primary button-full" disabled={uploading} type="submit">{uploading ? <><LoaderCircle className="spin" size={17} /> Importing...</> : <><UploadCloud size={17} /> Import health CSV</>}</button>
+          </form>
+        </section>
+        <section className="panel uploads-panel">
+          <div className="panel-heading"><div><h2>Recent uploads</h2><p>Latest imported health data files.</p></div></div>
+          {analytics.uploads.map((upload) => <article key={upload.id}><strong>{upload.fileName}</strong><span>{upload.rowCount} rows / {formatDate(upload.createdAt, true)}</span></article>)}
+          {!analytics.uploads.length && <p className="muted-copy">No CSV uploads yet.</p>}
+        </section>
+      </aside>
+    </div>
+  </>;
+}
+
+function AnalyticsLocked() {
+  return <section className="panel analytics-locked">
+    <span><BarChart3 size={30} /></span>
+    <h1>Care analytics is locked for this agency</h1>
+    <p>This free feature can be unlocked by a TaskBridge super admin from Agency onboarding settings.</p>
+  </section>;
+}
+
+function MetricTrend({ metric }: { metric: AnalyticsDashboard["serviceUsers"][number]["metrics"][number] }) {
+  const numeric = metric.points.filter((point) => typeof point.value === "number") as Array<{ date: string; value: number; unit: string; outcome: string; notes: string }>;
+  const values = numeric.map((point) => point.value);
+  const min = Math.min(...values, 0);
+  const max = Math.max(...values, 1);
+  const range = max - min || 1;
+  return <div className="metric-trend">
+    <div className="metric-trend-heading"><strong>{humanize(metric.metricType)}</strong><span className={`trend-pill trend-${metric.trend}`}>{humanize(metric.trend)}</span></div>
+    <div className="sparkline" aria-label={`${humanize(metric.metricType)} trend`}>
+      {numeric.map((point, index) => <i key={`${point.date}-${index}`} style={{ height: `${18 + ((point.value - min) / range) * 52}px` }} title={`${point.date}: ${point.value}${point.unit ? ` ${point.unit}` : ""}`} />)}
+      {!numeric.length && <span>No numeric readings</span>}
+    </div>
+    <footer><span>{metric.first ?? "n/a"}{metric.unit ? ` ${metric.unit}` : ""}</span><ArrowRight size={14} /><span>{metric.latest ?? "n/a"}{metric.unit ? ` ${metric.unit}` : ""}</span></footer>
+  </div>;
+}
+
 function StatusBoard({ tasks, filter, onFilter, onOpenTask }: { tasks: CoordinatorTask[]; filter: TaskFilter; onFilter: (filter: TaskFilter) => void; onOpenTask: (task: CoordinatorTask) => void }) {
   const [query, setQuery] = useState("");
   const [urgency, setUrgency] = useState("all");
@@ -532,6 +669,7 @@ function CommandPalette({ onClose, onChoose }: { onClose: () => void; onChoose: 
     { section: "new-task", label: "Create a safety task", icon: <Sparkles size={18} /> },
     { section: "tasks", label: "Open status board", icon: <ClipboardList size={18} /> },
     { section: "service-users", label: "Manage service users", icon: <UsersRound size={18} /> },
+    { section: "analytics", label: "Open care analytics", icon: <BarChart3 size={18} /> },
     { section: "notifications", label: "Review notifications", icon: <BellRing size={18} /> }
   ].filter((item) => item.label.toLowerCase().includes(query.toLowerCase()));
   useEffect(() => {

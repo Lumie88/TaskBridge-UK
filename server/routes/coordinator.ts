@@ -21,6 +21,18 @@ interface ServiceUserRow {
   created_at: string;
 }
 
+interface HealthObservationRow {
+  service_user_id: string;
+  external_service_user_id: string;
+  encrypted_name: string;
+  observation_date: string;
+  metric_type: string;
+  metric_value: string | null;
+  metric_unit: string | null;
+  outcome_label: string | null;
+  notes_ciphertext: string | null;
+}
+
 interface CoordinatorTaskRow {
   public_id: string;
   encrypted_name: string;
@@ -87,6 +99,10 @@ const createTasksSchema = z.object({
 const reverseAssignmentSchema = z.object({
   reason: z.string().trim().min(5).max(500)
 });
+const analyticsUploadSchema = z.object({
+  fileName: z.string().trim().min(1).max(240),
+  csvText: z.string().min(10).max(750_000)
+});
 
 export const coordinatorRouter = Router();
 coordinatorRouter.use(requireRoles("care_coordinator", "care_manager"), requireAgency);
@@ -116,6 +132,85 @@ coordinatorRouter.get("/dashboard", async (req, res) => {
     recentTasks: recent.rows.map(mapCoordinatorTask)
   });
 });
+
+coordinatorRouter.get("/analytics", asyncHandler(async (req, res) => {
+  const enabled = await healthAnalyticsEnabled(req.auth!.agencyId!);
+  if (!enabled) return res.json({ enabled: false, uploads: [], serviceUsers: [], summary: emptyAnalyticsSummary() });
+  const [observations, uploads] = await Promise.all([
+    query<HealthObservationRow>(
+      `SELECT o.service_user_id::text, su.external_service_user_id, su.encrypted_name,
+              o.observation_date::text, o.metric_type, o.metric_value::text,
+              o.metric_unit, o.outcome_label, o.notes_ciphertext
+       FROM care.health_observations o
+       JOIN care.service_users su ON su.id = o.service_user_id
+       WHERE o.agency_id = $1 AND su.deleted_at IS NULL
+       ORDER BY o.observation_date ASC, o.created_at ASC`,
+      [req.auth!.agencyId]
+    ),
+    query<{ id: string; file_name: string; row_count: number; created_at: string }>(
+      `SELECT id::text, file_name, row_count, created_at::text
+       FROM care.health_metric_uploads
+       WHERE agency_id = $1
+       ORDER BY created_at DESC LIMIT 8`,
+      [req.auth!.agencyId]
+    )
+  ]);
+  res.json({
+    enabled: true,
+    summary: buildAnalyticsSummary(observations.rows),
+    serviceUsers: buildServiceUserAnalytics(observations.rows),
+    uploads: uploads.rows.map((upload) => ({
+      id: upload.id,
+      fileName: upload.file_name,
+      rowCount: Number(upload.row_count),
+      createdAt: upload.created_at
+    }))
+  });
+}));
+
+coordinatorRouter.post("/analytics/uploads", asyncHandler(async (req, res) => {
+  const enabled = await healthAnalyticsEnabled(req.auth!.agencyId!);
+  if (!enabled) return res.status(403).json({ error: "Care analytics is not unlocked for this agency" });
+  const parsed = analyticsUploadSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid CSV upload" });
+  const serviceUsers = await query<ServiceUserRow>(
+    `SELECT id::text, external_service_user_id, encrypted_name, encrypted_address,
+            town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+            vulnerability_notes_ciphertext, created_at::text
+     FROM care.service_users
+     WHERE agency_id = $1 AND deleted_at IS NULL`,
+    [req.auth!.agencyId]
+  );
+  const serviceUserLookup = new Map<string, ServiceUserRow>();
+  for (const serviceUser of serviceUsers.rows) {
+    serviceUserLookup.set(serviceUser.id.toLowerCase(), serviceUser);
+    serviceUserLookup.set(serviceUser.external_service_user_id.toLowerCase(), serviceUser);
+    serviceUserLookup.set(decryptField(serviceUser.encrypted_name).trim().toLowerCase(), serviceUser);
+  }
+  const rows = parseHealthCsv(parsed.data.csvText);
+  const validRows = rows.map((row, index) => normalizeHealthRow(row, index, serviceUserLookup));
+  const upload = await withTransaction(req.auth!, async (client) => {
+    const uploadResult = await client.query<{ id: string }>(
+      `INSERT INTO care.health_metric_uploads (agency_id, uploaded_by_user_id, file_name, row_count)
+       VALUES ($1, $2, $3, $4) RETURNING id::text`,
+      [req.auth!.agencyId, req.auth!.userId, parsed.data.fileName, validRows.length]
+    );
+    for (const row of validRows) {
+      await client.query(
+        `INSERT INTO care.health_observations
+          (agency_id, service_user_id, upload_id, observation_date, metric_type, metric_value,
+           metric_unit, outcome_label, notes_ciphertext)
+         VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''), $9)`,
+        [req.auth!.agencyId, row.serviceUserId, uploadResult.rows[0].id, row.observationDate,
+          row.metricType, row.metricValue, row.metricUnit, row.outcomeLabel,
+          row.notes ? encryptField(row.notes) : null]
+      );
+    }
+    return uploadResult.rows[0].id;
+  });
+  await audit(req, "care.analytics.uploaded", "health_metric_upload", upload, { fileName: parsed.data.fileName, rowCount: validRows.length });
+  res.status(201).json({ id: upload, rowCount: validRows.length });
+}));
 
 coordinatorRouter.get("/service-users", async (req, res) => {
   const result = await query<ServiceUserRow>(
@@ -626,6 +721,145 @@ function mapServiceUser(row: ServiceUserRow) {
 
 function decryptOptional(value: string | null) {
   return value ? decryptField(value) : "";
+}
+
+async function healthAnalyticsEnabled(agencyId: string) {
+  const result = await query<{ health_analytics_enabled: boolean }>(
+    "SELECT health_analytics_enabled FROM tenant.agency_settings WHERE agency_id = $1",
+    [agencyId]
+  );
+  return result.rows[0]?.health_analytics_enabled === true;
+}
+
+function parseHealthCsv(csvText: string) {
+  const rows = csvText.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim().length > 0);
+  if (rows.length < 2) throw Object.assign(new Error("CSV must include a header row and at least one data row"), { statusCode: 422 });
+  const headers = parseCsvLine(rows[0]).map((header) => normalizeHeader(header));
+  return rows.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    return Object.fromEntries(headers.map((header, index) => [header, values[index]?.trim() || ""]));
+  });
+}
+
+function parseCsvLine(line: string) {
+  const values: string[] = [];
+  let current = "";
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (char === "\"" && quoted && next === "\"") {
+      current += "\"";
+      index += 1;
+    } else if (char === "\"") {
+      quoted = !quoted;
+    } else if (char === "," && !quoted) {
+      values.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  values.push(current);
+  return values;
+}
+
+function normalizeHeader(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+}
+
+function normalizeHealthRow(row: Record<string, string>, index: number, serviceUsers: Map<string, ServiceUserRow>) {
+  const identifier = firstValue(row, ["service_user_id", "service_user_reference", "reference", "service_user", "name", "service_user_name"]).toLowerCase();
+  const serviceUser = serviceUsers.get(identifier);
+  if (!serviceUser) throw Object.assign(new Error(`CSV row ${index + 2}: service user was not found in this agency`), { statusCode: 422 });
+  const observationDate = firstValue(row, ["observation_date", "date", "recorded_at"]);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(observationDate) || Number.isNaN(Date.parse(`${observationDate}T00:00:00Z`))) {
+    throw Object.assign(new Error(`CSV row ${index + 2}: date must use YYYY-MM-DD`), { statusCode: 422 });
+  }
+  const metricType = firstValue(row, ["metric_type", "metric", "measure", "observation"]).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  if (!metricType) throw Object.assign(new Error(`CSV row ${index + 2}: metric is required`), { statusCode: 422 });
+  const rawValue = firstValue(row, ["metric_value", "value", "score", "reading"]);
+  const metricValue = rawValue ? Number(rawValue) : null;
+  if (rawValue && !Number.isFinite(metricValue)) throw Object.assign(new Error(`CSV row ${index + 2}: value must be numeric`), { statusCode: 422 });
+  return {
+    serviceUserId: serviceUser.id,
+    observationDate,
+    metricType,
+    metricValue,
+    metricUnit: firstValue(row, ["metric_unit", "unit"]),
+    outcomeLabel: firstValue(row, ["outcome_label", "outcome", "status"]),
+    notes: firstValue(row, ["notes", "comment", "summary"])
+  };
+}
+
+function firstValue(row: Record<string, string>, keys: string[]) {
+  for (const key of keys) {
+    const value = row[key]?.trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function emptyAnalyticsSummary() {
+  return { serviceUsersTracked: 0, observations: 0, deteriorating: 0, stable: 0, improving: 0 };
+}
+
+function buildAnalyticsSummary(rows: HealthObservationRow[]) {
+  const serviceUsers = buildServiceUserAnalytics(rows);
+  return {
+    serviceUsersTracked: serviceUsers.length,
+    observations: rows.length,
+    deteriorating: serviceUsers.filter((item) => item.overallTrend === "deteriorating").length,
+    stable: serviceUsers.filter((item) => item.overallTrend === "stable").length,
+    improving: serviceUsers.filter((item) => item.overallTrend === "improving").length
+  };
+}
+
+function buildServiceUserAnalytics(rows: HealthObservationRow[]) {
+  const grouped = new Map<string, HealthObservationRow[]>();
+  for (const row of rows) grouped.set(row.service_user_id, [...(grouped.get(row.service_user_id) || []), row]);
+  return [...grouped.entries()].map(([, items]) => {
+    const first = items[0];
+    const metrics = [...new Set(items.map((item) => item.metric_type))].map((metric) => buildMetricTrend(metric, items.filter((item) => item.metric_type === metric)));
+    const overallTrend = metrics.some((metric) => metric.trend === "deteriorating") ? "deteriorating"
+      : metrics.some((metric) => metric.trend === "improving") ? "improving" : "stable";
+    return {
+      serviceUserId: first.service_user_id,
+      reference: first.external_service_user_id,
+      name: decryptField(first.encrypted_name),
+      overallTrend,
+      latestObservationDate: items[items.length - 1]?.observation_date,
+      metrics
+    };
+  }).sort((a, b) => trendRank(a.overallTrend) - trendRank(b.overallTrend) || a.name.localeCompare(b.name));
+}
+
+function buildMetricTrend(metricType: string, rows: HealthObservationRow[]) {
+  const points = rows.map((row) => ({
+    date: row.observation_date,
+    value: row.metric_value === null ? null : Number(row.metric_value),
+    unit: row.metric_unit || "",
+    outcome: row.outcome_label || "",
+    notes: decryptOptional(row.notes_ciphertext)
+  }));
+  const numeric = points.filter((point): point is typeof point & { value: number } => typeof point.value === "number");
+  const first = numeric[0]?.value ?? null;
+  const latest = numeric[numeric.length - 1]?.value ?? null;
+  const latestOutcome = points[points.length - 1]?.outcome.toLowerCase() || "";
+  let trend: "deteriorating" | "stable" | "improving" = "stable";
+  if (/(deteriorat|declin|worse|concern|high|critical|fall|hospital)/.test(latestOutcome)) trend = "deteriorating";
+  else if (/(improv|better|recovered|low|normal)/.test(latestOutcome)) trend = "improving";
+  else if (first !== null && latest !== null && numeric.length > 1) {
+    const lowerIsWorse = /(weight|mobility|hydration|nutrition|independence)/.test(metricType);
+    const change = latest - first;
+    const threshold = Math.max(Math.abs(first) * 0.1, 1);
+    if (Math.abs(change) >= threshold) trend = lowerIsWorse ? (change < 0 ? "deteriorating" : "improving") : (change > 0 ? "deteriorating" : "improving");
+  }
+  return { metricType, trend, first, latest, unit: points[points.length - 1]?.unit || "", points };
+}
+
+function trendRank(trend: string) {
+  return trend === "deteriorating" ? 0 : trend === "stable" ? 1 : 2;
 }
 
 function notificationTitle(status: string) {

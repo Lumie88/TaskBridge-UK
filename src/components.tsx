@@ -149,6 +149,7 @@ export function PortalShell({ user, area, active, onActive, onSignOut, workspace
     ["new-task", "Create task"],
     ["tasks", "Status board"],
     ["service-users", "Service users"],
+    ["analytics", "Care analytics"],
     ["notifications", "Notifications"]
   ];
   const adminItems = [
