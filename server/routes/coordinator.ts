@@ -187,8 +187,11 @@ coordinatorRouter.post("/analytics/uploads", asyncHandler(async (req, res) => {
     serviceUserLookup.set(serviceUser.external_service_user_id.toLowerCase(), serviceUser);
     serviceUserLookup.set(decryptField(serviceUser.encrypted_name).trim().toLowerCase(), serviceUser);
   }
+  const visibleServiceUsers = serviceUsers.rows
+    .map((serviceUser) => `${serviceUser.external_service_user_id} / ${decryptField(serviceUser.encrypted_name)}`)
+    .slice(0, 10);
   const rows = parseHealthCsv(parsed.data.csvText);
-  const validRows = rows.map((row, index) => normalizeHealthRow(row, index, serviceUserLookup));
+  const validRows = rows.map((row, index) => normalizeHealthRow(row, index, serviceUserLookup, visibleServiceUsers));
   const upload = await withTransaction(req.auth!, async (client) => {
     const uploadResult = await client.query<{ id: string }>(
       `INSERT INTO care.health_metric_uploads (agency_id, uploaded_by_user_id, file_name, row_count)
@@ -768,10 +771,13 @@ function normalizeHeader(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 }
 
-function normalizeHealthRow(row: Record<string, string>, index: number, serviceUsers: Map<string, ServiceUserRow>) {
+function normalizeHealthRow(row: Record<string, string>, index: number, serviceUsers: Map<string, ServiceUserRow>, visibleServiceUsers: string[]) {
   const identifier = firstValue(row, ["service_user_id", "service_user_reference", "reference", "service_user", "name", "service_user_name"]).toLowerCase();
   const serviceUser = serviceUsers.get(identifier);
-  if (!serviceUser) throw Object.assign(new Error(`CSV row ${index + 2}: service user was not found in this agency`), { statusCode: 422 });
+  if (!serviceUser) {
+    const hint = visibleServiceUsers.length ? ` Use one of: ${visibleServiceUsers.join("; ")}` : " Add a service user before uploading analytics data.";
+    throw Object.assign(new Error(`CSV row ${index + 2}: service user "${identifier || "blank"}" was not found in this agency.${hint}`), { statusCode: 422 });
+  }
   const observationDate = firstValue(row, ["observation_date", "date", "recorded_at"]);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(observationDate) || Number.isNaN(Date.parse(`${observationDate}T00:00:00Z`))) {
     throw Object.assign(new Error(`CSV row ${index + 2}: date must use YYYY-MM-DD`), { statusCode: 422 });

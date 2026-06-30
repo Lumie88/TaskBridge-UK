@@ -1,0 +1,31 @@
+service_user_name,date,metric,value,unit,outcome,notes
+Eleanor Price,2026-05-01,falls_risk_score,4,score,stable,No recent falls but slower walking pace noted
+Eleanor Price,2026-05-08,falls_risk_score,5,score,stable,Uses furniture for balance in hallway
+Eleanor Price,2026-05-15,falls_risk_score,7,score,deteriorating,Near fall reported when stepping into garden
+Eleanor Price,2026-05-22,falls_risk_score,8,score,deteriorating,Two near misses and increased fear of walking outside
+Eleanor Price,2026-05-29,falls_risk_score,9,score,critical,High concern due to unstable path and reduced confidence
+Eleanor Price,2026-05-01,mobility_score,72,score,stable,Walking independently indoors
+Eleanor Price,2026-05-08,mobility_score,68,score,stable,Needs occasional support on stairs
+Eleanor Price,2026-05-15,mobility_score,61,score,deteriorating,Slower transfer from chair to standing
+Eleanor Price,2026-05-22,mobility_score,54,score,deteriorating,Avoiding back path due to moss and poor confidence
+Eleanor Price,2026-05-29,mobility_score,49,score,deteriorating,Coordinator review recommended
+Eleanor Price,2026-05-01,nutrition_score,78,score,stable,Meals taken normally
+Eleanor Price,2026-05-08,nutrition_score,74,score,stable,Slight reduction in appetite
+Eleanor Price,2026-05-15,nutrition_score,67,score,deteriorating,Missed one evening meal
+Eleanor Price,2026-05-22,nutrition_score,63,score,deteriorating,Carer noted low fridge stock
+Eleanor Price,2026-05-29,nutrition_score,60,score,deteriorating,Follow-up with care manager advised
+Gareth Morgan,2026-05-01,falls_risk_score,5,score,stable,Minor trip hazard in kitchen noted
+Gareth Morgan,2026-05-08,falls_risk_score,4,score,improving,Loose mat removed by family
+Gareth Morgan,2026-05-15,falls_risk_score,3,score,improving,No new trip incidents
+Gareth Morgan,2026-05-22,falls_risk_score,2,score,low,Walking route clear
+Gareth Morgan,2026-05-29,falls_risk_score,2,score,low,Stable and no escalation required
+Gareth Morgan,2026-05-01,mobility_score,61,score,stable,Uses stick outdoors
+Gareth Morgan,2026-05-08,mobility_score,64,score,improving,Reports better confidence
+Gareth Morgan,2026-05-15,mobility_score,68,score,improving,Completes short walk with carer
+Gareth Morgan,2026-05-22,mobility_score,71,score,improving,Improved pace around flat
+Gareth Morgan,2026-05-29,mobility_score,73,score,improving,No immediate concern
+Gareth Morgan,2026-05-01,hospital_admission_risk,6,score,concern,Recent chest infection recovery
+Gareth Morgan,2026-05-08,hospital_admission_risk,5,score,stable,Symptoms settling
+Gareth Morgan,2026-05-15,hospital_admission_risk,4,score,improving,Medication taken as planned
+Gareth Morgan,2026-05-22,hospital_admission_risk,3,score,improving,No breathing concern recorded
+Gareth Morgan,2026-05-29,hospital_admission_risk,3,score,low,Stable monitoring only

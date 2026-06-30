@@ -229,7 +229,7 @@ export function CoordinatorPortal({ user, onSignOut }: { user: User; onSignOut: 
           : active === "service-users"
             ? <ServiceUserDirectory serviceUsers={serviceUsers} onChanged={load} />
             : active === "analytics"
-              ? <CareAnalyticsDashboard />
+              ? <CareAnalyticsDashboard serviceUsers={serviceUsers} />
             : active === "notifications"
               ? <NotificationsHub notifications={notifications} onOpen={openNotification} />
               : <StatusBoard tasks={tasks} filter={taskFilter} onFilter={openTaskFilter} onOpenTask={openTask} />}
@@ -461,7 +461,7 @@ function TaskIntake({ serviceUsers, onCreated }: { serviceUsers: ServiceUser[]; 
   </div>;
 }
 
-function CareAnalyticsDashboard() {
+function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] }) {
   const [analytics, setAnalytics] = useState<AnalyticsDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -505,6 +505,29 @@ function CareAnalyticsDashboard() {
     }
   }
 
+  function downloadTemplate() {
+    const rows = [
+      ["service_user_reference", "date", "metric", "value", "unit", "outcome", "notes"],
+      ...serviceUsers.flatMap((serviceUser, index) => {
+        const baseRisk = serviceUser.riskLevel === "standard" ? 3 : 6 + index;
+        const mobility = serviceUser.riskLevel === "standard" ? 72 : 58 - index;
+        return [
+          [serviceUser.reference, "2026-06-01", "falls_risk_score", String(baseRisk), "score", "stable", "Baseline observation"],
+          [serviceUser.reference, "2026-06-08", "falls_risk_score", String(baseRisk + 1), "score", serviceUser.riskLevel === "standard" ? "stable" : "deteriorating", "Weekly care-note review"],
+          [serviceUser.reference, "2026-06-15", "mobility_score", String(mobility), "score", serviceUser.riskLevel === "standard" ? "improving" : "deteriorating", "Coordinator trend sample"]
+        ];
+      })
+    ];
+    const csv = rows.map((row) => row.map(escapeCsvCell).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "taskbridge-care-analytics-template.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (loading && !analytics) return <Loading />;
   if (!analytics?.enabled) return <AnalyticsLocked />;
   const summary = analytics.summary;
@@ -528,7 +551,8 @@ function CareAnalyticsDashboard() {
       </section>
       <aside className="analytics-upload-panel">
         <section className="panel">
-          <div className="resident-create-heading"><span><UploadCloud size={21} /></span><div><h2>Upload CSV health data</h2><p>Use columns: service_user_reference, date, metric, value, unit, outcome, notes.</p></div></div>
+          <div className="resident-create-heading"><span><UploadCloud size={21} /></span><div><h2>Upload CSV health data</h2><p>Use the exact service-user references from this agency workspace.</p></div></div>
+          <button className="button button-secondary button-full" type="button" disabled={!serviceUsers.length} onClick={downloadTemplate}><FileText size={17} /> Download agency CSV template</button>
           <form className="stack" onSubmit={uploadCsv}>
             <label>CSV file<input name="csv" type="file" accept=".csv,text/csv" required /></label>
             <div className="resident-privacy-note"><ShieldAlert size={18} /><p>Rows are agency-scoped. Notes are encrypted at rest and only visible to authorised care users.</p></div>
@@ -568,6 +592,10 @@ function MetricTrend({ metric }: { metric: AnalyticsDashboard["serviceUsers"][nu
     </div>
     <footer><span>{metric.first ?? "n/a"}{metric.unit ? ` ${metric.unit}` : ""}</span><ArrowRight size={14} /><span>{metric.latest ?? "n/a"}{metric.unit ? ` ${metric.unit}` : ""}</span></footer>
   </div>;
+}
+
+function escapeCsvCell(value: string) {
+  return /[",\n]/.test(value) ? `"${value.replaceAll("\"", "\"\"")}"` : value;
 }
 
 function StatusBoard({ tasks, filter, onFilter, onOpenTask }: { tasks: CoordinatorTask[]; filter: TaskFilter; onFilter: (filter: TaskFilter) => void; onOpenTask: (task: CoordinatorTask) => void }) {
