@@ -19,9 +19,9 @@ import { api } from "./api";
 
 export function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <a className="brand" href="/" aria-label="TaskBridge home">
+    <a className="brand" href="/" aria-label="TaskBridge by Growing Fig home">
       <span className="brand-mark"><ShieldCheck size={compact ? 19 : 22} strokeWidth={2.2} /><i /></span>
-      <span className="brand-copy"><strong>Task<span>Bridge</span></strong><small>Safeguarded care middleware</small></span>
+      <span className="brand-copy"><strong>Task<span>Bridge</span></strong><small>by Growing Fig</small></span>
     </a>
   );
 }
@@ -94,7 +94,7 @@ export function DemoModal({ open, onClose }: { open: boolean; onClose: () => voi
         <aside className="studio-demo-insight">
           <div>
             <span>Secure middleware</span>
-            <h3>TaskBridge</h3>
+            <h3>TaskBridge by Growing Fig</h3>
             <p>Experience secure, coordinated home-safety dispatch with safeguarding controls built into every step.</p>
           </div>
           <div className="studio-demo-benefits">
@@ -116,7 +116,7 @@ export function DemoModal({ open, onClose }: { open: boolean; onClose: () => voi
             <button className="studio-demo-submit" disabled={busy} type="submit"><span>{busy ? "Sending request..." : "Request demo allocation"}</span><Send size={16} /></button>
           </form> : <div className="studio-demo-success">
             <span className="studio-success-icon"><CheckCircle size={32} /></span>
-            <div><h2 id="demo-title">Demo request received</h2><p>Your organisation has been added to the TaskBridge demo queue.</p></div>
+            <div><h2 id="demo-title">Demo request received</h2><p>Your organisation has been added to the TaskBridge by Growing Fig demo queue.</p></div>
             <div className="studio-demo-receipt">
               <strong><Calendar size={17} /> What happens next</strong>
               <p>A clinical integration specialist will review your requirements and arrange a focused walkthrough.</p>

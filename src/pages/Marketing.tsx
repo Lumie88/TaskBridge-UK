@@ -72,7 +72,7 @@ export function MarketingHome() {
               <span className="studio-trust-pill"><ShieldCheck size={16} /> Compliant care operations middleware</span>
               <h1>Connecting care teams with trusted, <span>vetted home safety</span> support.</h1>
               <blockquote>“Making home safer for our vulnerable”</blockquote>
-              <p>TaskBridge bridges the gap between care management and home safety. Convert carer observations into approved, trackable practical tasks while keeping resident identity and contact details secure.</p>
+              <p>TaskBridge by Growing Fig bridges the gap between care management and home safety. Convert carer observations into approved, trackable practical tasks while keeping resident identity and contact details secure.</p>
               <div className="studio-assurance" aria-label="Service assurances">
                 <span><BadgeCheck size={19} /> Enhanced DBS-checked operatives</span>
                 <span><BadgeCheck size={19} /> GDPR compliant</span>
@@ -387,7 +387,7 @@ function StudioCallout({ onDemo }: { onDemo: () => void }) {
     <div className="site-width studio-callout">
       <span className="studio-callout-badge"><ShieldCheck size={14} /> Secure operational care middleware</span>
       <h2>Ready to transform safe resident care?</h2>
-      <p>See how the TaskBridge secure gateway connects with your existing care management systems to coordinate approved, vetted home-safety support.</p>
+      <p>See how the TaskBridge by Growing Fig secure gateway connects with your existing care management systems to coordinate approved, vetted home-safety support.</p>
       <div className="studio-callout-actions">
         <button onClick={onDemo}>Book personal demonstration <ArrowRight size={18} /></button>
         <a href="/sign-in"><LogIn size={18} /> Care coordinator sign in</a>
@@ -404,10 +404,10 @@ function StudioCallout({ onDemo }: { onDemo: () => void }) {
 function Footer() {
   return <footer className="footer">
     <div className="site-width footer-main">
-      <section className="footer-about" aria-label="About TaskBridge">
-        <a className="footer-brand" href="/" aria-label="TaskBridge home">
+      <section className="footer-about" aria-label="About TaskBridge by Growing Fig">
+        <a className="footer-brand" href="/" aria-label="TaskBridge by Growing Fig home">
           <span className="footer-brand-mark"><ShieldCheck size={24} /></span>
-          <span><strong>Task<span>Bridge</span></strong><small>Safeguarded care middleware</small></span>
+          <span><strong>Task<span>Bridge</span></strong><small>by Growing Fig</small></span>
         </a>
         <p>Connecting home care managers and safeguarding coordinators with verified, Enhanced DBS-vetted home support professionals.</p>
         <blockquote>“Making home safer for our vulnerable”</blockquote>
@@ -432,13 +432,13 @@ function Footer() {
         </a>
         <div className="footer-contact-row">
           <MapPin size={19} />
-          <address>TaskBridge Systems Ltd,<br />85 Great Portland Street, First Floor,<br />London, W1W 7LT</address>
+          <address>Growing Fig,<br />TaskBridge operations,<br />85 Great Portland Street, First Floor,<br />London, W1W 7LT</address>
         </div>
       </section>
     </div>
 
     <div className="site-width footer-bottom">
-      <div><p>© 2026 TaskBridge Systems Ltd. All rights reserved.</p><small>TaskBridge is a HealthTech and care operations middleware platform. Enhanced DBS validation supports vulnerable-adult safeguarding controls.</small></div>
+      <div><p>© 2026 Growing Fig. All rights reserved.</p><small>TaskBridge by Growing Fig is a HealthTech and care operations middleware platform. Enhanced DBS validation supports vulnerable-adult safeguarding controls.</small></div>
       <nav aria-label="Security and legal">
         <a href="/how-it-works#security">Security standards</a>
         <a href="/gdpr-shield-policy">GDPR shield policy</a>
