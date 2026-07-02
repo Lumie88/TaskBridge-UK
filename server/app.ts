@@ -21,7 +21,12 @@ export function createApp() {
   app.set("trust proxy", 1);
   app.disable("x-powered-by");
   app.use(helmet({
-    contentSecurityPolicy: isProduction ? { directives: { connectSrc: connectSources } } : false,
+    contentSecurityPolicy: isProduction ? {
+      directives: {
+        connectSrc: connectSources,
+        scriptSrc: ["'self'", "'sha256-TSms3c3Q8YdPIIyrvzAZ038jj6+maTTSDzgxjFuN17E='"]
+      }
+    } : false,
     crossOriginEmbedderPolicy: false
   }));
   app.use((req, res, next) => {
