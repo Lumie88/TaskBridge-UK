@@ -70,7 +70,7 @@ p { line-height: 1.65; }
 .public-header .button-primary { color: white; background: #0f172a; box-shadow: none; border-radius: 11px; }
 .public-header .button-primary:hover { background: #1e293b; }
 
-.studio-hero { padding: 62px 0 86px; overflow: hidden; background: #f8fafc; }
+.studio-hero { padding: 42px 0 78px; overflow: hidden; background: #f8fafc; }
 .studio-hero-grid { min-height: 620px; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(360px, .85fr); gap: 60px; align-items: center; }
 .studio-hero-copy { min-width: 0; position: relative; z-index: 2; }
 .studio-trust-pill { width: fit-content; padding: 7px 14px; display: inline-flex; align-items: center; gap: 8px; color: #be123c; background: #fff1f2; border: 1px solid #ffe4e6; border-radius: 999px; font-size: .76rem; font-weight: 700; }
@@ -223,8 +223,8 @@ p { line-height: 1.65; }
 .studio-callout-trust span:nth-child(1) svg { color: #facc15; }
 .studio-callout-trust span:nth-child(2) svg { color: #ff3868; }
 .studio-callout-trust span:nth-child(3) svg { color: #818cf8; }
-.policy-main { padding: 28px 0 90px; background: #f8fafc; }
-.policy-hero { padding: 40px 0 38px; }
+.policy-main { padding: 18px 0 90px; background: #f8fafc; }
+.policy-hero { padding: 34px 0 38px; }
 .policy-hero h1 { max-width: 860px; margin: 16px 0 18px; color: #0f172a; font-size: clamp(2.45rem, 5vw, 4.5rem); line-height: 1.02; letter-spacing: 0; }
 .policy-hero p { max-width: 860px; margin: 0; color: #475569; font-size: 1.08rem; line-height: 1.7; }
 .policy-hero small { margin-top: 22px; max-width: 760px; display: block; color: #64748b; font-size: .82rem; line-height: 1.55; }
@@ -272,7 +272,8 @@ p { line-height: 1.65; }
 .footer-bottom nav a:last-child { margin-top: 18px; border-right: 0; }
 .footer-bottom nav a:hover { color: white; }
 
-.page-hero { padding: 74px 0 68px; background: #0f172a; border-bottom: 1px solid #1e293b; }
+.page-hero { padding: 48px 0 64px; background: #0f172a; border-bottom: 1px solid #1e293b; }
+.guideline-main > section:first-child { padding-top: 48px !important; }
 .page-hero-inner { display: grid; grid-template-columns: 1fr .9fr; gap: 85px; align-items: center; }
 .page-hero h1 { color: white; font-size: clamp(2.8rem, 5vw, 4.8rem); line-height: 1.02; margin: 18px 0; }
 .page-hero p { color: #cbd5e1; font-size: 1.1rem; }
@@ -726,8 +727,8 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .studio-callout-actions button, .studio-callout-actions a { width: 100%; min-height: 52px; padding-inline: 16px; font-size: .82rem; }
   .studio-callout-trust { margin-top: 32px; padding-top: 27px; grid-template-columns: 1fr; gap: 14px; }
   .studio-callout-trust span { justify-content: flex-start; text-align: left; }
-  .policy-main { padding: 22px 0 60px; }
-  .policy-hero { padding: 26px 0 24px; }
+  .policy-main { padding: 10px 0 60px; }
+  .policy-hero { padding: 20px 0 24px; }
   .policy-hero h1 { font-size: 2.35rem; }
   .policy-hero p { font-size: .95rem; }
   .policy-grid { grid-template-columns: 1fr; }
@@ -739,7 +740,8 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .footer-bottom nav { justify-content: flex-start; }
   .footer-bottom nav a { margin: 0 0 10px !important; padding: 0 13px; }
   .footer-bottom nav a:first-child { padding-left: 0; }
-  .page-hero { padding-block: 65px; }
+  .page-hero { padding: 42px 0 56px; }
+  .guideline-main > section:first-child { padding-top: 38px !important; }
   .page-hero h1 { font-size: 2.8rem; }
   .mini-workflow { grid-template-columns: 1fr 1fr; }
   .mini-workflow > svg { display: none; }
@@ -799,7 +801,7 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .onboarding-intro h1 { font-size: 2.55rem; }
   .onboarding-form-section { padding: 22px 17px; }
   .service-choice-grid { grid-template-columns: 1fr; }
-  .studio-hero { padding: 45px 0 70px; }
+  .studio-hero { padding: 32px 0 64px; }
   .studio-hero-grid { min-height: auto; grid-template-columns: 1fr; gap: 62px; }
   .studio-hero-copy h1 { margin-top: 22px; font-size: 2.65rem; overflow-wrap: normal; }
   .studio-hero-copy > p { font-size: .93rem; }
