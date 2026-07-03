@@ -40,16 +40,13 @@ export function StatusBadge({ status, children }: PropsWithChildren<{ status?: s
 }
 
 export function PublicHeader({ onDemo }: { onDemo: () => void }) {
-  const portalHref = typeof window !== "undefined" && window.location.hostname.endsWith("growingfig.com")
-    ? "https://taskbridge.growingfig.com/portal"
-    : "/portal";
   return (
     <header className="public-header">
       <div className="site-width header-inner">
         <Brand />
         <nav className="desktop-nav" aria-label="Main navigation">
           <a href="/how-it-works">How it works</a>
-          <a className="nav-signin" href={portalHref}>Sign in</a>
+          <a className="nav-signin" href="/sign-in">Sign in</a>
         </nav>
         <div className="header-actions">
           <button className="button button-primary button-small" onClick={onDemo}>Book a demo <ArrowRight size={16} /></button>

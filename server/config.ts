@@ -23,7 +23,6 @@ const defaultAllowedOrigins = [
   "http://127.0.0.1:4173",
   "https://www.growingfig.com",
   "https://growingfig.com",
-  "https://taskbridge.growingfig.com",
   "https://taskbridge-uk-production.up.railway.app"
 ];
 
