@@ -268,8 +268,8 @@ export function SystemIntegrations() {
 
 export function AdultSafeguardingPolicy() {
   return <PolicyPage
-    eyebrow="Adult safeguarding"
-    title="Adult Safeguarding Policy"
+    eyebrow="Safeguarding"
+    title="Safeguarding Policy"
     intro="TaskBridge by Growing Fig is committed to safeguarding and promoting the welfare, dignity, rights and wellbeing of adults at risk when practical home-safety work is coordinated on behalf of care providers."
     sections={[
       {
@@ -414,7 +414,6 @@ function PolicyPage({ eyebrow, title, intro, sections }: {
         <span className="eyebrow">{eyebrow}</span>
         <h1>{title}</h1>
         <p>{intro}</p>
-        <small>Draft operational policy for pilot use. Final production wording should be reviewed by a UK solicitor and data protection adviser.</small>
       </section>
       <section className="site-width policy-grid">
         {sections.map((section) => <article key={section.title} className="policy-card">
@@ -507,7 +506,7 @@ function Footer() {
       <div><p>© 2026 Growing Fig. All rights reserved.</p><small>TaskBridge by Growing Fig is a HealthTech and care operations middleware platform. Enhanced DBS validation supports vulnerable-adult safeguarding controls.</small></div>
       <nav aria-label="Security and legal">
         <a href="/how-it-works#security">Security standards</a>
-        <a href="/adult-safeguarding-policy">Adult safeguarding policy</a>
+        <a href="/safeguarding-policy">Safeguarding policy</a>
         <a href="/gdpr-shield-policy">GDPR shield policy</a>
         <a href="/safeguarding-sla">Safeguarding SLA</a>
       </nav>
