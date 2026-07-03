@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { User } from "./types";
 import { SignIn } from "./pages/AuthPages";
-import { GDPRShieldPolicy, HowItWorks, MarketingHome, OurServices, SafeguardingProtocol, SafeguardingSLA, SystemIntegrations } from "./pages/Marketing";
+import { AdultSafeguardingPolicy, GDPRShieldPolicy, HowItWorks, MarketingHome, OurServices, SafeguardingProtocol, SafeguardingSLA, SystemIntegrations } from "./pages/Marketing";
 import { CoordinatorPortal } from "./pages/CoordinatorPortal";
 import { AdminPortal } from "./pages/AdminPortal";
 import { VisitPage } from "./pages/VisitPage";
@@ -42,6 +42,7 @@ export function App() {
   if (path === "/services") return <OurServices />;
   if (path === "/safeguarding") return <SafeguardingProtocol />;
   if (path === "/integrations") return <SystemIntegrations />;
+  if (path === "/adult-safeguarding-policy" || path === "/safeguarding-policy") return <AdultSafeguardingPolicy />;
   if (path === "/gdpr-shield-policy") return <GDPRShieldPolicy />;
   if (path === "/safeguarding-sla") return <SafeguardingSLA />;
   if (loading) return <div className="app-loading"><span className="loading-mark" />Loading TaskBridge...</div>;

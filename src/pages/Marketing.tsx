@@ -266,6 +266,72 @@ export function SystemIntegrations() {
   return <GuidelinePage><IntegrationsGuideline /></GuidelinePage>;
 }
 
+export function AdultSafeguardingPolicy() {
+  return <PolicyPage
+    eyebrow="Adult safeguarding"
+    title="Adult Safeguarding Policy"
+    intro="TaskBridge by Growing Fig is committed to safeguarding and promoting the welfare, dignity, rights and wellbeing of adults at risk when practical home-safety work is coordinated on behalf of care providers."
+    sections={[
+      {
+        title: "Policy statement",
+        body: "TaskBridge does not provide personal care. However, employees, contractors and approved operatives may visit homes where vulnerable adults live. Everyone acting on behalf of TaskBridge must behave responsibly, maintain professional boundaries and follow the safeguarding procedures of the relevant care provider."
+      },
+      {
+        title: "Purpose",
+        body: "This policy protects adults at risk from abuse, neglect, exploitation and harm. It gives workers clear expectations for recognising concerns, reporting them promptly, respecting confidentiality and supporting effective partnership working with care providers and statutory agencies."
+      },
+      {
+        title: "Who this applies to",
+        body: "This policy applies to directors, managers, supervisors, employees, temporary workers, agency workers, contractors, ground maintenance operatives and any other person carrying out work on behalf of TaskBridge or Growing Fig."
+      },
+      {
+        title: "Adults at risk",
+        body: "An adult at risk is a person aged 18 or over who has care and support needs, is experiencing or may be at risk of abuse or neglect, and may be unable to protect themselves because of those needs. Abuse may include physical, emotional, sexual, financial, discriminatory, organisational or domestic abuse, neglect, self-neglect or modern slavery."
+      },
+      {
+        title: "Care-provider approval",
+        body: "A clear written task must be approved by the care provider before TaskBridge deploys a worker to a service user's property. Workers must only complete the authorised work and must not expand the visit into personal care, medical support or unrelated private arrangements."
+      },
+      {
+        title: "Company responsibilities",
+        body: "TaskBridge promotes safeguarding as everyone's responsibility. We provide safeguarding awareness, maintain appropriate checks where required, work cooperatively with partner care providers, protect confidential information and keep accurate records of safeguarding concerns, reports and actions taken."
+      },
+      {
+        title: "Worker responsibilities",
+        body: "Workers must treat every service user with dignity and respect, wear company identification, maintain professional boundaries, report concerns immediately and cooperate with safeguarding investigations. They must not accept gifts or money, borrow possessions, share personal contact details, provide personal care, handle medication or enter a property unless authorised for work."
+      },
+      {
+        title: "Recognising concerns",
+        body: "Concerns may include unexplained injuries, visible neglect, poor hygiene or unsafe living conditions, distress, fear of another person, signs of financial exploitation, significant behavioural change, unsafe property conditions, unusual confusion or concerns raised by neighbours, carers or family members. Workers are not expected to investigate."
+      },
+      {
+        title: "Reporting procedure",
+        body: "If a service user or worker is in immediate danger, emergency services must be contacted immediately by calling 999. The worker must then inform their line manager. Non-emergency concerns must be reported to the line manager, who will notify the relevant care provider so that its safeguarding procedure and any local authority referral can be followed."
+      },
+      {
+        title: "Recording concerns",
+        body: "Records should include the date, time, place, what was observed, who was present and the exact words used where possible. Workers must not investigate, question the service user extensively, promise confidentiality or confront any alleged perpetrator."
+      },
+      {
+        title: "Partnership working",
+        body: "As a contractor supporting care providers, TaskBridge follows safeguarding requirements in service contracts, cooperates with safeguarding investigations, shares information appropriately and respects the safeguarding policies of partner organisations."
+      },
+      {
+        title: "Professional boundaries and lone working",
+        body: "Workers must not enter financial arrangements, provide transport, buy items for service users, offer medical advice, become involved in family disputes or undertake tasks outside their authorised role. Lone workers must follow company procedure, carry a charged mobile phone, leave if they feel unsafe and report aggressive or concerning behaviour."
+      },
+      {
+        title: "Health, safety and training",
+        body: "TaskBridge expects safe operation of tools and machinery, appropriate PPE, risk-aware working, secured work areas and minimised disruption from noise or debris. Safeguarding awareness training covers recognising abuse, reporting concerns, confidentiality, professional boundaries and working with vulnerable adults."
+      },
+      {
+        title: "Confidentiality, whistleblowing and review",
+        body: "Safeguarding information is stored securely, shared only with appropriate people and processed in line with data protection requirements. Confidentiality must never prevent a safeguarding concern from being reported. Workers may raise concerns without detriment. This policy is reviewed annually or sooner if legislation, guidance, incidents or contract requirements change."
+      }
+    ]}
+  />;
+}
+
 export function GDPRShieldPolicy() {
   return <PolicyPage
     eyebrow="Privacy and data protection"
@@ -441,6 +507,7 @@ function Footer() {
       <div><p>© 2026 Growing Fig. All rights reserved.</p><small>TaskBridge by Growing Fig is a HealthTech and care operations middleware platform. Enhanced DBS validation supports vulnerable-adult safeguarding controls.</small></div>
       <nav aria-label="Security and legal">
         <a href="/how-it-works#security">Security standards</a>
+        <a href="/adult-safeguarding-policy">Adult safeguarding policy</a>
         <a href="/gdpr-shield-policy">GDPR shield policy</a>
         <a href="/safeguarding-sla">Safeguarding SLA</a>
       </nav>
