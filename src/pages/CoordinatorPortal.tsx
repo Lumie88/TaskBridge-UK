@@ -102,6 +102,7 @@ interface AnalyticsDashboard {
 type AnalyticsFilter = "all" | "deteriorating" | "improving" | "observations";
 
 type TaskFilter = "all" | "open" | "pending" | "assigned" | "confirmation" | "completed";
+type CoordinatorSection = "overview" | "new-task" | "tasks" | "service-users" | "analytics" | "notifications";
 
 const taskFilterLabels: Record<TaskFilter, string> = {
   all: "All tasks",
@@ -112,14 +113,29 @@ const taskFilterLabels: Record<TaskFilter, string> = {
   completed: "Completed"
 };
 
+const analyticsFilterLabels: Record<AnalyticsFilter, string> = {
+  all: "All tracked service users",
+  deteriorating: "Showing deterioration",
+  improving: "Improving outcomes",
+  observations: "All health observations"
+};
+
+const coordinatorSections: CoordinatorSection[] = ["overview", "new-task", "tasks", "service-users", "analytics", "notifications"];
+
 function initialTaskFilter(): TaskFilter {
   const value = new URLSearchParams(window.location.search).get("taskFilter");
   return value && value in taskFilterLabels ? value as TaskFilter : "all";
 }
 
+function initialCoordinatorSection(filter: TaskFilter): CoordinatorSection {
+  const section = new URLSearchParams(window.location.search).get("section");
+  if (section && coordinatorSections.includes(section as CoordinatorSection)) return section as CoordinatorSection;
+  return filter === "all" ? "overview" : "tasks";
+}
+
 export function CoordinatorPortal({ user, onSignOut }: { user: User; onSignOut: () => void }) {
   const initialFilter = initialTaskFilter();
-  const [active, setActive] = useState(initialFilter === "all" ? "overview" : "tasks");
+  const [active, setActive] = useState<CoordinatorSection>(initialCoordinatorSection(initialFilter));
   const [taskFilter, setTaskFilter] = useState<TaskFilter>(initialFilter);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [tasks, setTasks] = useState<CoordinatorTask[]>([]);
@@ -180,10 +196,11 @@ export function CoordinatorPortal({ user, onSignOut }: { user: User; onSignOut: 
   }, []);
 
   function openSection(section: string) {
-    setActive(section);
+    const nextSection = coordinatorSections.includes(section as CoordinatorSection) ? section as CoordinatorSection : "overview";
+    setActive(nextSection);
     setNotificationDrawerOpen(false);
-    if (section === "tasks") setTaskFilter("all");
-    window.history.replaceState({}, "", "/portal");
+    if (nextSection === "tasks") setTaskFilter("all");
+    window.history.replaceState({}, "", nextSection === "overview" ? "/portal" : `/portal?section=${nextSection}`);
   }
 
   function openTaskFilter(filter: TaskFilter) {
@@ -485,6 +502,12 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
 
   useEffect(() => { void loadAnalytics(); }, []);
 
+  const filteredServiceUsers = useMemo(() => {
+    if (!analytics) return [];
+    if (analyticsFilter === "all" || analyticsFilter === "observations") return analytics.serviceUsers;
+    return analytics.serviceUsers.filter((serviceUser) => serviceUser.overallTrend === analyticsFilter);
+  }, [analytics, analyticsFilter]);
+
   async function uploadCsv(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const file = new FormData(event.currentTarget).get("csv") as File | null;
@@ -534,16 +557,6 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
   if (loading && !analytics) return <Loading />;
   if (!analytics?.enabled) return <AnalyticsLocked />;
   const summary = analytics.summary;
-  const filteredServiceUsers = useMemo(() => {
-    if (analyticsFilter === "all" || analyticsFilter === "observations") return analytics.serviceUsers;
-    return analytics.serviceUsers.filter((serviceUser) => serviceUser.overallTrend === analyticsFilter);
-  }, [analytics.serviceUsers, analyticsFilter]);
-  const filterLabels: Record<AnalyticsFilter, string> = {
-    all: "All tracked service users",
-    deteriorating: "Showing deterioration",
-    improving: "Improving outcomes",
-    observations: "All health observations"
-  };
   return <>
     <div className="page-title-row"><div><span className="eyebrow">Free feature</span><h1>Care analytics dashboard</h1><p>Upload service-user health CSV data and review deterioration, stability and outcome trends.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Agency unlocked</span></div>
     {error && <div className="alert alert-danger">{error}<button onClick={loadAnalytics}><RefreshCw size={16} /> Retry</button></div>}
@@ -555,7 +568,7 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
     </div>
     <div className="analytics-layout">
       <section className="panel analytics-panel">
-        <div className="panel-heading"><div><h2>{filterLabels[analyticsFilter]}</h2><p>{analyticsFilter === "observations" ? `${summary.observations} imported health observation rows across ${summary.serviceUsersTracked} service user${summary.serviceUsersTracked === 1 ? "" : "s"}.` : "Potential deterioration is highlighted first for coordinator review."}</p></div></div>
+        <div className="panel-heading"><div><h2>{analyticsFilterLabels[analyticsFilter]}</h2><p>{analyticsFilter === "observations" ? `${summary.observations} imported health observation rows across ${summary.serviceUsersTracked} service user${summary.serviceUsersTracked === 1 ? "" : "s"}.` : "Potential deterioration is highlighted first for coordinator review."}</p></div></div>
         <div className="analytics-filter-strip"><span>{filteredServiceUsers.length} service user{filteredServiceUsers.length === 1 ? "" : "s"} shown</span>{analyticsFilter !== "all" && <button type="button" onClick={() => setAnalyticsFilter("all")}>Clear filter</button>}</div>
         <div className="analytics-service-list">{filteredServiceUsers.map((serviceUser) => <article key={serviceUser.serviceUserId} className={`analytics-card trend-${serviceUser.overallTrend}`}>
           <header><div><h3>{serviceUser.name}</h3><p>{serviceUser.reference} / Latest {formatDate(serviceUser.latestObservationDate)}</p></div><StatusBadge status={serviceUser.overallTrend === "deteriorating" ? "failed" : serviceUser.overallTrend === "improving" ? "approved" : "pending"}>{humanize(serviceUser.overallTrend)}</StatusBadge></header>
