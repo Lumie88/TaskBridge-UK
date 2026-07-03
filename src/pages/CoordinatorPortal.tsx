@@ -483,6 +483,7 @@ function TaskIntake({ serviceUsers, onCreated }: { serviceUsers: ServiceUser[]; 
 function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] }) {
   const [analytics, setAnalytics] = useState<AnalyticsDashboard | null>(null);
   const [analyticsFilter, setAnalyticsFilter] = useState<AnalyticsFilter>("all");
+  const [selectedAnalyticsServiceUserId, setSelectedAnalyticsServiceUserId] = useState("all");
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
@@ -502,11 +503,48 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
 
   useEffect(() => { void loadAnalytics(); }, []);
 
-  const filteredServiceUsers = useMemo(() => {
+  useEffect(() => {
+    if (!analytics || selectedAnalyticsServiceUserId === "all") return;
+    const selectedStillExists = analytics.serviceUsers.some((serviceUser) => serviceUser.serviceUserId === selectedAnalyticsServiceUserId);
+    if (!selectedStillExists) setSelectedAnalyticsServiceUserId("all");
+  }, [analytics, selectedAnalyticsServiceUserId]);
+
+  const selectedAnalyticsServiceUsers = useMemo(() => {
     if (!analytics) return [];
-    if (analyticsFilter === "all" || analyticsFilter === "observations") return analytics.serviceUsers;
-    return analytics.serviceUsers.filter((serviceUser) => serviceUser.overallTrend === analyticsFilter);
-  }, [analytics, analyticsFilter]);
+    if (selectedAnalyticsServiceUserId === "all") return analytics.serviceUsers;
+    return analytics.serviceUsers.filter((serviceUser) => serviceUser.serviceUserId === selectedAnalyticsServiceUserId);
+  }, [analytics, selectedAnalyticsServiceUserId]);
+
+  const selectedSummary = useMemo(() => ({
+    serviceUsersTracked: selectedAnalyticsServiceUsers.length,
+    observations: selectedAnalyticsServiceUsers.reduce((total, serviceUser) => total + serviceUser.metrics.reduce((metricTotal, metric) => metricTotal + metric.points.length, 0), 0),
+    deteriorating: selectedAnalyticsServiceUsers.filter((serviceUser) => serviceUser.overallTrend === "deteriorating").length,
+    stable: selectedAnalyticsServiceUsers.filter((serviceUser) => serviceUser.overallTrend === "stable").length,
+    improving: selectedAnalyticsServiceUsers.filter((serviceUser) => serviceUser.overallTrend === "improving").length
+  }), [selectedAnalyticsServiceUsers]);
+
+  const filteredServiceUsers = useMemo(() => {
+    if (analyticsFilter === "all" || analyticsFilter === "observations") return selectedAnalyticsServiceUsers;
+    return selectedAnalyticsServiceUsers.filter((serviceUser) => serviceUser.overallTrend === analyticsFilter);
+  }, [selectedAnalyticsServiceUsers, analyticsFilter]);
+
+  const selectedAnalyticsName = useMemo(() => {
+    if (selectedAnalyticsServiceUserId === "all") return "all service users";
+    return selectedAnalyticsServiceUsers[0]?.name || "selected service user";
+  }, [selectedAnalyticsServiceUserId, selectedAnalyticsServiceUsers]);
+
+  const analyticsScopeCopy = selectedAnalyticsServiceUserId === "all"
+    ? "Select a service user to focus the trend dashboard on one person's observations."
+    : `Showing analytics for ${selectedAnalyticsName} only.`;
+
+  const analyticsPanelCopy = analyticsFilter === "observations"
+    ? `${selectedSummary.observations} imported health observation row${selectedSummary.observations === 1 ? "" : "s"} for ${selectedAnalyticsName}.`
+    : `Potential deterioration is highlighted first for ${selectedAnalyticsName}.`;
+
+  function selectAnalyticsServiceUser(value: string) {
+    setSelectedAnalyticsServiceUserId(value);
+    setAnalyticsFilter("all");
+  }
 
   async function uploadCsv(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -556,19 +594,27 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
 
   if (loading && !analytics) return <Loading />;
   if (!analytics?.enabled) return <AnalyticsLocked />;
-  const summary = analytics.summary;
   return <>
     <div className="page-title-row"><div><span className="eyebrow">Free feature</span><h1>Care analytics dashboard</h1><p>Upload service-user health CSV data and review deterioration, stability and outcome trends.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Agency unlocked</span></div>
     {error && <div className="alert alert-danger">{error}<button onClick={loadAnalytics}><RefreshCw size={16} /> Retry</button></div>}
+    <section className="panel analytics-focus-panel">
+      <label>Focus analytics by service user
+        <select value={selectedAnalyticsServiceUserId} onChange={(event) => selectAnalyticsServiceUser(event.target.value)}>
+          <option value="all">All service users</option>
+          {analytics.serviceUsers.map((serviceUser) => <option key={serviceUser.serviceUserId} value={serviceUser.serviceUserId}>{serviceUser.name} / {serviceUser.reference}</option>)}
+        </select>
+      </label>
+      <p>{analyticsScopeCopy}</p>
+    </section>
     <div className="metric-grid coordinator-metrics analytics-metrics">
-      <AnalyticsMetric icon={<UsersRound />} label="Service users tracked" value={summary.serviceUsersTracked} tone="blue" filter="all" active={analyticsFilter === "all"} onSelect={setAnalyticsFilter} />
-      <AnalyticsMetric icon={<TrendingDown />} label="Showing deterioration" value={summary.deteriorating} tone="amber" filter="deteriorating" active={analyticsFilter === "deteriorating"} onSelect={setAnalyticsFilter} />
-      <AnalyticsMetric icon={<TrendingUp />} label="Improving outcomes" value={summary.improving} tone="green" filter="improving" active={analyticsFilter === "improving"} onSelect={setAnalyticsFilter} />
-      <AnalyticsMetric icon={<Activity />} label="Health observations" value={summary.observations} tone="navy" filter="observations" active={analyticsFilter === "observations"} onSelect={setAnalyticsFilter} />
+      <AnalyticsMetric icon={<UsersRound />} label="Service users tracked" value={selectedSummary.serviceUsersTracked} tone="blue" filter="all" active={analyticsFilter === "all"} onSelect={setAnalyticsFilter} />
+      <AnalyticsMetric icon={<TrendingDown />} label="Showing deterioration" value={selectedSummary.deteriorating} tone="amber" filter="deteriorating" active={analyticsFilter === "deteriorating"} onSelect={setAnalyticsFilter} />
+      <AnalyticsMetric icon={<TrendingUp />} label="Improving outcomes" value={selectedSummary.improving} tone="green" filter="improving" active={analyticsFilter === "improving"} onSelect={setAnalyticsFilter} />
+      <AnalyticsMetric icon={<Activity />} label="Health observations" value={selectedSummary.observations} tone="navy" filter="observations" active={analyticsFilter === "observations"} onSelect={setAnalyticsFilter} />
     </div>
     <div className="analytics-layout">
       <section className="panel analytics-panel">
-        <div className="panel-heading"><div><h2>{analyticsFilterLabels[analyticsFilter]}</h2><p>{analyticsFilter === "observations" ? `${summary.observations} imported health observation rows across ${summary.serviceUsersTracked} service user${summary.serviceUsersTracked === 1 ? "" : "s"}.` : "Potential deterioration is highlighted first for coordinator review."}</p></div></div>
+        <div className="panel-heading"><div><h2>{analyticsFilterLabels[analyticsFilter]}</h2><p>{analyticsPanelCopy}</p></div></div>
         <div className="analytics-filter-strip"><span>{filteredServiceUsers.length} service user{filteredServiceUsers.length === 1 ? "" : "s"} shown</span>{analyticsFilter !== "all" && <button type="button" onClick={() => setAnalyticsFilter("all")}>Clear filter</button>}</div>
         <div className="analytics-service-list">{filteredServiceUsers.map((serviceUser) => <article key={serviceUser.serviceUserId} className={`analytics-card trend-${serviceUser.overallTrend}`}>
           <header><div><h3>{serviceUser.name}</h3><p>{serviceUser.reference} / Latest {formatDate(serviceUser.latestObservationDate)}</p></div><StatusBadge status={serviceUser.overallTrend === "deteriorating" ? "failed" : serviceUser.overallTrend === "improving" ? "approved" : "pending"}>{humanize(serviceUser.overallTrend)}</StatusBadge></header>

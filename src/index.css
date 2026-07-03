@@ -935,6 +935,10 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 .command-palette > div button:hover { color: #1d4ed8; background: #eff6ff; }
 .command-palette > div p { padding: 16px; color: #64748b; text-align: center; }
 .analytics-metrics .metric { min-height: 118px; }
+.analytics-focus-panel { margin-bottom: 18px; padding: 17px 18px; display: grid; grid-template-columns: minmax(260px, 420px) 1fr; gap: 18px; align-items: end; }
+.analytics-focus-panel label { margin: 0; color: #0f2430; font-size: .82rem; font-weight: 850; }
+.analytics-focus-panel select { margin-top: 8px; min-height: 48px; border-radius: 10px; }
+.analytics-focus-panel p { margin: 0 0 7px; color: #5f7177; line-height: 1.55; }
 .analytics-filter-card { width: 100%; color: inherit; text-align: left; }
 .analytics-filter-card.active { border-color: #818cf8; box-shadow: 0 12px 28px rgba(79,70,229,.12); }
 .analytics-filter-card.active .metric-arrow { color: #4338ca; transform: translateX(3px); }
@@ -978,6 +982,7 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .status-board { grid-template-columns: repeat(5, minmax(250px, 1fr)); }
   .analytics-layout { grid-template-columns: 1fr; }
   .analytics-upload-panel { position: static; }
+  .analytics-focus-panel { grid-template-columns: 1fr; align-items: stretch; }
 }
 
 @media (max-width: 780px) {
