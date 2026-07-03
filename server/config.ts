@@ -10,10 +10,27 @@ function numberEnv(value: string | undefined, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function originListEnv(value: string | undefined, fallback: string[]) {
+  const values = (value || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  return Array.from(new Set([...values, ...fallback]));
+}
+
+const defaultAllowedOrigins = [
+  "http://localhost:4173",
+  "http://127.0.0.1:4173",
+  "https://www.growingfig.com",
+  "https://growingfig.com",
+  "https://taskbridge-uk-production.up.railway.app"
+];
+
 export const config = {
   nodeEnv: process.env.NODE_ENV || "development",
   port: numberEnv(process.env.PORT, 4173),
   appOrigin: process.env.APP_ORIGIN || "http://localhost:4173",
+  allowedOrigins: originListEnv(process.env.APP_ORIGINS || process.env.APP_ORIGIN, defaultAllowedOrigins),
   retryWorkerEnabled: booleanEnv(process.env.RETRY_WORKER_ENABLED, true),
   retryWorkerIntervalMs: numberEnv(process.env.RETRY_WORKER_INTERVAL_MS, 60_000),
   databaseUrl: process.env.DATABASE_URL || "",

@@ -44,7 +44,7 @@ export function createApp() {
   app.use((req, res, next) => {
     if (["GET", "HEAD", "OPTIONS"].includes(req.method) || req.path.startsWith("/api/webhooks/")) return next();
     const origin = req.get("origin");
-    if (origin && origin !== config.appOrigin) return res.status(403).json({ error: "Request origin is not allowed" });
+    if (origin && !config.allowedOrigins.includes(origin)) return res.status(403).json({ error: "Request origin is not allowed" });
     next();
   });
   app.use(authenticate);
