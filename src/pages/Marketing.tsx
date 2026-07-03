@@ -492,8 +492,8 @@ function Footer() {
           <Phone size={19} />
           <span><strong>+44 (0) 20 8050 1234</strong><small>Mon - Fri: 8:00 AM - 6:00 PM GMT</small></span>
         </a>
-        <a className="footer-contact-row" href="mailto:integrations@taskbridge.tech">
-          <Mail size={19} /><span><strong>integrations@taskbridge.tech</strong></span>
+        <a className="footer-contact-row" href="mailto:integrations@growingfig.com">
+          <Mail size={19} /><span><strong>integrations@growingfig.com</strong></span>
         </a>
         <div className="footer-contact-row">
           <MapPin size={19} />
