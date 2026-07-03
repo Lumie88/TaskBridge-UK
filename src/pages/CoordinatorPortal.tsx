@@ -99,6 +99,8 @@ interface AnalyticsDashboard {
   }>;
 }
 
+type AnalyticsFilter = "all" | "deteriorating" | "improving" | "observations";
+
 type TaskFilter = "all" | "open" | "pending" | "assigned" | "confirmation" | "completed";
 
 const taskFilterLabels: Record<TaskFilter, string> = {
@@ -463,6 +465,7 @@ function TaskIntake({ serviceUsers, onCreated }: { serviceUsers: ServiceUser[]; 
 
 function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] }) {
   const [analytics, setAnalytics] = useState<AnalyticsDashboard | null>(null);
+  const [analyticsFilter, setAnalyticsFilter] = useState<AnalyticsFilter>("all");
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
@@ -531,23 +534,35 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
   if (loading && !analytics) return <Loading />;
   if (!analytics?.enabled) return <AnalyticsLocked />;
   const summary = analytics.summary;
+  const filteredServiceUsers = useMemo(() => {
+    if (analyticsFilter === "all" || analyticsFilter === "observations") return analytics.serviceUsers;
+    return analytics.serviceUsers.filter((serviceUser) => serviceUser.overallTrend === analyticsFilter);
+  }, [analytics.serviceUsers, analyticsFilter]);
+  const filterLabels: Record<AnalyticsFilter, string> = {
+    all: "All tracked service users",
+    deteriorating: "Showing deterioration",
+    improving: "Improving outcomes",
+    observations: "All health observations"
+  };
   return <>
     <div className="page-title-row"><div><span className="eyebrow">Free feature</span><h1>Care analytics dashboard</h1><p>Upload service-user health CSV data and review deterioration, stability and outcome trends.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Agency unlocked</span></div>
     {error && <div className="alert alert-danger">{error}<button onClick={loadAnalytics}><RefreshCw size={16} /> Retry</button></div>}
     <div className="metric-grid coordinator-metrics analytics-metrics">
-      <article className="metric metric-blue"><span><UsersRound /></span><div><strong>{summary.serviceUsersTracked}</strong><small>Service users tracked</small></div></article>
-      <article className="metric metric-amber"><span><TrendingDown /></span><div><strong>{summary.deteriorating}</strong><small>Showing deterioration</small></div></article>
-      <article className="metric metric-green"><span><TrendingUp /></span><div><strong>{summary.improving}</strong><small>Improving outcomes</small></div></article>
-      <article className="metric metric-navy"><span><Activity /></span><div><strong>{summary.observations}</strong><small>Health observations</small></div></article>
+      <AnalyticsMetric icon={<UsersRound />} label="Service users tracked" value={summary.serviceUsersTracked} tone="blue" filter="all" active={analyticsFilter === "all"} onSelect={setAnalyticsFilter} />
+      <AnalyticsMetric icon={<TrendingDown />} label="Showing deterioration" value={summary.deteriorating} tone="amber" filter="deteriorating" active={analyticsFilter === "deteriorating"} onSelect={setAnalyticsFilter} />
+      <AnalyticsMetric icon={<TrendingUp />} label="Improving outcomes" value={summary.improving} tone="green" filter="improving" active={analyticsFilter === "improving"} onSelect={setAnalyticsFilter} />
+      <AnalyticsMetric icon={<Activity />} label="Health observations" value={summary.observations} tone="navy" filter="observations" active={analyticsFilter === "observations"} onSelect={setAnalyticsFilter} />
     </div>
     <div className="analytics-layout">
       <section className="panel analytics-panel">
-        <div className="panel-heading"><div><h2>Service-user trend visualisation</h2><p>Potential deterioration is highlighted first for coordinator review.</p></div></div>
-        <div className="analytics-service-list">{analytics.serviceUsers.map((serviceUser) => <article key={serviceUser.serviceUserId} className={`analytics-card trend-${serviceUser.overallTrend}`}>
+        <div className="panel-heading"><div><h2>{filterLabels[analyticsFilter]}</h2><p>{analyticsFilter === "observations" ? `${summary.observations} imported health observation rows across ${summary.serviceUsersTracked} service user${summary.serviceUsersTracked === 1 ? "" : "s"}.` : "Potential deterioration is highlighted first for coordinator review."}</p></div></div>
+        <div className="analytics-filter-strip"><span>{filteredServiceUsers.length} service user{filteredServiceUsers.length === 1 ? "" : "s"} shown</span>{analyticsFilter !== "all" && <button type="button" onClick={() => setAnalyticsFilter("all")}>Clear filter</button>}</div>
+        <div className="analytics-service-list">{filteredServiceUsers.map((serviceUser) => <article key={serviceUser.serviceUserId} className={`analytics-card trend-${serviceUser.overallTrend}`}>
           <header><div><h3>{serviceUser.name}</h3><p>{serviceUser.reference} / Latest {formatDate(serviceUser.latestObservationDate)}</p></div><StatusBadge status={serviceUser.overallTrend === "deteriorating" ? "failed" : serviceUser.overallTrend === "improving" ? "approved" : "pending"}>{humanize(serviceUser.overallTrend)}</StatusBadge></header>
           <div className="metric-trend-list">{serviceUser.metrics.map((metric) => <MetricTrend key={metric.metricType} metric={metric} />)}</div>
         </article>)}</div>
         {!analytics.serviceUsers.length && <EmptyState icon={<BarChart3 />} title="No analytics data yet" detail="Upload a CSV file to begin health trend visualisation." />}
+        {analytics.serviceUsers.length > 0 && !filteredServiceUsers.length && <EmptyState icon={<BarChart3 />} title="No service users match this filter" detail="Choose another analytics card or clear the filter to see all tracked service users." />}
       </section>
       <aside className="analytics-upload-panel">
         <section className="panel">
@@ -568,6 +583,22 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
       </aside>
     </div>
   </>;
+}
+
+function AnalyticsMetric({ icon, label, value, tone, filter, active, onSelect }: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  tone: string;
+  filter: AnalyticsFilter;
+  active: boolean;
+  onSelect: (filter: AnalyticsFilter) => void;
+}) {
+  return <button className={`metric metric-link analytics-filter-card metric-${tone} ${active ? "active" : ""}`} type="button" onClick={() => onSelect(filter)} aria-pressed={active}>
+    <span>{icon}</span>
+    <div><strong>{value}</strong><small>{label}</small></div>
+    <ArrowRight className="metric-arrow" size={18} />
+  </button>;
 }
 
 function AnalyticsLocked() {

@@ -935,8 +935,14 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 .command-palette > div button:hover { color: #1d4ed8; background: #eff6ff; }
 .command-palette > div p { padding: 16px; color: #64748b; text-align: center; }
 .analytics-metrics .metric { min-height: 118px; }
+.analytics-filter-card { width: 100%; color: inherit; text-align: left; }
+.analytics-filter-card.active { border-color: #818cf8; box-shadow: 0 12px 28px rgba(79,70,229,.12); }
+.analytics-filter-card.active .metric-arrow { color: #4338ca; transform: translateX(3px); }
 .analytics-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 22px; align-items: start; }
 .analytics-panel { min-width: 0; }
+.analytics-filter-strip { padding: 13px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); background: #f8fafc; }
+.analytics-filter-strip span { color: #52656b; font-size: .78rem; font-weight: 750; }
+.analytics-filter-strip button { min-height: 32px; padding: 0 11px; color: #4338ca; background: #eef2ff; border: 1px solid #e0e7ff; border-radius: 7px; font-size: .72rem; font-weight: 800; }
 .analytics-service-list { display: grid; gap: 13px; }
 .analytics-card { padding: 18px; border: 1px solid #dfe7e5; border-left-width: 5px; border-radius: 8px; background: white; }
 .analytics-card.trend-deteriorating { border-left-color: #e11d48; }
