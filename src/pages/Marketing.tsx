@@ -4,6 +4,7 @@ import {
   BadgeCheck,
   Camera,
   Check,
+  CheckCircle2,
   Clock3,
   FileCheck2,
   Heart,
@@ -26,6 +27,7 @@ import {
   UsersRound
 } from "lucide-react";
 import heroImage from "../assets/home-safety-hero.jpg";
+import { api } from "../api";
 import { DemoModal, PublicHeader } from "../components";
 import HowItWorksGuideline from "../guidelines/HowItWorksGuideline";
 import IntegrationsGuideline from "../guidelines/IntegrationsGuideline";
@@ -39,6 +41,17 @@ const services = [
   "Window cleaning",
   "Appliance safety tasks",
   "Locks, doors and access"
+];
+
+const handymanServices = [
+  "Minor repairs",
+  "Grab rail fitting",
+  "Garden path clearing",
+  "Lawn care",
+  "Window cleaning",
+  "Lock and handle repairs",
+  "Trip hazard removal",
+  "Appliance safety checks"
 ];
 
 const faqs = [
@@ -266,6 +279,92 @@ export function SystemIntegrations() {
   return <GuidelinePage><IntegrationsGuideline /></GuidelinePage>;
 }
 
+export function JoinHandymanPage() {
+  const [submitted, setSubmitted] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [selectedServices, setSelectedServices] = useState<string[]>(["Minor repairs"]);
+
+  function toggleService(service: string) {
+    setSelectedServices((current) => current.includes(service) ? current.filter((item) => item !== service) : [...current, service]);
+  }
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedServices.length) return setError("Choose at least one service you can offer.");
+    const values = new FormData(event.currentTarget);
+    setBusy(true);
+    setError("");
+    try {
+      await api("/api/auth/handyman-join-request", {
+        method: "POST",
+        body: JSON.stringify({
+          fullName: values.get("fullName"),
+          businessName: values.get("businessName"),
+          email: values.get("email"),
+          phone: values.get("phone"),
+          postcode: values.get("postcode"),
+          services: selectedServices,
+          hasEnhancedDbs: values.get("hasEnhancedDbs") === "on",
+          hasPublicLiability: values.get("hasPublicLiability") === "on",
+          message: values.get("message")
+        })
+      });
+      setSubmitted(true);
+      event.currentTarget.reset();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to send your join request");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <div className="marketing-page">
+    <PublicHeader onDemo={() => undefined} />
+    <main>
+      <section className="join-handyman-hero">
+        <div className="site-width join-handyman-grid">
+          <div className="join-handyman-copy">
+            <span className="studio-trust-pill"><ShieldCheck size={16} /> Trusted home-safety network</span>
+            <h1>Join TaskBridge as a vetted handyman.</h1>
+            <p>Work with care organisations to complete practical home-safety tasks for older and vulnerable service users. Every visit is structured, approved and evidenced through TaskBridge.</p>
+            <div className="join-handyman-points">
+              <span><BadgeCheck size={18} /> Enhanced DBS-led safeguarding</span>
+              <span><FileCheck2 size={18} /> Insurance and document review</span>
+              <span><Camera size={18} /> Secure visit evidence workflow</span>
+            </div>
+          </div>
+          <section className="join-handyman-card">
+            {!submitted ? <form onSubmit={submit}>
+              <header><span className="eyebrow">Apply to join</span><h2>Handyman interest form</h2><p>TaskBridge admin will review your details before sending a secure onboarding link.</p></header>
+              <div className="field-row"><label>Full name<input name="fullName" required autoComplete="name" /></label><label>Business name<input name="businessName" autoComplete="organization" /></label></div>
+              <div className="field-row"><label>Email<input name="email" type="email" required autoComplete="email" /></label><label>Mobile number<input name="phone" required autoComplete="tel" /></label></div>
+              <label>Primary postcode<input name="postcode" required autoComplete="postal-code" /></label>
+              <fieldset className="join-service-picker"><legend>Services you can offer</legend>{handymanServices.map((service) => <label key={service} className={selectedServices.includes(service) ? "selected" : ""}><input type="checkbox" checked={selectedServices.includes(service)} onChange={() => toggleService(service)} />{service}</label>)}</fieldset>
+              <div className="join-checks"><label><input name="hasEnhancedDbs" type="checkbox" /> I currently hold an Enhanced DBS certificate</label><label><input name="hasPublicLiability" type="checkbox" /> I have public liability insurance</label></div>
+              <label>Anything else we should know?<textarea name="message" rows={3} placeholder="Trade experience, regions covered, availability or relevant qualifications" /></label>
+              {error && <p className="form-error">{error}</p>}
+              <button className="button button-primary button-full" disabled={busy} type="submit">{busy ? "Sending..." : "Submit join request"} <ArrowRight size={17} /></button>
+            </form> : <div className="join-handyman-success">
+              <CheckCircle2 size={46} />
+              <h2>Join request received</h2>
+              <p>Thank you. TaskBridge admin will review your services, location and safeguarding readiness. If suitable, you will receive a secure onboarding link to upload documents.</p>
+              <a className="button button-primary" href="/">Return home</a>
+            </div>}
+          </section>
+        </div>
+      </section>
+      <section className="site-width join-handyman-process">
+        <div><strong>1</strong><h2>Apply</h2><p>Share your contact details, service coverage and trade categories.</p></div>
+        <div><strong>2</strong><h2>Review</h2><p>TaskBridge checks suitability before sending the secure registration link.</p></div>
+        <div><strong>3</strong><h2>Verify</h2><p>Upload insurance and Enhanced DBS evidence for admin review.</p></div>
+        <div><strong>4</strong><h2>Receive tasks</h2><p>Approved operatives receive tokenised task links for accepted work.</p></div>
+      </section>
+    </main>
+    <Footer />
+  </div>;
+}
+
 export function AdultSafeguardingPolicy() {
   return <PolicyPage
     eyebrow="Safeguarding"
@@ -484,6 +583,7 @@ function Footer() {
         <a href="/services">Our services</a>
         <a href="/safeguarding">Safeguarding protocol</a>
         <a href="/integrations">System integrations</a>
+        <a href="/join-handyman">Join as a Handyman</a>
       </nav>
 
       <section className="footer-contact" aria-label="Inquiries and support">

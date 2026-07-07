@@ -33,6 +33,17 @@ const demoRequestSchema = z.object({
   workEmail: z.string().email().max(200),
   message: z.string().max(1000).optional().default("")
 });
+const handymanJoinRequestSchema = z.object({
+  fullName: z.string().trim().min(2).max(120),
+  businessName: z.string().trim().max(160).optional().default(""),
+  email: z.string().trim().email().max(200),
+  phone: z.string().trim().min(8).max(30),
+  postcode: z.string().trim().min(4).max(12),
+  services: z.array(z.string().trim().min(2).max(80)).min(1).max(12),
+  hasEnhancedDbs: z.boolean().default(false),
+  hasPublicLiability: z.boolean().default(false),
+  message: z.string().trim().max(1200).optional().default("")
+});
 const acceptInvitationSchema = z.object({
   password: z.string().min(12).max(200)
     .refine((value) => /[A-Z]/.test(value) && /[a-z]/.test(value) && /\d/.test(value), "Use upper and lower case letters and a number")
@@ -62,6 +73,26 @@ authRouter.post("/demo-request", signInLimiter, asyncHandler(async (req, res) =>
     [email, delivery.providerMessageId, delivery.status, { demoRequestId: created.rows[0].id }]
   );
   res.status(201).json({ status: "received", emailDeliveryStatus: delivery.status });
+}));
+
+authRouter.post("/handyman-join-request", signInLimiter, asyncHandler(async (req, res) => {
+  const parsed = handymanJoinRequestSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: "Enter valid handyman application details" });
+  const data = parsed.data;
+  const created = await query<{ id: string }>(
+    `INSERT INTO tenant.handyman_join_requests
+      (full_name, business_name, email, phone, postcode, services, has_enhanced_dbs, has_public_liability, message, ip_address)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     RETURNING id::text`,
+    [data.fullName, data.businessName || null, data.email.toLowerCase(), data.phone, data.postcode.toUpperCase(), data.services, data.hasEnhancedDbs, data.hasPublicLiability, data.message || null, req.ip]
+  );
+  await query(
+    `INSERT INTO integration.notification_deliveries
+      (channel, purpose, recipient_reference, provider, provider_message_id, status, metadata)
+     VALUES ('internal', 'handyman_join_request', $1, 'taskbridge', $2, 'queued', $3)`,
+    [data.email.toLowerCase(), created.rows[0].id, { services: data.services, postcode: data.postcode.toUpperCase() }]
+  );
+  res.status(201).json({ status: "received", requestId: created.rows[0].id });
 }));
 
 authRouter.get("/staff-invitations/:token", asyncHandler(async (req, res) => {
