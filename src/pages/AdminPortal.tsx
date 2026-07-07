@@ -132,6 +132,7 @@ interface DemoRequest {
 interface BillingCharge {
   id: string;
   taskId: string;
+  agencyId: string;
   agencyName: string;
   handymanName: string | null;
   handymanAmount: number;
@@ -146,6 +147,20 @@ interface BillingCharge {
   payoutStatus: string | null;
   payableAfter: string | null;
   createdAt: string;
+}
+
+interface AdminInvoice {
+  id: string;
+  agencyName: string;
+  invoiceNumber: string;
+  periodStart: string;
+  periodEnd: string;
+  totalAmount: number;
+  currency: string;
+  status: string;
+  issuedAt: string | null;
+  paidAt: string | null;
+  lineCount: number;
 }
 
 interface AccessUser {
@@ -169,6 +184,7 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
   const [integrationFailures, setIntegrationFailures] = useState<IntegrationFailure[]>([]);
   const [demoRequests, setDemoRequests] = useState<DemoRequest[]>([]);
   const [billingCharges, setBillingCharges] = useState<BillingCharge[]>([]);
+  const [invoices, setInvoices] = useState<AdminInvoice[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [selectedTask, setSelectedTask] = useState<AdminTask | null>(null);
@@ -179,7 +195,7 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
     setLoading(true);
     setError("");
     try {
-      const [summary, taskResult, traderResult, agencyResult, accessResult, integrationResult, demoResult, billingResult] = await Promise.all([
+      const [summary, taskResult, traderResult, agencyResult, accessResult, integrationResult, demoResult, billingResult, invoiceResult] = await Promise.all([
         api<AdminDashboard>("/api/admin/dashboard"),
         api<{ tasks: AdminTask[] }>("/api/admin/tasks"),
         api<{ traders: Trader[] }>("/api/admin/traders"),
@@ -187,13 +203,15 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
         user.role === "taskbridge_super_admin" ? api<{ users: AccessUser[]; invitations: AccessInvitation[] }>("/api/admin/access/users") : Promise.resolve({ users: [], invitations: [] }),
         api<{ failures: IntegrationFailure[] }>("/api/admin/integrations/failures"),
         api<{ requests: DemoRequest[] }>("/api/admin/demo-requests"),
-        api<{ charges: BillingCharge[] }>("/api/admin/billing/task-charges")
+        api<{ charges: BillingCharge[] }>("/api/admin/billing/task-charges"),
+        api<{ invoices: AdminInvoice[] }>("/api/admin/billing/invoices")
       ]);
       setDashboard(summary); setTasks(taskResult.tasks); setTraders(traderResult.traders); setAgencies(agencyResult.agencies);
       setAccessUsers(accessResult.users); setAccessInvitations(accessResult.invitations);
       setIntegrationFailures(integrationResult.failures);
       setDemoRequests(demoResult.requests);
       setBillingCharges(billingResult.charges);
+      setInvoices(invoiceResult.invoices);
       setSelectedTask((current) => current ? taskResult.tasks.find((task) => task.id === current.id) || null : null);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load administration"); }
     finally { setLoading(false); }
@@ -224,7 +242,7 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
         : active === "integrations"
           ? <IntegrationMonitor failures={integrationFailures} onRefresh={load} />
         : active === "billing"
-          ? <FinanceControls charges={billingCharges} onChanged={load} />
+          ? <FinanceControls charges={billingCharges} invoices={invoices} onChanged={load} />
         : active === "agencies" && user.role === "taskbridge_super_admin"
           ? <AgencyOnboarding agencies={agencies} onChanged={load} />
           : active === "access" && user.role === "taskbridge_super_admin"
@@ -386,8 +404,15 @@ function DemoRequestDesk({ requests, onChanged }: { requests: DemoRequest[]; onC
   </>;
 }
 
-function FinanceControls({ charges, onChanged }: { charges: BillingCharge[]; onChanged: () => Promise<void> }) {
+function FinanceControls({ charges, invoices, onChanged }: { charges: BillingCharge[]; invoices: AdminInvoice[]; onChanged: () => Promise<void> }) {
   const [busy, setBusy] = useState("");
+  const defaultStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+  const defaultEnd = new Date().toISOString().slice(0, 10);
+  const agencies = Array.from(new Map(charges.map((charge) => [charge.agencyId, charge.agencyName])).entries()).map(([id, name]) => ({ id, name }));
+  const [invoiceForm, setInvoiceForm] = useState({ agencyId: agencies[0]?.id || "", periodStart: defaultStart, periodEnd: defaultEnd, dueDate: "" });
+  useEffect(() => {
+    if (!invoiceForm.agencyId && agencies[0]?.id) setInvoiceForm((current) => ({ ...current, agencyId: agencies[0].id }));
+  }, [agencies.map((agency) => agency.id).join("|")]);
   async function settlement(charge: BillingCharge) {
     const settlementStatus = window.prompt("Settlement status: not_invoiced, invoiced, agency_paid, disputed, written_off", charge.settlementStatus);
     if (!settlementStatus) return;
@@ -410,8 +435,38 @@ function FinanceControls({ charges, onChanged }: { charges: BillingCharge[]; onC
       await onChanged();
     } finally { setBusy(""); }
   }
+  async function createInvoice() {
+    if (!invoiceForm.agencyId) return window.alert("Choose a care agency with uninvoiced charges.");
+    setBusy("invoice-create");
+    try {
+      const result = await api<{ invoiceNumber: string; lineCount: number; totalAmount: number }>("/api/admin/billing/invoices", {
+        method: "POST",
+        body: JSON.stringify({ ...invoiceForm, dueDate: invoiceForm.dueDate || null })
+      });
+      window.alert(`Invoice ${result.invoiceNumber} created with ${result.lineCount} charge line${result.lineCount === 1 ? "" : "s"}.`);
+      await onChanged();
+    } finally { setBusy(""); }
+  }
+  async function updateInvoiceStatus(invoice: AdminInvoice, status: "paid" | "void") {
+    setBusy(invoice.id);
+    try {
+      await api(`/api/admin/billing/invoices/${invoice.id}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
+      await onChanged();
+    } finally { setBusy(""); }
+  }
   return <>
-    <div className="page-title-row"><div><span className="eyebrow">Pilot finance control</span><h1>Invoices, settlement and payout holds</h1><p>Track agency-billed task charges and hold payouts when evidence, confirmation or disputes require review.</p></div></div>
+    <div className="page-title-row"><div><span className="eyebrow">Pilot finance control</span><h1>Invoices, settlement and payout holds</h1><p>Generate care-agency invoice exports, track settlements and hold payouts when evidence or disputes require review.</p></div></div>
+    <section className="panel invoice-create-panel">
+      <div className="panel-heading"><div><h2>Generate agency invoice export</h2><p>Create an issued invoice from uninvoiced task charges for one care agency and billing period.</p></div></div>
+      <div className="invoice-create-grid">
+        <label>Care agency<select value={invoiceForm.agencyId} onChange={(event) => setInvoiceForm((current) => ({ ...current, agencyId: event.target.value }))}><option value="">Choose agency</option>{agencies.map((agency) => <option key={agency.id} value={agency.id}>{agency.name}</option>)}</select></label>
+        <label>Period start<input type="date" value={invoiceForm.periodStart} onChange={(event) => setInvoiceForm((current) => ({ ...current, periodStart: event.target.value }))} /></label>
+        <label>Period end<input type="date" value={invoiceForm.periodEnd} onChange={(event) => setInvoiceForm((current) => ({ ...current, periodEnd: event.target.value }))} /></label>
+        <label>Due date<input type="date" value={invoiceForm.dueDate} onChange={(event) => setInvoiceForm((current) => ({ ...current, dueDate: event.target.value }))} /></label>
+        <button className="button button-primary" disabled={busy === "invoice-create"} onClick={createInvoice}>{busy === "invoice-create" ? <LoaderCircle className="spin" size={17} /> : <FileCheck2 size={17} />} Generate invoice</button>
+      </div>
+    </section>
+    <section className="panel table-panel"><div className="panel-heading"><div><h2>Invoice exports</h2><p>Issued invoice batches grouped by agency and period.</p></div></div><div className="responsive-table"><table><thead><tr><th>Invoice</th><th>Agency</th><th>Period</th><th>Lines</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead><tbody>{invoices.map((invoice) => <tr key={invoice.id}><td><strong>{invoice.invoiceNumber}</strong><small>{invoice.issuedAt ? `Issued ${formatDate(invoice.issuedAt, true)}` : "Draft"}</small></td><td>{invoice.agencyName}</td><td><strong>{formatDate(invoice.periodStart)}</strong><small>to {formatDate(invoice.periodEnd)}</small></td><td>{invoice.lineCount}</td><td><strong>{invoice.currency} {invoice.totalAmount.toFixed(2)}</strong></td><td><StatusBadge status={invoice.status}>{humanize(invoice.status)}</StatusBadge>{invoice.paidAt && <small>Paid {formatDate(invoice.paidAt, true)}</small>}</td><td><div className="row-actions"><a className="button button-secondary button-small" href={`/api/admin/billing/invoices/${invoice.id}/export.csv`}>CSV</a><button className="button button-secondary button-small" disabled={busy === invoice.id || invoice.status === "paid"} onClick={() => updateInvoiceStatus(invoice, "paid")}>Mark paid</button><button className="button button-secondary button-small document-reject" disabled={busy === invoice.id || invoice.status === "void" || invoice.status === "paid"} onClick={() => updateInvoiceStatus(invoice, "void")}>Void</button></div></td></tr>)}</tbody></table></div>{!invoices.length && <EmptyState icon={<FileCheck2 />} title="No invoices generated yet" detail="Create an invoice export from uninvoiced task charges." />}</section>
     <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Task</th><th>Agency</th><th>Amounts</th><th>Settlement</th><th>Payout</th><th>Actions</th></tr></thead><tbody>{charges.map((charge) => <tr key={charge.id}><td><strong>{charge.taskId}</strong><small>{formatDate(charge.createdAt, true)}</small></td><td><strong>{charge.agencyName}</strong><small>{charge.handymanName || "No handyman"}</small></td><td><strong>£{charge.totalAmount.toFixed(2)}</strong><small>Handyman £{charge.handymanAmount.toFixed(2)} · Agency £{charge.agencyCoordinationFee.toFixed(2)} · Platform £{charge.platformFee.toFixed(2)}</small></td><td><StatusBadge status={charge.settlementStatus}>{humanize(charge.settlementStatus)}</StatusBadge>{charge.settlementReference && <small>{charge.settlementReference}</small>}</td><td><StatusBadge status={charge.payoutStatus || "pending"}>{humanize(charge.payoutStatus || "pending")}</StatusBadge>{charge.payableAfter && <small>Eligible {formatDate(charge.payableAfter, true)}</small>}</td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === charge.id} onClick={() => settlement(charge)}>Settlement</button><button className="button button-secondary button-small document-reject" disabled={busy === charge.id} onClick={() => dispute(charge)}>Dispute / hold</button></div></td></tr>)}</tbody></table></div>{!charges.length && <EmptyState icon={<FileCheck2 />} title="No charge records yet" detail="Charges are created when a TaskBridge admin dispatches a handyman." />}</section>
   </>;
 }

@@ -659,6 +659,9 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 .optional-document { opacity: .9; }
 .declaration-section { display: grid; gap: 14px; }
 .declaration-section .onboarding-section-title { margin-bottom: 5px; }
+.invoice-create-grid { display: grid; grid-template-columns: minmax(220px, 1.3fr) repeat(3, minmax(150px, 1fr)) auto; gap: 14px; align-items: end; }
+.invoice-create-grid label { margin: 0; }
+.invoice-create-grid .button { min-height: 48px; white-space: nowrap; }
 .onboarding-complete { min-height: calc(100vh - 150px); display: grid; place-items: center; align-content: center; text-align: center; }
 .onboarding-complete > span { width: 70px; height: 70px; display: grid; place-items: center; color: #059669; background: #dff7ed; border-radius: 50%; }
 .onboarding-complete h1 { margin: 20px 0 9px; font-size: 2.4rem; }
@@ -731,6 +734,8 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .lifecycle-gap a { justify-content: center; width: fit-content; }
   .metric-grid { grid-template-columns: 1fr 1fr; }
   .intake-layout, .assignment-layout, .resident-layout, .agency-onboarding-layout { grid-template-columns: 1fr; }
+  .invoice-create-grid { grid-template-columns: 1fr 1fr; }
+  .invoice-create-grid .button { grid-column: 1 / -1; }
   .suggestion-panel, .candidate-panel, .resident-create-panel, .agency-create-panel { position: static; }
   .invite-handyman-form { grid-template-columns: 1fr 1fr; }
   .invite-handyman-form .button { grid-column: 1 / -1; }

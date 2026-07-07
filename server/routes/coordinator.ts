@@ -133,6 +133,89 @@ coordinatorRouter.get("/dashboard", async (req, res) => {
   });
 });
 
+coordinatorRouter.get("/billing/invoices", asyncHandler(async (req, res) => {
+  const agencyId = req.auth!.agencyId!;
+  const invoices = await query<{
+    id: string; invoice_number: string; period_start: string; period_end: string;
+    total_amount: string; currency: string; status: string; issued_at: string | null; paid_at: string | null; line_count: string;
+  }>(
+    `SELECT i.id::text, i.invoice_number, i.period_start::text, i.period_end::text,
+            i.total_amount::text, i.currency, i.status, i.issued_at::text, i.paid_at::text,
+            count(tc.id)::text AS line_count
+     FROM billing.invoices i
+     LEFT JOIN billing.task_charges tc ON tc.agency_id = i.agency_id AND tc.settlement_reference = i.invoice_number
+     WHERE i.agency_id = $1
+     GROUP BY i.id
+     ORDER BY i.created_at DESC LIMIT 100`,
+    [agencyId]
+  );
+  const uninvoiced = await query<{ count: string; total: string }>(
+    `SELECT count(*)::text, COALESCE(sum(total_amount), 0)::text
+     FROM billing.task_charges
+     WHERE agency_id = $1 AND settlement_status = 'not_invoiced'`,
+    [agencyId]
+  );
+  res.json({
+    pending: {
+      count: Number(uninvoiced.rows[0]?.count || 0),
+      totalAmount: Number(uninvoiced.rows[0]?.total || 0)
+    },
+    invoices: invoices.rows.map((row) => ({
+      id: row.id,
+      invoiceNumber: row.invoice_number,
+      periodStart: row.period_start,
+      periodEnd: row.period_end,
+      totalAmount: Number(row.total_amount),
+      currency: row.currency,
+      status: row.status,
+      issuedAt: row.issued_at,
+      paidAt: row.paid_at,
+      lineCount: Number(row.line_count)
+    }))
+  });
+}));
+
+coordinatorRouter.get("/billing/invoices/:id/export.csv", asyncHandler(async (req, res) => {
+  const agencyId = req.auth!.agencyId!;
+  const invoice = await query<{ invoice_number: string; period_start: string; period_end: string; total_amount: string; status: string }>(
+    `SELECT invoice_number, period_start::text, period_end::text, total_amount::text, status
+     FROM billing.invoices
+     WHERE id = $1 AND agency_id = $2`,
+    [req.params.id, agencyId]
+  );
+  const header = invoice.rows[0];
+  if (!header) return res.status(404).json({ error: "Invoice not found" });
+  const lines = await query<{
+    task_public_id: string; category: string; created_at: string; handyman_name: string | null;
+    handyman_amount: string; agency_coordination_fee: string; platform_fee: string; total_amount: string;
+  }>(
+    `SELECT t.public_id AS task_public_id, t.category, tc.created_at::text, tr.display_name AS handyman_name,
+            tc.handyman_amount::text, tc.agency_coordination_fee::text, tc.platform_fee::text, tc.total_amount::text
+     FROM billing.task_charges tc
+     JOIN ops.tasks t ON t.id = tc.task_id
+     LEFT JOIN ops.assignments a ON a.id = tc.assignment_id
+     LEFT JOIN trader.traders tr ON tr.id = a.trader_id
+     WHERE tc.agency_id = $1 AND tc.settlement_reference = $2
+     ORDER BY tc.created_at`,
+    [agencyId, header.invoice_number]
+  );
+  const rows = [
+    ["Invoice number", header.invoice_number],
+    ["Period", `${header.period_start} to ${header.period_end}`],
+    ["Status", header.status],
+    ["Total", header.total_amount],
+    [],
+    ["Task", "Category", "Date", "Handyman", "Handyman amount", "Agency coordination fee", "Platform fee", "Total"]
+  ];
+  for (const line of lines.rows) {
+    rows.push([line.task_public_id, line.category, line.created_at, line.handyman_name || "", line.handyman_amount, line.agency_coordination_fee, line.platform_fee, line.total_amount]);
+  }
+  const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll("\"", "\"\"")}"`).join(",")).join("\n");
+  res.setHeader("content-type", "text/csv; charset=utf-8");
+  res.setHeader("content-disposition", `attachment; filename="${header.invoice_number}.csv"`);
+  res.send(csv);
+}));
+
 coordinatorRouter.get("/analytics", asyncHandler(async (req, res) => {
   const enabled = await healthAnalyticsEnabled(req.auth!.agencyId!);
   if (!enabled) return res.json({ enabled: false, uploads: [], serviceUsers: [], summary: emptyAnalyticsSummary() });

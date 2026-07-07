@@ -99,10 +99,26 @@ interface AnalyticsDashboard {
   }>;
 }
 
+interface AgencyInvoiceDashboard {
+  pending: { count: number; totalAmount: number };
+  invoices: Array<{
+    id: string;
+    invoiceNumber: string;
+    periodStart: string;
+    periodEnd: string;
+    totalAmount: number;
+    currency: string;
+    status: string;
+    issuedAt: string | null;
+    paidAt: string | null;
+    lineCount: number;
+  }>;
+}
+
 type AnalyticsFilter = "all" | "deteriorating" | "improving" | "observations";
 
 type TaskFilter = "all" | "open" | "pending" | "assigned" | "confirmation" | "completed";
-type CoordinatorSection = "overview" | "new-task" | "tasks" | "service-users" | "analytics" | "notifications";
+type CoordinatorSection = "overview" | "new-task" | "tasks" | "service-users" | "analytics" | "billing" | "notifications";
 
 const taskFilterLabels: Record<TaskFilter, string> = {
   all: "All tasks",
@@ -120,7 +136,7 @@ const analyticsFilterLabels: Record<AnalyticsFilter, string> = {
   observations: "All health observations"
 };
 
-const coordinatorSections: CoordinatorSection[] = ["overview", "new-task", "tasks", "service-users", "analytics", "notifications"];
+const coordinatorSections: CoordinatorSection[] = ["overview", "new-task", "tasks", "service-users", "analytics", "billing", "notifications"];
 
 function initialTaskFilter(): TaskFilter {
   const value = new URLSearchParams(window.location.search).get("taskFilter");
@@ -249,9 +265,11 @@ export function CoordinatorPortal({ user, onSignOut }: { user: User; onSignOut: 
             ? <ServiceUserDirectory serviceUsers={serviceUsers} onChanged={load} />
             : active === "analytics"
               ? <CareAnalyticsDashboard serviceUsers={serviceUsers} />
-            : active === "notifications"
-              ? <NotificationsHub notifications={notifications} onOpen={openNotification} />
-              : <StatusBoard tasks={tasks} filter={taskFilter} onFilter={openTaskFilter} onOpenTask={openTask} />}
+              : active === "billing"
+                ? <AgencyInvoices />
+                : active === "notifications"
+                  ? <NotificationsHub notifications={notifications} onOpen={openNotification} />
+                  : <StatusBoard tasks={tasks} filter={taskFilter} onFilter={openTaskFilter} onOpenTask={openTask} />}
       {notificationDrawerOpen && <NotificationDrawer notifications={notifications} onClose={() => setNotificationDrawerOpen(false)} onOpen={openNotification} onViewAll={() => openSection("notifications")} />}
       {selectedTask && <TaskDetailsDrawer task={selectedTask} detail={taskDetail} loading={detailLoading} onClose={() => { setSelectedTask(null); setTaskDetail(null); }} onChanged={async () => { setSelectedTask(null); setTaskDetail(null); await load(); }} />}
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} onChoose={openSection} />}
@@ -285,6 +303,43 @@ function CoordinatorOverview({ user, dashboard, onNew, onOpenFilter, onOpenTask 
 
 function Metric({ icon, label, value, filter, onOpen, tone = "navy" }: { icon: React.ReactNode; label: string; value: number; filter: TaskFilter; onOpen: (filter: TaskFilter) => void; tone?: string }) {
   return <a className={`metric metric-link metric-${tone}`} href={`/portal?taskFilter=${filter}`} onClick={(event) => { event.preventDefault(); onOpen(filter); }}><span>{icon}</span><div><strong>{value}</strong><small>{label}</small></div><ArrowRight className="metric-arrow" size={18} /></a>;
+}
+
+function AgencyInvoices() {
+  const [billing, setBilling] = useState<AgencyInvoiceDashboard | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  async function loadInvoices() {
+    setLoading(true);
+    setError("");
+    try {
+      setBilling(await api<AgencyInvoiceDashboard>("/api/coordinator/billing/invoices"));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to load agency invoices");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void loadInvoices(); }, []);
+
+  if (loading && !billing) return <Loading />;
+  return <>
+    <div className="page-title-row"><div><span className="eyebrow">Agency finance</span><h1>Invoices and billing records</h1><p>Review TaskBridge task charges that have been included in care-agency invoice exports.</p></div><button className="button button-secondary" onClick={loadInvoices}><RefreshCw size={16} /> Refresh</button></div>
+    {error && <div className="alert alert-danger">{error}<button onClick={loadInvoices}><RefreshCw size={16} /> Retry</button></div>}
+    <div className="metric-grid coordinator-metrics">
+      <div className="metric metric-blue"><span><FileText /></span><div><strong>{billing?.pending.count || 0}</strong><small>Charges awaiting invoice</small></div></div>
+      <div className="metric metric-amber"><span><Clock3 /></span><div><strong>GBP {(billing?.pending.totalAmount || 0).toFixed(2)}</strong><small>Pending uninvoiced value</small></div></div>
+      <div className="metric metric-green"><span><CheckCircle2 /></span><div><strong>{billing?.invoices.filter((invoice) => invoice.status === "paid").length || 0}</strong><small>Paid invoices</small></div></div>
+      <div className="metric metric-navy"><span><ClipboardList /></span><div><strong>{billing?.invoices.length || 0}</strong><small>Total invoice exports</small></div></div>
+    </div>
+    <section className="panel table-panel">
+      <div className="panel-heading"><div><h2>Agency invoice history</h2><p>CSV exports are generated by TaskBridge administration and made visible here for the agency workspace.</p></div></div>
+      <div className="responsive-table"><table><thead><tr><th>Invoice</th><th>Period</th><th>Lines</th><th>Total</th><th>Status</th><th>Export</th></tr></thead><tbody>{billing?.invoices.map((invoice) => <tr key={invoice.id}><td><strong>{invoice.invoiceNumber}</strong><small>{invoice.issuedAt ? `Issued ${formatDate(invoice.issuedAt, true)}` : "Draft"}</small></td><td><strong>{formatDate(invoice.periodStart)}</strong><small>to {formatDate(invoice.periodEnd)}</small></td><td>{invoice.lineCount}</td><td><strong>{invoice.currency} {invoice.totalAmount.toFixed(2)}</strong></td><td><StatusBadge status={invoice.status}>{humanize(invoice.status)}</StatusBadge>{invoice.paidAt && <small>Paid {formatDate(invoice.paidAt, true)}</small>}</td><td><a className="button button-secondary button-small" href={`/api/coordinator/billing/invoices/${invoice.id}/export.csv`}>CSV</a></td></tr>)}</tbody></table></div>
+      {!billing?.invoices.length && <EmptyState icon={<FileText />} title="No invoices yet" detail="TaskBridge admin invoice exports will appear here once created for your agency." />}
+    </section>
+  </>;
 }
 
 function ServiceUserDirectory({ serviceUsers, onChanged }: { serviceUsers: ServiceUser[]; onChanged: () => Promise<void> }) {

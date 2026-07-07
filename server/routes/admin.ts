@@ -107,6 +107,13 @@ const disputeSchema = z.object({
   reason: z.string().trim().min(5).max(1000),
   refundAmount: z.number().min(0).max(100000).default(0)
 });
+const invoiceCreateSchema = z.object({
+  agencyId: z.string().uuid(),
+  periodStart: z.string().date(),
+  periodEnd: z.string().date(),
+  dueDate: z.string().date().optional().nullable()
+});
+const invoiceStatusSchema = z.object({ status: z.enum(["issued", "paid", "void"]) });
 
 export const adminRouter = Router();
 adminRouter.use(requireRoles("taskbridge_admin", "taskbridge_super_admin"));
@@ -864,12 +871,12 @@ adminRouter.patch("/agencies/:id/settings", requireRoles("taskbridge_super_admin
 
 adminRouter.get("/billing/task-charges", asyncHandler(async (_req, res) => {
   const result = await query<{
-    id: string; task_id: string; public_id: string; agency_name: string; handyman_name: string | null;
+    id: string; task_id: string; public_id: string; agency_id: string; agency_name: string; handyman_name: string | null;
     handyman_amount: string; agency_coordination_fee: string; platform_fee: string; total_amount: string;
     status: string; settlement_status: string; settlement_reference: string | null; settlement_due_at: string | null;
     settlement_notes: string | null; created_at: string; payout_status: string | null; payable_after: string | null;
   }>(
-    `SELECT tc.id::text, t.id::text AS task_id, t.public_id, ag.name AS agency_name,
+    `SELECT tc.id::text, t.id::text AS task_id, t.public_id, ag.id::text AS agency_id, ag.name AS agency_name,
             tr.display_name AS handyman_name, tc.handyman_amount::text, tc.agency_coordination_fee::text,
             tc.platform_fee::text, tc.total_amount::text, tc.status, tc.settlement_status,
             tc.settlement_reference, tc.settlement_due_at::text, tc.settlement_notes, tc.created_at::text,
@@ -885,6 +892,7 @@ adminRouter.get("/billing/task-charges", asyncHandler(async (_req, res) => {
   res.json({ charges: result.rows.map((row) => ({
     id: row.id,
     taskId: row.public_id,
+    agencyId: row.agency_id,
     agencyName: row.agency_name,
     handymanName: row.handyman_name,
     handymanAmount: Number(row.handyman_amount),
@@ -900,6 +908,159 @@ adminRouter.get("/billing/task-charges", asyncHandler(async (_req, res) => {
     payableAfter: row.payable_after,
     createdAt: row.created_at
   })) });
+}));
+
+adminRouter.get("/billing/invoices", asyncHandler(async (_req, res) => {
+  const result = await query<{
+    id: string; agency_name: string; invoice_number: string; period_start: string; period_end: string;
+    total_amount: string; currency: string; status: string; issued_at: string | null; paid_at: string | null; line_count: string;
+  }>(
+    `SELECT i.id::text, ag.name AS agency_name, i.invoice_number, i.period_start::text, i.period_end::text,
+            i.total_amount::text, i.currency, i.status, i.issued_at::text, i.paid_at::text,
+            count(tc.id)::text AS line_count
+     FROM billing.invoices i
+     JOIN tenant.agencies ag ON ag.id = i.agency_id
+     LEFT JOIN billing.task_charges tc ON tc.agency_id = i.agency_id AND tc.settlement_reference = i.invoice_number
+     GROUP BY i.id, ag.name
+     ORDER BY i.created_at DESC LIMIT 100`
+  );
+  res.json({ invoices: result.rows.map((row) => ({
+    id: row.id,
+    agencyName: row.agency_name,
+    invoiceNumber: row.invoice_number,
+    periodStart: row.period_start,
+    periodEnd: row.period_end,
+    totalAmount: Number(row.total_amount),
+    currency: row.currency,
+    status: row.status,
+    issuedAt: row.issued_at,
+    paidAt: row.paid_at,
+    lineCount: Number(row.line_count)
+  })) });
+}));
+
+adminRouter.post("/billing/invoices", asyncHandler(async (req, res) => {
+  const parsed = invoiceCreateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid invoice request" });
+  const data = parsed.data;
+  const created = await withTransaction(req.auth!, async (client) => {
+    const charges = await client.query<{ id: string; total_amount: string }>(
+      `SELECT id::text, total_amount::text
+       FROM billing.task_charges
+       WHERE agency_id = $1
+         AND settlement_status = 'not_invoiced'
+         AND created_at::date BETWEEN $2 AND $3
+       ORDER BY created_at
+       FOR UPDATE`,
+      [data.agencyId, data.periodStart, data.periodEnd]
+    );
+    if (!charges.rows.length) return null;
+    const totalAmount = charges.rows.reduce((sum, row) => sum + Number(row.total_amount), 0);
+    const invoiceNumber = `TB-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+    const invoice = await client.query<{ id: string }>(
+      `INSERT INTO billing.invoices
+        (agency_id, invoice_number, period_start, period_end, total_amount, currency, status, issued_at)
+       VALUES ($1, $2, $3, $4, $5, 'GBP', 'issued', clock_timestamp())
+       RETURNING id::text`,
+      [data.agencyId, invoiceNumber, data.periodStart, data.periodEnd, totalAmount]
+    );
+    await client.query(
+      `UPDATE billing.task_charges
+       SET settlement_status = 'invoiced',
+           settlement_reference = $2,
+           settlement_due_at = $3,
+           settlement_notes = COALESCE(settlement_notes, 'Included in agency invoice export')
+       WHERE id = ANY($1::uuid[])`,
+      [charges.rows.map((row) => row.id), invoiceNumber, data.dueDate || null]
+    );
+    return { id: invoice.rows[0].id, invoiceNumber, totalAmount, lineCount: charges.rows.length };
+  });
+  if (!created) return res.status(409).json({ error: "No uninvoiced task charges found for this agency and period" });
+  await audit(req, "admin.billing.invoice_created", "invoice", created.id, data);
+  res.status(201).json(created);
+}));
+
+adminRouter.get("/billing/invoices/:id/export.csv", asyncHandler(async (req, res) => {
+  const invoice = await query<{ agency_id: string; agency_name: string; invoice_number: string; period_start: string; period_end: string; total_amount: string; status: string }>(
+    `SELECT i.agency_id::text, ag.name AS agency_name, i.invoice_number, i.period_start::text, i.period_end::text,
+            i.total_amount::text, i.status
+     FROM billing.invoices i JOIN tenant.agencies ag ON ag.id = i.agency_id
+     WHERE i.id = $1`,
+    [req.params.id]
+  );
+  const header = invoice.rows[0];
+  if (!header) return res.status(404).json({ error: "Invoice not found" });
+  const lines = await query<{
+    task_public_id: string; category: string; created_at: string; handyman_name: string | null;
+    handyman_amount: string; agency_coordination_fee: string; platform_fee: string; total_amount: string;
+  }>(
+    `SELECT t.public_id AS task_public_id, t.category, tc.created_at::text, tr.display_name AS handyman_name,
+            tc.handyman_amount::text, tc.agency_coordination_fee::text, tc.platform_fee::text, tc.total_amount::text
+     FROM billing.task_charges tc
+     JOIN ops.tasks t ON t.id = tc.task_id
+     LEFT JOIN ops.assignments a ON a.id = tc.assignment_id
+     LEFT JOIN trader.traders tr ON tr.id = a.trader_id
+     WHERE tc.agency_id = $1 AND tc.settlement_reference = $2
+     ORDER BY tc.created_at`,
+    [header.agency_id, header.invoice_number]
+  );
+  const rows = [
+    ["Invoice number", header.invoice_number],
+    ["Agency", header.agency_name],
+    ["Period", `${header.period_start} to ${header.period_end}`],
+    ["Status", header.status],
+    ["Total", header.total_amount],
+    [],
+    ["Task", "Category", "Date", "Handyman", "Handyman amount", "Agency coordination fee", "Platform fee", "Total"]
+  ];
+  for (const line of lines.rows) {
+    rows.push([line.task_public_id, line.category, line.created_at, line.handyman_name || "", line.handyman_amount, line.agency_coordination_fee, line.platform_fee, line.total_amount]);
+  }
+  const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll("\"", "\"\"")}"`).join(",")).join("\n");
+  res.setHeader("content-type", "text/csv; charset=utf-8");
+  res.setHeader("content-disposition", `attachment; filename="${header.invoice_number}.csv"`);
+  res.send(csv);
+}));
+
+adminRouter.patch("/billing/invoices/:id/status", asyncHandler(async (req, res) => {
+  const parsed = invoiceStatusSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid invoice status" });
+  const data = parsed.data;
+  const result = await withTransaction(req.auth!, async (client) => {
+    const invoice = await client.query<{ id: string; agency_id: string; invoice_number: string }>(
+      `UPDATE billing.invoices
+       SET status = $2,
+           paid_at = CASE WHEN $2 = 'paid' THEN clock_timestamp() ELSE paid_at END
+       WHERE id = $1
+       RETURNING id::text, agency_id::text, invoice_number`,
+      [req.params.id, data.status]
+    );
+    if (!invoice.rows[0]) return null;
+    if (data.status === "paid") {
+      await client.query(
+        `UPDATE billing.task_charges
+         SET settlement_status = 'agency_paid',
+             status = 'settled',
+             settlement_notes = COALESCE(settlement_notes, 'Agency invoice marked paid')
+         WHERE agency_id = $1 AND settlement_reference = $2`,
+        [invoice.rows[0].agency_id, invoice.rows[0].invoice_number]
+      );
+    }
+    if (data.status === "void") {
+      await client.query(
+        `UPDATE billing.task_charges
+         SET settlement_status = 'not_invoiced',
+             settlement_reference = NULL,
+             settlement_due_at = NULL
+         WHERE agency_id = $1 AND settlement_reference = $2 AND settlement_status = 'invoiced'`,
+        [invoice.rows[0].agency_id, invoice.rows[0].invoice_number]
+      );
+    }
+    return invoice.rows[0].id;
+  });
+  if (!result) return res.status(404).json({ error: "Invoice not found" });
+  await audit(req, "admin.billing.invoice_status_updated", "invoice", result, data);
+  res.json({ id: result, status: data.status });
 }));
 
 adminRouter.patch("/billing/task-charges/:id/settlement", asyncHandler(async (req, res) => {
