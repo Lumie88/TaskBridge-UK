@@ -356,14 +356,15 @@ p { line-height: 1.65; }
 .lifecycle-operative p { margin: 2px 0 0; color: #607187; font-size: .72rem; }
 .lifecycle-control-card footer { margin-top: 22px; padding-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #e7eef5; color: #64748b; font-size: .82rem; }
 .lifecycle-control-card footer strong { color: #e11d48; text-align: right; text-decoration: underline; }
-.lifecycle-journey-rail { margin-top: 36px; padding-top: 34px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; position: relative; }
-.lifecycle-journey-rail::before { content: ""; position: absolute; left: 8%; right: 8%; top: 61px; height: 1px; background: #ff3158; opacity: .7; }
-.lifecycle-journey-rail button { position: relative; z-index: 1; display: grid; justify-items: center; gap: 13px; color: #64748b; background: transparent; border: 0; text-align: center; }
-.lifecycle-journey-rail button span { width: 40px; height: 40px; display: grid; place-items: center; color: #64748b; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; transform: rotate(45deg); transition: color .18s ease, border-color .18s ease, background .18s ease; }
+.lifecycle-journey-rail { margin: 26px auto 34px; padding-top: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; position: relative; max-width: 1000px; }
+.lifecycle-journey-rail::before { content: ""; position: absolute; left: 6%; right: 6%; top: 31px; height: 1px; background: #ff4774; opacity: .86; }
+.lifecycle-journey-rail button { min-height: 92px; position: relative; z-index: 1; display: grid; justify-items: center; align-content: start; gap: 16px; color: #64748b; background: transparent; border: 0; text-align: center; }
+.lifecycle-journey-rail button span { width: 46px; height: 46px; display: grid; place-items: center; color: #64748b; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 10px; transform: rotate(45deg); box-shadow: 0 0 0 8px #ffffff; transition: color .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease; }
 .lifecycle-journey-rail button span svg { transform: rotate(-45deg); }
-.lifecycle-journey-rail button strong { color: inherit; font-size: .9rem; }
+.lifecycle-journey-rail button strong { color: inherit; font-size: .88rem; font-weight: 850; }
 .lifecycle-journey-rail button.active { color: #0f172a; }
-.lifecycle-journey-rail button.active span { color: white; background: #ff3158; border-color: #ff3158; }
+.lifecycle-journey-rail button.active span { color: white; background: #ff3158; border-color: #ff3158; box-shadow: 0 0 0 8px #ffffff, 0 14px 30px rgba(255,49,88,.2); }
+.lifecycle-journey-rail button:hover span { border-color: #ff4774; }
 .lifecycle-assurance { margin-top: 22px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .lifecycle-assurance div { padding: 16px 18px; display: flex; align-items: center; gap: 10px; color: #334155; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 13px; font-size: .86rem; font-weight: 700; }
 .lifecycle-assurance svg { color: #2563eb; }
@@ -802,7 +803,7 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .lifecycle-slider { display: flex; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x mandatory; }
   .lifecycle-slider button { min-width: 285px; scroll-snap-align: start; }
   .lifecycle-stage { grid-template-columns: 1fr; }
-  .lifecycle-journey-rail { overflow-x: auto; grid-template-columns: repeat(4, minmax(170px, 1fr)); padding-bottom: 8px; }
+  .lifecycle-journey-rail { overflow-x: auto; grid-template-columns: repeat(4, minmax(170px, 1fr)); padding: 0 0 8px; }
   .lifecycle-assurance { grid-template-columns: 1fr; }
   .lifecycle-gap { grid-template-columns: 1fr; }
   .lifecycle-gap a { justify-content: center; width: fit-content; }

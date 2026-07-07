@@ -55,6 +55,26 @@ export default function HowItWorksGuideline() {
           {servicePills.map((pill) => <button key={pill} type="button">{pill}</button>)}
         </div>
 
+        <div className="lifecycle-journey-rail" role="tablist" aria-label="TaskBridge horizontal journey">
+          {SOLUTION_STEPS.map((step) => {
+            const isActive = step.number === activeStep;
+            const RailIcon = stepIcons[step.number - 1] || FileText;
+            return (
+              <button
+                key={step.number}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                className={isActive ? "active" : ""}
+                onClick={() => setActiveStep(step.number)}
+              >
+                <span><RailIcon size={19} /></span>
+                <strong>{step.badge}</strong>
+              </button>
+            );
+          })}
+        </div>
+
         <div className="lifecycle-stage">
           <article className="lifecycle-detail">
             <span className="lifecycle-step-pill"><SelectedIcon size={17} /> Step {String(selectedStep.number).padStart(2, "0")}: {selectedStep.badge}</span>
@@ -108,19 +128,6 @@ export default function HowItWorksGuideline() {
               <strong>{selectedStep.evidenceCapture}</strong>
             </footer>
           </aside>
-        </div>
-
-        <div className="lifecycle-journey-rail" aria-label="TaskBridge horizontal journey">
-          {SOLUTION_STEPS.map((step) => {
-            const isActive = step.number === activeStep;
-            const RailIcon = stepIcons[step.number - 1] || FileText;
-            return (
-              <button key={step.number} type="button" className={isActive ? "active" : ""} onClick={() => setActiveStep(step.number)}>
-                <span><RailIcon size={20} /></span>
-                <strong>{step.badge}</strong>
-              </button>
-            );
-          })}
         </div>
 
         <div className="lifecycle-assurance">
