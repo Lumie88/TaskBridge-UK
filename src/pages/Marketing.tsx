@@ -279,6 +279,200 @@ export function SystemIntegrations() {
   return <GuidelinePage><IntegrationsGuideline /></GuidelinePage>;
 }
 
+const apiEndpoints = [
+  {
+    method: "POST",
+    path: "/api/webhooks/incoming-care-task",
+    title: "Inbound care task webhook",
+    description: "Used by care management tools to send a care note or safety concern into TaskBridge for AI task planning and care-team approval."
+  },
+  {
+    method: "POST",
+    path: "/api/webhooks/dbs-callback",
+    title: "DBS verification callback",
+    description: "Receives normalised DBS provider events. Amiqus-specific events can also be sent to /api/webhooks/amiqus-callback."
+  },
+  {
+    method: "GET",
+    path: "/api/health",
+    title: "Health check",
+    description: "Simple availability endpoint for uptime monitoring."
+  },
+  {
+    method: "GET",
+    path: "/api/readiness",
+    title: "Readiness check",
+    description: "Checks application, configuration and database readiness before routing production traffic."
+  }
+];
+
+const careTaskCurl = `curl -X POST "https://www.growingfig.com/api/webhooks/incoming-care-task" \\
+  -H "Authorization: Bearer tb_live_your_agency_key" \\
+  -H "Idempotency-Key: birdie-note-83921" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "service_user_id": "birdie-resident-123",
+    "notes": "Mrs Higgins rear path is slippery with moss. Kitchen cupboard handle is loose.",
+    "preferred_window_start": "2026-07-10T09:00:00.000Z",
+    "preferred_window_end": "2026-07-10T12:00:00.000Z",
+    "carer_on_site": true
+  }'`;
+
+const careTaskJs = `async function sendTaskBridgeCareNote(note) {
+  const response = await fetch("https://www.growingfig.com/api/webhooks/incoming-care-task", {
+    method: "POST",
+    headers: {
+      "Authorization": \`Bearer \${process.env.TASKBRIDGE_API_KEY}\`,
+      "Idempotency-Key": note.id,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      service_user_id: note.serviceUserId,
+      notes: note.body,
+      preferred_window_start: note.visitWindowStart,
+      preferred_window_end: note.visitWindowEnd,
+      carer_on_site: note.carerOnSite
+    })
+  });
+
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}`;
+
+const serviceUserJson = `{
+  "externalServiceUserId": "pass-client-44881",
+  "fullName": "Mary Williams",
+  "address": "Encrypted by TaskBridge after receipt",
+  "town": "Croydon",
+  "county": "Greater London",
+  "postcode": "CR0 1AA",
+  "latitude": 51.3762,
+  "longitude": -0.0982,
+  "riskLevel": "vulnerable",
+  "keySafeInfo": "Only share with authorised visit workflow"
+}`;
+
+const completionCallback = `{
+  "event": "task.completed",
+  "taskId": "tsk_8K2M1Q",
+  "sourceTaskId": "birdie-note-83921",
+  "status": "completed",
+  "completedAt": "2026-07-10T11:42:00.000Z",
+  "evidence": {
+    "beforePhotoUrl": "https://signed-storage.example/before.jpg",
+    "afterPhotoUrl": "https://signed-storage.example/after.jpg",
+    "checkInTime": "2026-07-10T10:03:00.000Z",
+    "checkOutTime": "2026-07-10T11:42:00.000Z"
+  }
+}`;
+
+const dbsCallback = `{
+  "event": "session.completed",
+  "data": {
+    "session": {
+      "id": "amiqus_sess_123",
+      "status": "completed",
+      "outcome": "clear",
+      "report_url": "https://provider.example/reports/amiqus_sess_123"
+    }
+  }
+}`;
+
+export function ApiDocumentation() {
+  const [demoOpen, setDemoOpen] = useState(false);
+  return <div className="marketing-page">
+    <PublicHeader onDemo={() => setDemoOpen(true)} />
+    <main className="api-doc-main">
+      <section className="site-width api-doc-hero">
+        <span className="eyebrow">Developer documentation</span>
+        <h1>TaskBridge API for care management integrations.</h1>
+        <p>Use these examples to connect third-party care management platforms such as Birdie, PASS, Cera DCP or an internal care system to TaskBridge. Production access is issued during onboarding by a TaskBridge super admin.</p>
+      </section>
+
+      <section className="site-width api-doc-layout">
+        <aside className="api-doc-sidebar">
+          <a href="#authentication">Authentication</a>
+          <a href="#endpoints">Endpoints</a>
+          <a href="#care-task">Create care task</a>
+          <a href="#service-user">Service user mapping</a>
+          <a href="#callbacks">Callbacks</a>
+          <a href="#errors">Errors</a>
+        </aside>
+
+        <div className="api-doc-content">
+          <section id="authentication" className="api-doc-section">
+            <h2>Authentication</h2>
+            <p>Care systems authenticate with an agency API key. Send it as a bearer token and include a unique idempotency key for every inbound event.</p>
+            <CodeBlock language="http" code={`Authorization: Bearer tb_live_your_agency_key\nIdempotency-Key: source-event-or-note-id\nContent-Type: application/json`} />
+            <div className="api-note"><ShieldCheck size={18} /><span>Never send service-user contact numbers, direct resident contact details or unrestricted keysafe details to contractor-facing systems.</span></div>
+          </section>
+
+          <section id="endpoints" className="api-doc-section">
+            <h2>Core endpoints</h2>
+            <div className="api-endpoint-grid">
+              {apiEndpoints.map((endpoint) => <article key={endpoint.path} className="api-endpoint-card">
+                <span>{endpoint.method}</span>
+                <code>{endpoint.path}</code>
+                <h3>{endpoint.title}</h3>
+                <p>{endpoint.description}</p>
+              </article>)}
+            </div>
+          </section>
+
+          <section id="care-task" className="api-doc-section">
+            <h2>Create a care task from a care note</h2>
+            <p>This is the main integration used by care platforms. TaskBridge receives the note, finds one or more home-safety tasks, stores them as awaiting care approval, and applies safeguarding controls.</p>
+            <CodeBlock language="bash" title="cURL" code={careTaskCurl} />
+            <CodeBlock language="ts" title="Node / JavaScript" code={careTaskJs} />
+            <div className="api-response-grid">
+              <div><strong>201 Created</strong><p>TaskBridge accepted the note and returned one or more `taskIds`.</p></div>
+              <div><strong>200 Duplicate</strong><p>The same `Idempotency-Key` was already processed.</p></div>
+              <div><strong>404 Not found</strong><p>The service user is not registered for that agency.</p></div>
+            </div>
+          </section>
+
+          <section id="service-user" className="api-doc-section">
+            <h2>Service user mapping</h2>
+            <p>Each care platform should maintain a stable external service-user ID. TaskBridge uses that ID to match inbound notes to encrypted resident records inside the agency workspace.</p>
+            <CodeBlock language="json" title="Recommended mapping object" code={serviceUserJson} />
+          </section>
+
+          <section id="callbacks" className="api-doc-section">
+            <h2>Callbacks and provider events</h2>
+            <p>TaskBridge can send completion data back to the parent care application once the care coordinator approves the completed visit. DBS providers can also post verification completion events into TaskBridge.</p>
+            <CodeBlock language="json" title="Outbound completion callback example" code={completionCallback} />
+            <CodeBlock language="json" title="Amiqus Enhanced DBS callback example" code={dbsCallback} />
+          </section>
+
+          <section id="errors" className="api-doc-section">
+            <h2>Error codes</h2>
+            <div className="api-table">
+              <div><strong>400</strong><span>Malformed request body or unsupported payload.</span></div>
+              <div><strong>401</strong><span>Missing, invalid or revoked API key.</span></div>
+              <div><strong>403</strong><span>API key does not have the required scope.</span></div>
+              <div><strong>404</strong><span>Agency, service user, task or provider session not found.</span></div>
+              <div><strong>409</strong><span>Task state conflict or duplicate operational action.</span></div>
+              <div><strong>422</strong><span>Validation failed. Check required fields and date formats.</span></div>
+              <div><strong>503</strong><span>Provider or required integration secret is not configured.</span></div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <StudioCallout onDemo={() => setDemoOpen(true)} />
+    </main>
+    <Footer />
+    <DemoModal open={demoOpen} onClose={() => setDemoOpen(false)} />
+  </div>;
+}
+
+function CodeBlock({ code, language, title }: { code: string; language: string; title?: string }) {
+  return <figure className="api-code-block">
+    <figcaption><span>{title || "Example"}</span><small>{language}</small></figcaption>
+    <pre><code>{code}</code></pre>
+  </figure>;
+}
+
 export function JoinHandymanPage() {
   const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -583,6 +777,7 @@ function Footer() {
         <a href="/services">Our services</a>
         <a href="/safeguarding">Safeguarding protocol</a>
         <a href="/integrations">System integrations</a>
+        <a href="/api-documentation">API documentation</a>
         <a href="/join-handyman">Join as a Handyman</a>
       </nav>
 
