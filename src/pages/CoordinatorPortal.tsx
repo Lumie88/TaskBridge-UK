@@ -596,6 +596,57 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
     ? `${selectedSummary.observations} imported health observation row${selectedSummary.observations === 1 ? "" : "s"} for ${selectedAnalyticsName}.`
     : `Potential deterioration is highlighted first for ${selectedAnalyticsName}.`;
 
+  const analyticsInsights = useMemo(() => {
+    const allMetrics = selectedAnalyticsServiceUsers.flatMap((serviceUser) => serviceUser.metrics.map((metric) => ({
+      ...metric,
+      serviceUserName: serviceUser.name,
+      serviceUserReference: serviceUser.reference,
+      latestObservationDate: serviceUser.latestObservationDate
+    })));
+    const deterioratingMetrics = allMetrics.filter((metric) => metric.trend === "deteriorating");
+    const metricTypes = Array.from(new Set(allMetrics.map((metric) => metric.metricType))).sort();
+    const latestServiceUser = [...selectedAnalyticsServiceUsers]
+      .sort((left, right) => new Date(right.latestObservationDate).getTime() - new Date(left.latestObservationDate).getTime())[0] || null;
+    const latestMetric = latestServiceUser?.metrics
+      .flatMap((metric) => metric.points.map((point) => ({ ...point, metricType: metric.metricType })))
+      .sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime())[0] || null;
+    const observationDensity = selectedSummary.serviceUsersTracked
+      ? Math.round(selectedSummary.observations / selectedSummary.serviceUsersTracked)
+      : 0;
+    return {
+      deterioratingMetrics,
+      metricTypes,
+      latestServiceUser,
+      latestMetric,
+      observationDensity
+    };
+  }, [selectedAnalyticsServiceUsers, selectedSummary.observations, selectedSummary.serviceUsersTracked]);
+
+  const selectedServiceUserProfile = selectedAnalyticsServiceUserId === "all"
+    ? null
+    : selectedAnalyticsServiceUsers[0] || null;
+
+  const coordinatorActions = useMemo(() => {
+    const actions: Array<{ title: string; detail: string; tone: "red" | "amber" | "green" | "blue" }> = [];
+    if (analyticsInsights.deterioratingMetrics.length) {
+      actions.push({
+        title: "Review deterioration",
+        detail: `${analyticsInsights.deterioratingMetrics.length} metric${analyticsInsights.deterioratingMetrics.length === 1 ? "" : "s"} should be checked against recent care notes.`,
+        tone: "red"
+      });
+    }
+    if (selectedSummary.observations === 0) {
+      actions.push({ title: "Upload observations", detail: "Import a CSV file to activate trend visualisation.", tone: "blue" });
+    }
+    if (selectedSummary.improving > 0) {
+      actions.push({ title: "Capture positive outcomes", detail: `${selectedSummary.improving} service user${selectedSummary.improving === 1 ? "" : "s"} showing improvement can be used for outcome reporting.`, tone: "green" });
+    }
+    if (analyticsInsights.observationDensity > 0 && analyticsInsights.observationDensity < 3) {
+      actions.push({ title: "Add more readings", detail: "Trend confidence improves after three or more observations per metric.", tone: "amber" });
+    }
+    return actions.length ? actions : [{ title: "No immediate analytics action", detail: "Current imported observations do not show deterioration signals.", tone: "green" }];
+  }, [analyticsInsights.deterioratingMetrics.length, analyticsInsights.observationDensity, selectedSummary.improving, selectedSummary.observations]);
+
   function selectAnalyticsServiceUser(value: string) {
     setSelectedAnalyticsServiceUserId(value);
     setAnalyticsFilter("all");
@@ -667,6 +718,47 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
       <AnalyticsMetric icon={<TrendingUp />} label="Improving outcomes" value={selectedSummary.improving} tone="green" filter="improving" active={analyticsFilter === "improving"} onSelect={setAnalyticsFilter} />
       <AnalyticsMetric icon={<Activity />} label="Health observations" value={selectedSummary.observations} tone="navy" filter="observations" active={analyticsFilter === "observations"} onSelect={setAnalyticsFilter} />
     </div>
+    <section className="analytics-insight-grid">
+      <article className="panel analytics-summary-card">
+        <span><Activity size={20} /></span>
+        <div><strong>{analyticsInsights.observationDensity}</strong><small>Avg observations per tracked service user</small></div>
+      </article>
+      <article className="panel analytics-summary-card">
+        <span><BarChart3 size={20} /></span>
+        <div><strong>{analyticsInsights.metricTypes.length}</strong><small>Metric type{analyticsInsights.metricTypes.length === 1 ? "" : "s"} being monitored</small></div>
+      </article>
+      <article className="panel analytics-summary-card">
+        <span><Clock3 size={20} /></span>
+        <div><strong>{analyticsInsights.latestServiceUser ? formatDate(analyticsInsights.latestServiceUser.latestObservationDate) : "No data"}</strong><small>Latest imported observation date</small></div>
+      </article>
+    </section>
+    <div className="analytics-decision-grid">
+      <section className="panel analytics-action-panel">
+        <div className="panel-heading"><div><h2>Coordinator action prompts</h2><p>Suggested next steps from the selected analytics scope.</p></div></div>
+        <div className="analytics-action-list">
+          {coordinatorActions.map((action) => <article key={`${action.title}-${action.detail}`} className={`analytics-action analytics-action-${action.tone}`}>
+            <strong>{action.title}</strong>
+            <p>{action.detail}</p>
+          </article>)}
+        </div>
+      </section>
+      <section className="panel analytics-profile-panel">
+        <div className="panel-heading"><div><h2>{selectedServiceUserProfile ? "Selected service-user profile" : "Analytics coverage"}</h2><p>{selectedServiceUserProfile ? "Focused view for one service user." : "Current coverage across all selected service users."}</p></div></div>
+        {selectedServiceUserProfile ? <div className="analytics-profile-card">
+          <h3>{selectedServiceUserProfile.name}</h3>
+          <p>{selectedServiceUserProfile.reference}</p>
+          <dl>
+            <div><dt>Overall trend</dt><dd>{humanize(selectedServiceUserProfile.overallTrend)}</dd></div>
+            <div><dt>Latest observation</dt><dd>{formatDate(selectedServiceUserProfile.latestObservationDate)}</dd></div>
+            <div><dt>Metrics</dt><dd>{selectedServiceUserProfile.metrics.length}</dd></div>
+            <div><dt>Rows</dt><dd>{selectedServiceUserProfile.metrics.reduce((total, metric) => total + metric.points.length, 0)}</dd></div>
+          </dl>
+        </div> : <div className="analytics-metric-cloud">
+          {analyticsInsights.metricTypes.map((metricType) => <span key={metricType}>{humanize(metricType)}</span>)}
+          {!analyticsInsights.metricTypes.length && <p className="muted-copy">No metric types imported yet.</p>}
+        </div>}
+      </section>
+    </div>
     <div className="analytics-layout">
       <section className="panel analytics-panel">
         <div className="panel-heading"><div><h2>{analyticsFilterLabels[analyticsFilter]}</h2><p>{analyticsPanelCopy}</p></div></div>
@@ -693,6 +785,14 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
           <div className="panel-heading"><div><h2>Recent uploads</h2><p>Latest imported health data files.</p></div></div>
           {analytics.uploads.map((upload) => <article key={upload.id}><strong>{upload.fileName}</strong><span>{upload.rowCount} rows / {formatDate(upload.createdAt, true)}</span></article>)}
           {!analytics.uploads.length && <p className="muted-copy">No CSV uploads yet.</p>}
+        </section>
+        <section className="panel analytics-watchlist-panel">
+          <div className="panel-heading"><div><h2>Deterioration watchlist</h2><p>Metrics that may need review before the next visit.</p></div></div>
+          {analyticsInsights.deterioratingMetrics.slice(0, 6).map((metric) => <article key={`${metric.serviceUserReference}-${metric.metricType}`}>
+            <strong>{metric.serviceUserName}</strong>
+            <span>{humanize(metric.metricType)} / {metric.first ?? "n/a"} to {metric.latest ?? "n/a"}{metric.unit ? ` ${metric.unit}` : ""}</span>
+          </article>)}
+          {!analyticsInsights.deterioratingMetrics.length && <p className="muted-copy">No deterioration metrics in the current view.</p>}
         </section>
       </aside>
     </div>
