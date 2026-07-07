@@ -659,6 +659,56 @@ export function GDPRShieldPolicy() {
   />;
 }
 
+export function CookiePolicy() {
+  return <PolicyPage
+    eyebrow="Privacy and website cookies"
+    title="Cookie Policy"
+    intro="This Cookie Policy explains how TaskBridge by Growing Fig uses cookies and similar technologies on its public website, secure portals and operational workflows."
+    sections={[
+      {
+        title: "What cookies are",
+        body: "Cookies are small text files placed on a device when a person visits a website or uses an online service. They help the service remember information about the visit, maintain secure sessions, improve reliability and understand how the service is being used."
+      },
+      {
+        title: "How TaskBridge uses cookies",
+        body: "TaskBridge uses cookies and similar browser storage only where needed to operate the website and secure portals, maintain sign-in sessions, protect against unauthorised access, remember basic interface state and support service monitoring."
+      },
+      {
+        title: "Strictly necessary cookies",
+        body: "These cookies are required for the platform to function. They may be used for authentication, session security, CSRF or origin protection, load balancing, fraud prevention, secure visit links and remembering whether a user is signed in. These cookies cannot be switched off through TaskBridge because the service would not work safely without them."
+      },
+      {
+        title: "Preference cookies",
+        body: "Preference cookies or local browser storage may be used to remember non-sensitive choices, such as selected portal views, filters, dismissed notices or interface preferences. These do not give contractors access to resident details and should not store confidential care information."
+      },
+      {
+        title: "Analytics cookies",
+        body: "TaskBridge may use privacy-conscious analytics to understand website performance, page usage and errors. Where analytics cookies are used, they should be configured to avoid collecting unnecessary personal data and should not be used to profile service users or expose care records."
+      },
+      {
+        title: "Third-party services",
+        body: "Some parts of TaskBridge may connect to trusted service providers, such as hosting, email delivery, SMS delivery, object storage, care-platform integrations, DBS verification and operational monitoring. These providers may set cookies or process technical identifiers only where needed to deliver their service."
+      },
+      {
+        title: "Cookies in secure portals",
+        body: "Care coordinator, TaskBridge administrator and handyman visit workflows may use secure cookies to keep the user authenticated and protect access to the correct workspace or tokenised visit. Users should sign out when using shared devices."
+      },
+      {
+        title: "Managing cookies",
+        body: "Users can manage or delete cookies through their browser settings. Blocking all cookies may prevent sign-in, secure visit links, upload flows or protected portal pages from working correctly."
+      },
+      {
+        title: "Changes to this policy",
+        body: "TaskBridge may update this Cookie Policy as the platform, integrations or legal requirements change. The latest version will be published on the TaskBridge website."
+      },
+      {
+        title: "Contact",
+        body: "Questions about cookies, privacy or data protection can be sent to integrations@growingfig.com. Care organisations may also request the wider privacy, safeguarding and data-processing pack during onboarding."
+      }
+    ]}
+  />;
+}
+
 export function SafeguardingSLA() {
   return <PolicyPage
     eyebrow="Operational safeguarding"
@@ -803,6 +853,7 @@ function Footer() {
         <a href="/how-it-works#security">Security standards</a>
         <a href="/safeguarding-policy">Safeguarding policy</a>
         <a href="/gdpr-shield-policy">GDPR shield policy</a>
+        <a href="/cookie-policy">Cookie policy</a>
         <a href="/safeguarding-sla">Safeguarding SLA</a>
       </nav>
     </div>
