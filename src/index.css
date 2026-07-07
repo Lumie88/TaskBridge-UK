@@ -317,7 +317,12 @@ p { line-height: 1.65; }
 .lifecycle-pills { margin: 34px auto 34px; display: flex; flex-wrap: wrap; justify-content: center; gap: 13px; }
 .lifecycle-pills button { min-height: 46px; padding: 0 18px; color: white; background: rgba(255,49,88,.08); border: 1px solid #ff3158; border-radius: 999px; font-size: .88rem; font-weight: 850; }
 .lifecycle-pills button:hover { background: rgba(255,49,88,.18); }
+.lifecycle-scroll-scene { min-height: 210vh; position: relative; }
+.lifecycle-scroll-sticky { position: sticky; top: 92px; display: grid; gap: 34px; }
+.lifecycle-scroll-window { overflow: hidden; }
 .lifecycle-slider { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; margin-bottom: 34px; }
+.lifecycle-slider-scroll { width: max-content; min-width: 100%; margin-bottom: 0; display: flex; grid-template-columns: none; transform: translateX(calc(var(--lifecycle-progress, 0) * -18%)); transition: transform .08s linear; will-change: transform; }
+.lifecycle-slider-scroll button { flex: 0 0 clamp(286px, 29vw, 356px); }
 .lifecycle-slider button { min-height: 92px; padding: 18px; display: grid; grid-template-columns: 42px 1fr; gap: 14px; align-items: start; color: white; background: rgba(255,255,255,.05); border: 1px solid #1f3354; border-radius: 16px; box-shadow: 0 2px 6px rgba(0,0,0,.16); text-align: left; transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background .18s ease; }
 .lifecycle-slider button:hover { transform: translateY(-2px); border-color: #ff3158; box-shadow: 0 14px 34px rgba(0,0,0,.24); }
 .lifecycle-slider button.active { border-color: #ff3158; background: rgba(255,49,88,.12); box-shadow: 0 16px 38px rgba(255,49,88,.12); }
@@ -799,6 +804,10 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .twilio-style-visual { min-height: 380px; }
   .twilio-style-visual img { min-height: 380px; }
   .twilio-journey-rail { overflow-x: auto; grid-template-columns: repeat(4, minmax(170px, 1fr)); padding-bottom: 8px; }
+  .lifecycle-scroll-scene { min-height: auto; }
+  .lifecycle-scroll-sticky { position: static; }
+  .lifecycle-scroll-window { overflow-x: auto; padding-bottom: 8px; }
+  .lifecycle-slider-scroll { transform: none; }
   .lifecycle-slider { display: flex; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x mandatory; }
   .lifecycle-slider button { min-width: 285px; scroll-snap-align: start; }
   .lifecycle-stage { grid-template-columns: 1fr; }

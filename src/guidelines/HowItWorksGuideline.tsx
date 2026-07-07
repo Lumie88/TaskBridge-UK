@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   AlertCircle,
   ArrowRight,
@@ -39,8 +39,39 @@ const servicePills = ["Care note AI", "Coordinator approval", "DBS matching", "V
 
 export default function HowItWorksGuideline() {
   const [activeStep, setActiveStep] = useState(1);
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const scrollSceneRef = useRef<HTMLDivElement | null>(null);
   const selectedStep = SOLUTION_STEPS.find((step) => step.number === activeStep) || SOLUTION_STEPS[0];
   const SelectedIcon = stepIcons[selectedStep.number - 1] || FileText;
+  const sliderStyle = { "--lifecycle-progress": scrollProgress } as CSSProperties;
+
+  useEffect(() => {
+    const updateFromScroll = () => {
+      const scene = scrollSceneRef.current;
+      if (!scene) return;
+
+      const viewportHeight = window.innerHeight || 1;
+      const rect = scene.getBoundingClientRect();
+      const scrollableDistance = Math.max(scene.offsetHeight - viewportHeight, 1);
+      const nextProgress = Math.min(1, Math.max(0, -rect.top / scrollableDistance));
+      const nextStep = Math.min(
+        SOLUTION_STEPS.length,
+        Math.max(1, Math.round(nextProgress * (SOLUTION_STEPS.length - 1)) + 1)
+      );
+
+      setScrollProgress(nextProgress);
+      setActiveStep(nextStep);
+    };
+
+    updateFromScroll();
+    window.addEventListener("scroll", updateFromScroll, { passive: true });
+    window.addEventListener("resize", updateFromScroll);
+
+    return () => {
+      window.removeEventListener("scroll", updateFromScroll);
+      window.removeEventListener("resize", updateFromScroll);
+    };
+  }, []);
 
   return (
     <section id="how-it-works" className="lifecycle-section">
@@ -55,81 +86,87 @@ export default function HowItWorksGuideline() {
           {servicePills.map((pill) => <button key={pill} type="button">{pill}</button>)}
         </div>
 
-        <div className="lifecycle-slider" role="tablist" aria-label="TaskBridge lifecycle steps">
-          {SOLUTION_STEPS.map((step) => {
-            const isActive = step.number === activeStep;
-            return (
-              <button
-                key={step.number}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                className={isActive ? "active" : ""}
-                onClick={() => setActiveStep(step.number)}
-              >
-                <span>{String(step.number).padStart(2, "0")}</span>
-                <div>
-                  <small>{step.badge}</small>
-                  <strong>{step.title}</strong>
+        <div className="lifecycle-scroll-scene" ref={scrollSceneRef}>
+          <div className="lifecycle-scroll-sticky">
+            <div className="lifecycle-scroll-window">
+              <div className="lifecycle-slider lifecycle-slider-scroll" role="tablist" aria-label="TaskBridge lifecycle steps" style={sliderStyle}>
+                {SOLUTION_STEPS.map((step) => {
+                  const isActive = step.number === activeStep;
+                  return (
+                    <button
+                      key={step.number}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      className={isActive ? "active" : ""}
+                      onClick={() => setActiveStep(step.number)}
+                    >
+                      <span>{String(step.number).padStart(2, "0")}</span>
+                      <div>
+                        <small>{step.badge}</small>
+                        <strong>{step.title}</strong>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="lifecycle-stage">
+              <article className="lifecycle-detail">
+                <span className="lifecycle-step-pill"><SelectedIcon size={17} /> Step {String(selectedStep.number).padStart(2, "0")}: {selectedStep.badge}</span>
+                <h3>{selectedStep.title}</h3>
+                <p>{selectedStep.description}</p>
+
+                <div className="lifecycle-log">
+                  <header><span>Care field interaction log</span><i /></header>
+                  <p>{selectedStep.caregiverAction}</p>
                 </div>
-              </button>
-            );
-          })}
-        </div>
 
-        <div className="lifecycle-stage">
-          <article className="lifecycle-detail">
-            <span className="lifecycle-step-pill"><SelectedIcon size={17} /> Step {String(selectedStep.number).padStart(2, "0")}: {selectedStep.badge}</span>
-            <h3>{selectedStep.title}</h3>
-            <p>{selectedStep.description}</p>
+                <div className="lifecycle-log lifecycle-log-secure">
+                  <header><span>Secure middleware automation</span><strong>Active log</strong></header>
+                  <p>{selectedStep.middlewareAction}</p>
+                </div>
+              </article>
 
-            <div className="lifecycle-log">
-              <header><span>Care field interaction log</span><i /></header>
-              <p>{selectedStep.caregiverAction}</p>
-            </div>
+              <aside className="lifecycle-control-card">
+                <header>
+                  <div><i /><strong>Care dispatch control card</strong></div>
+                  <span>Secure middleware</span>
+                </header>
 
-            <div className="lifecycle-log lifecycle-log-secure">
-              <header><span>Secure middleware automation</span><strong>Active log</strong></header>
-              <p>{selectedStep.middlewareAction}</p>
-            </div>
-          </article>
+                <div className="lifecycle-control-list">
+                  {controlNotes.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <div key={item.title}>
+                        <span><Icon size={16} /></span>
+                        <div>
+                          <strong>{item.title}</strong>
+                          <p>{item.detail}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
 
-          <aside className="lifecycle-control-card">
-            <header>
-              <div><i /><strong>Care dispatch control card</strong></div>
-              <span>Secure middleware</span>
-            </header>
-
-            <div className="lifecycle-control-list">
-              {controlNotes.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <div key={item.title}>
-                    <span><Icon size={16} /></span>
+                {(activeStep === 3 || activeStep === 4) && (
+                  <div className="lifecycle-operative">
+                    <span>TB</span>
                     <div>
-                      <strong>{item.title}</strong>
-                      <p>{item.detail}</p>
+                      <strong>Vetted handyman dispatched</strong>
+                      <p>Enhanced DBS status active and suitable for the task.</p>
                     </div>
                   </div>
-                );
-              })}
+                )}
+
+                <footer>
+                  <span>Evidence record</span>
+                  <strong>{selectedStep.evidenceCapture}</strong>
+                </footer>
+              </aside>
             </div>
-
-            {(activeStep === 3 || activeStep === 4) && (
-              <div className="lifecycle-operative">
-                <span>TB</span>
-                <div>
-                  <strong>Vetted handyman dispatched</strong>
-                  <p>Enhanced DBS status active and suitable for the task.</p>
-                </div>
-              </div>
-            )}
-
-            <footer>
-              <span>Evidence record</span>
-              <strong>{selectedStep.evidenceCapture}</strong>
-            </footer>
-          </aside>
+          </div>
         </div>
 
         <div className="lifecycle-journey-rail" aria-label="TaskBridge horizontal journey">
