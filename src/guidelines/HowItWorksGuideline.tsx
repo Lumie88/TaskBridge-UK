@@ -13,6 +13,7 @@ import {
   Sparkles,
   UserCheck
 } from "lucide-react";
+import heroImage from "../assets/home-safety-hero.jpg";
 import { SOLUTION_STEPS } from "./data";
 
 const stepIcons = [FileText, ClipboardCheck, UserCheck, CheckCircle2];
@@ -35,6 +36,8 @@ const controlNotes = [
   }
 ];
 
+const servicePills = ["Care note AI", "Coordinator approval", "DBS matching", "Visit evidence", "Care record sync"];
+
 export default function HowItWorksGuideline() {
   const [activeStep, setActiveStep] = useState(1);
   const selectedStep = SOLUTION_STEPS.find((step) => step.number === activeStep) || SOLUTION_STEPS[0];
@@ -43,6 +46,43 @@ export default function HowItWorksGuideline() {
   return (
     <section id="how-it-works" className="lifecycle-section">
       <div className="site-width">
+        <section className="twilio-style-showcase">
+          <div className="twilio-style-grid">
+            <article className="twilio-style-copy">
+              <span className="twilio-style-kicker">Secure care operations</span>
+              <h2>Intelligent <span>home-safety coordination</span></h2>
+              <p>TaskBridge turns everyday care observations into approved, traceable home-safety work. Coordinators stay in control while the platform handles service matching, safeguarding checks and visit evidence.</p>
+              <div className="twilio-style-pills" aria-label="TaskBridge workflow capabilities">
+                {servicePills.map((pill) => <button key={pill} type="button">{pill}</button>)}
+              </div>
+            </article>
+
+            <aside className="twilio-style-visual" aria-label="TaskBridge visual workflow preview">
+              <img src={heroImage} alt="Verified home-safety work completed in a resident home" />
+              <div className="twilio-message-card twilio-message-top">
+                <span><i /></span>
+                <p>Care note: slippery garden path after rain. Resident is vulnerable. Carer available Tuesday morning.</p>
+              </div>
+              <div className="twilio-message-card twilio-message-bottom">
+                <strong>TaskBridge agent</strong>
+                <p>Task split, Enhanced DBS requirement applied, care-manager approval requested.</p>
+              </div>
+            </aside>
+          </div>
+
+          <div className="twilio-journey-rail" aria-label="TaskBridge horizontal journey">
+            {SOLUTION_STEPS.map((step) => {
+              const isActive = step.number === activeStep;
+              return (
+                <button key={step.number} type="button" className={isActive ? "active" : ""} onClick={() => setActiveStep(step.number)}>
+                  <span>{step.number === 1 ? <FileText size={20} /> : step.number === 2 ? <ClipboardCheck size={20} /> : step.number === 3 ? <UserCheck size={20} /> : <CheckCircle2 size={20} />}</span>
+                  <strong>{step.badge}</strong>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
         <div className="lifecycle-intro">
           <span className="eyebrow">TaskBridge workflow</span>
           <h2>How the TaskBridge lifecycle works</h2>
