@@ -1,8 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { Router } from "express";
+import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 import { config } from "../config.js";
 import { query, withTransaction } from "../db.js";
+import { normalizeDbsProviderCallback } from "../integrations.js";
 import { encryptField, hashToken, publicId } from "../security.js";
 import { createTaskPlan } from "../task-planner.js";
 
@@ -101,28 +102,54 @@ webhookRouter.post("/incoming-care-task", async (req, res) => {
   res.status(201).json({ taskIds, status: "awaiting_care_approval", safeguardApplied: vulnerable });
 });
 
-webhookRouter.post("/dbs-callback", async (req, res) => {
+async function handleDbsCallback(req: Request, res: Response) {
   if (!config.dbsWebhookSecret) return res.status(503).json({ error: "DBS webhook secret is not configured" });
-  const signature = req.get("x-taskbridge-signature") || "";
+  const signature = req.get("x-taskbridge-signature") || req.get("x-amiqus-signature") || req.get("x-signature") || "";
   const expected = createHmac("sha256", config.dbsWebhookSecret).update(req.rawBody || Buffer.alloc(0)).digest("hex");
   const validSignature = signature.length === expected.length
     && timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
   if (!validSignature) return res.status(401).json({ error: "Invalid webhook signature" });
   const parsed = dbsCallbackSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(422).json({ error: "Invalid DBS callback" });
-  const data = parsed.data;
+  const normalized = parsed.success
+    ? {
+        providerSessionId: parsed.data.providerSessionId,
+        status: parsed.data.status,
+        outcome: parsed.data.outcome || null,
+        expiryDate: parsed.data.expiryDate || null,
+        evidenceReference: parsed.data.evidenceReference || parsed.data.providerSessionId,
+        eventType: "dbs.callback",
+        raw: req.body
+      }
+    : normalizeDbsProviderCallback(req.body);
+  if (!normalized) return res.status(422).json({ error: "Invalid DBS callback" });
   const result = await query<{ trader_id: string }>(
     `UPDATE trader.dbs_verifications
      SET status = $2, outcome = $3, expiry_date = $4, evidence_reference = $5,
+         provider_event_type = $6, provider_payload = $7,
          checked_at = CASE WHEN $2 = 'pending' THEN checked_at ELSE clock_timestamp() END
      WHERE provider_session_id = $1 RETURNING trader_id::text`,
-    [data.providerSessionId, data.status, data.outcome || null, data.expiryDate || null, data.evidenceReference || null]
+    [
+      normalized.providerSessionId,
+      normalized.status,
+      normalized.outcome,
+      normalized.expiryDate,
+      normalized.evidenceReference,
+      normalized.eventType,
+      normalized.raw
+    ]
   );
   if (!result.rows[0]) return res.status(404).json({ error: "DBS verification session was not found" });
   await query(
     `INSERT INTO audit.audit_logs (action, entity_type, entity_id, metadata)
      VALUES ('dbs.callback.received', 'trader', $1, $2)`,
-    [result.rows[0].trader_id, { status: data.status }]
+    [result.rows[0].trader_id, {
+      providerSessionId: normalized.providerSessionId,
+      status: normalized.status,
+      eventType: normalized.eventType
+    }]
   );
   res.json({ accepted: true });
-});
+}
+
+webhookRouter.post("/dbs-callback", handleDbsCallback);
+webhookRouter.post("/amiqus-callback", handleDbsCallback);

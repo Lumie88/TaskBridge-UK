@@ -660,27 +660,36 @@ adminRouter.delete("/traders/:id/invitation", requireRoles("taskbridge_super_adm
 }));
 
 adminRouter.post("/traders/:id/dbs-check", async (req, res) => {
-  const trader = await query<{ id: string; encrypted_full_name: string; encrypted_mobile: string }>(
-    "SELECT id::text, encrypted_full_name, encrypted_mobile FROM trader.traders WHERE id = $1 AND deleted_at IS NULL",
+  const trader = await query<{ id: string; encrypted_full_name: string; encrypted_mobile: string; email: string | null }>(
+    "SELECT id::text, encrypted_full_name, encrypted_mobile, email::text FROM trader.traders WHERE id = $1 AND deleted_at IS NULL",
     [req.params.id]
   );
   if (!trader.rows[0]) return res.status(404).json({ error: "Handyman not found" });
   const provider = await startDbsVerification({
     handymanId: trader.rows[0].id,
     fullName: decryptField(trader.rows[0].encrypted_full_name),
-    mobile: decryptField(trader.rows[0].encrypted_mobile),
+    email: trader.rows[0].email,
+    mobile: trader.rows[0].encrypted_mobile ? decryptField(trader.rows[0].encrypted_mobile) : null,
     checkType: "enhanced_dbs",
     callbackUrl: `${config.appOrigin}/api/webhooks/dbs-callback`
   });
-  const providerSessionId = String(provider.providerSessionId || provider.id || "");
-  if (!providerSessionId) return res.status(502).json({ error: "DBS provider did not return a session identifier" });
   await query(
-    `INSERT INTO trader.dbs_verifications (trader_id, provider_session_id, status)
-     VALUES ($1, $2, 'pending')`,
-    [trader.rows[0].id, providerSessionId]
+    `INSERT INTO trader.dbs_verifications
+       (trader_id, provider_session_id, status, provider_name, provider_invitation_url, provider_payload, evidence_reference)
+     VALUES ($1, $2, $3, $4, $5, $6, $5)`,
+    [trader.rows[0].id, provider.providerSessionId, provider.status, provider.provider, provider.invitationUrl, provider.raw]
   );
-  await audit(req, "admin.dbs.started", "trader", trader.rows[0].id);
-  res.status(201).json({ traderId: trader.rows[0].id, status: "pending" });
+  await audit(req, "admin.dbs.started", "trader", trader.rows[0].id, {
+    provider: provider.provider,
+    providerSessionId: provider.providerSessionId
+  });
+  res.status(201).json({
+    traderId: trader.rows[0].id,
+    status: provider.status,
+    provider: provider.provider,
+    providerSessionId: provider.providerSessionId,
+    invitationUrl: provider.invitationUrl
+  });
 });
 
 adminRouter.post("/traders/:id/dbs-review", requireRoles("taskbridge_super_admin"), async (req, res) => {
