@@ -297,16 +297,73 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
     });
   }
 
+  const reservation = await withTransaction(req.auth!, async (client) => {
+    const locked = await client.query<{ id: string; agency_id: string; status: string }>(
+      `SELECT id::text, agency_id::text, status::text FROM ops.tasks
+       WHERE public_id = $1 AND deleted_at IS NULL FOR UPDATE`,
+      [req.params.publicId]
+    );
+    const task = locked.rows[0];
+    if (!task) throw Object.assign(new Error("Task not found"), { statusCode: 404 });
+    if (!["pending_taskbridge_assignment", "assignment_review"].includes(task.status)) {
+      throw Object.assign(new Error("Task is no longer available for assignment"), { statusCode: 409 });
+    }
+    const activeAssignment = await client.query<{ id: string }>(
+      `SELECT id::text FROM ops.assignments
+       WHERE task_id = $1 AND status IN ('pending_admin_review', 'approved', 'dispatched')
+       LIMIT 1 FOR UPDATE`,
+      [task.id]
+    );
+    if (activeAssignment.rows[0]) {
+      throw Object.assign(new Error("Task already has an active assignment reservation"), { statusCode: 409 });
+    }
+    const assignment = await client.query<{ id: string }>(
+      `INSERT INTO ops.assignments
+        (task_id, agency_id, trader_id, status, selected_by_user_id, distance_miles,
+         quoted_price, scheduled_start, scheduled_end)
+       VALUES ($1, $2, $3, 'pending_admin_review', $4, $5, $6, $7, $8)
+       RETURNING id::text`,
+      [task.id, task.agency_id, selected.trader.id, req.auth!.userId, selected.evaluation.distanceMiles,
+        quote, candidates.task.preferred_window_start, candidates.task.preferred_window_end]
+    );
+    await client.query("UPDATE ops.tasks SET status = 'assignment_review' WHERE id = $1", [task.id]);
+    await client.query(
+      `INSERT INTO ops.task_status_events
+        (task_id, agency_id, previous_status, new_status, changed_by_user_id, reason, metadata)
+       VALUES ($1, $2, $3, 'assignment_review', $4, 'Assignment reserved before provider dispatch', $5)`,
+      [task.id, task.agency_id, task.status, req.auth!.userId, { traderId: selected.trader.id, assignmentId: assignment.rows[0].id }]
+    );
+    return { taskId: task.id, agencyId: task.agency_id, assignmentId: assignment.rows[0].id };
+  });
+
   const rawVisitToken = createOpaqueToken(36);
   const visitPath = `/visit/${rawVisitToken}`;
-  const dispatchReceipt = await dispatchToHandymanNetwork({
-    taskId: candidates.task.public_id,
-    category: candidates.task.category,
-    taskSummary: candidates.task.summary,
-    selectedTraderId: selected.trader.external_trader_id || selected.trader.id,
-    requiredSafeguards: candidates.task.vulnerable_adult ? ["enhanced_dbs", "verified_insurance"] : ["verified_insurance"],
-    visitUrl: `${config.appOrigin}${visitPath}`
-  });
+  let dispatchReceipt: Record<string, unknown>;
+  try {
+    dispatchReceipt = await dispatchToHandymanNetwork({
+      taskId: candidates.task.public_id,
+      category: candidates.task.category,
+      taskSummary: candidates.task.summary,
+      selectedTraderId: selected.trader.external_trader_id || selected.trader.id,
+      requiredSafeguards: candidates.task.vulnerable_adult ? ["enhanced_dbs", "verified_insurance"] : ["verified_insurance"],
+      visitUrl: `${config.appOrigin}${visitPath}`
+    });
+  } catch (error) {
+    await withTransaction(req.auth!, async (client) => {
+      await client.query("UPDATE ops.assignments SET status = 'failed', blocked_reason = $2 WHERE id = $1", [
+        reservation.assignmentId,
+        error instanceof Error ? error.message : "Provider dispatch failed"
+      ]);
+      await client.query("UPDATE ops.tasks SET status = 'failed_dispatch' WHERE id = $1", [reservation.taskId]);
+      await client.query(
+        `INSERT INTO ops.task_status_events
+          (task_id, agency_id, previous_status, new_status, changed_by_user_id, reason)
+         VALUES ($1, $2, 'assignment_review', 'failed_dispatch', $3, 'Provider dispatch failed after assignment reservation')`,
+        [reservation.taskId, reservation.agencyId, req.auth!.userId]
+      );
+    });
+    throw error;
+  }
 
   const created = await withTransaction(req.auth!, async (client) => {
     const locked = await client.query<{ id: string; agency_id: string; status: string }>(
@@ -345,15 +402,15 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
       throw Object.assign(new Error(`Agency monthly cap exceeded. Used £${used.toFixed(2)} of £${monthlyCap.toFixed(2)}; this dispatch requires £${totalAmount.toFixed(2)}.`), { statusCode: 409 });
     }
     const assignment = await client.query<{ id: string }>(
-      `INSERT INTO ops.assignments
-        (task_id, agency_id, trader_id, status, selected_by_user_id, provider_booking_id,
-         distance_miles, quoted_price, scheduled_start, scheduled_end, dispatched_at)
-       VALUES ($1, $2, $3, 'dispatched', $4, $5, $6, $7, $8, $9, clock_timestamp())
+      `UPDATE ops.assignments
+       SET status = 'dispatched', provider_booking_id = $2, dispatched_at = clock_timestamp()
+       WHERE id = $1 AND status = 'pending_admin_review'
        RETURNING id::text`,
-      [task.id, task.agency_id, selected.trader.id, req.auth!.userId,
-        String(dispatchReceipt.providerBookingId || ""), selected.evaluation.distanceMiles,
-        quote, candidates.task.preferred_window_start, candidates.task.preferred_window_end]
+      [reservation.assignmentId, String(dispatchReceipt.providerBookingId || "")]
     );
+    if (!assignment.rows[0]) {
+      throw Object.assign(new Error("Assignment reservation is no longer available"), { statusCode: 409 });
+    }
     const charge = await client.query<{ id: string }>(
       `INSERT INTO billing.task_charges
         (task_id, agency_id, assignment_id, handyman_amount, agency_coordination_fee,

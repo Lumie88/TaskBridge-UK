@@ -67,26 +67,39 @@ export function VisitPage({ token }: { token: string }) {
     if (!beforeFile || !afterFile) return setError("Take both before-work and after-work photos before completing the visit.");
     setBusy(true); setError("");
     try {
-      const beforePhotoUrl = await uploadPhoto(beforeFile, "before_photo");
+      const beforePhoto = await uploadPhoto(beforeFile, "before_photo");
       await api(`/api/visit/${token}/evidence`, {
         method: "POST",
-        body: JSON.stringify({ evidenceType: "before_photo", fileUrl: beforePhotoUrl })
+        body: JSON.stringify({
+          evidenceType: "before_photo",
+          storageKey: beforePhoto.storageKey,
+          contentType: beforeFile.type,
+          sizeBytes: beforeFile.size
+        })
       });
-      const afterPhotoUrl = await uploadPhoto(afterFile, "after_photo");
-      await api(`/api/visit/${token}/complete`, { method: "POST", body: JSON.stringify({ completionNotes: notes, afterPhotoUrl }) });
+      const afterPhoto = await uploadPhoto(afterFile, "after_photo");
+      await api(`/api/visit/${token}/complete`, {
+        method: "POST",
+        body: JSON.stringify({
+          completionNotes: notes,
+          afterPhotoStorageKey: afterPhoto.storageKey,
+          afterPhotoContentType: afterFile.type,
+          afterPhotoSizeBytes: afterFile.size
+        })
+      });
       setComplete(true); await load();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to submit completion evidence"); }
     finally { setBusy(false); }
   }
 
   async function uploadPhoto(photo: File, evidenceType: "before_photo" | "after_photo") {
-    const signed = await api<{ uploadUrl: string; fileUrl: string; headers?: Record<string, string> }>(`/api/visit/${token}/evidence-upload-url`, {
+    const signed = await api<{ uploadUrl: string; storageKey: string; headers?: Record<string, string> }>(`/api/visit/${token}/evidence-upload-url`, {
       method: "POST",
       body: JSON.stringify({ fileName: photo.name, evidenceType, contentType: photo.type, sizeBytes: photo.size })
     });
     const upload = await fetch(signed.uploadUrl, { method: "PUT", headers: signed.headers || { "content-type": photo.type }, body: photo });
     if (!upload.ok) throw new Error("A photo upload did not complete. Please try again.");
-    return signed.fileUrl;
+    return { storageKey: signed.storageKey };
   }
 
   if (error && !visit) return <main className="visit-page"><div className="visit-card"><Brand /><div className="visit-error"><ShieldAlert /><h1>Visit link unavailable</h1><p>{error}</p></div></div></main>;

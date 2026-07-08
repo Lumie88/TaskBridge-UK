@@ -61,9 +61,41 @@ export async function createEvidenceUpload(
   if (!publicBase) throw Object.assign(new Error("Secure photo storage public URL is not configured"), { statusCode: 503 });
   return {
     uploadUrl,
+    storageKey: key,
     fileUrl: `${publicBase}/${key}`,
     headers: { "content-type": contentType }
   };
+}
+
+export function evidenceFileUrl(storageKey: string) {
+  if (!storageKey.startsWith("visit-evidence/")) {
+    throw Object.assign(new Error("Evidence storage path is invalid"), { statusCode: 422 });
+  }
+  const publicBase = config.objectStoragePublicBaseUrl.replace(/\/$/, "");
+  if (!publicBase) throw Object.assign(new Error("Secure photo storage public URL is not configured"), { statusCode: 503 });
+  return `${publicBase}/${storageKey}`;
+}
+
+export async function verifyEvidenceUpload(
+  taskId: string,
+  evidenceType: "before_photo" | "after_photo",
+  storageKey: string,
+  contentType: string,
+  sizeBytes: number
+) {
+  const expectedPrefix = `visit-evidence/${taskId}/${evidenceType}/`;
+  if (!storageKey.startsWith(expectedPrefix)) {
+    throw Object.assign(new Error("Uploaded evidence does not belong to this visit"), { statusCode: 422 });
+  }
+  try {
+    const result = await storageClient().send(new HeadObjectCommand({ Bucket: config.objectStorageBucket, Key: storageKey }));
+    if (result.ContentType !== contentType || Number(result.ContentLength) !== sizeBytes ||
+        result.Metadata?.task !== taskId || result.Metadata?.evidence !== evidenceType) {
+      throw new Error("metadata_mismatch");
+    }
+  } catch {
+    throw Object.assign(new Error("Visit evidence could not be verified after upload"), { statusCode: 422 });
+  }
 }
 
 export async function createComplianceDocumentUpload(

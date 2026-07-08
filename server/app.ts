@@ -4,7 +4,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import helmet from "helmet";
 import { authenticate } from "./auth.js";
 import { config, isProduction, productionConfigErrors } from "./config.js";
-import { databaseReady } from "./db.js";
+import { databaseReady, withRequestDbContext } from "./db.js";
 import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
 import { coordinatorRouter } from "./routes/coordinator.js";
@@ -48,6 +48,19 @@ export function createApp() {
     next();
   });
   app.use(authenticate);
+  app.use((req, res, next) => {
+    if (!req.auth) return next();
+    void withRequestDbContext(req.auth, () => new Promise<void>((resolve, reject) => {
+      res.once("finish", resolve);
+      res.once("close", resolve);
+      res.once("error", reject);
+      try {
+        next();
+      } catch (error) {
+        reject(error);
+      }
+    })).catch(next);
+  });
 
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", service: "taskbridge", timestamp: new Date().toISOString() });

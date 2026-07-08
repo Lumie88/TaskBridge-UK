@@ -3,7 +3,7 @@ import { z } from "zod";
 import { query, withTransaction } from "../db.js";
 import { haversineMiles } from "../matching.js";
 import { decryptField, hashToken } from "../security.js";
-import { createEvidenceUpload } from "../media.js";
+import { createEvidenceUpload, evidenceFileUrl, verifyEvidenceUpload } from "../media.js";
 
 interface VisitAccessRow {
   visit_id: string;
@@ -31,7 +31,9 @@ const checkInSchema = z.object({
 
 const completeSchema = z.object({
   completionNotes: z.string().min(5).max(1000),
-  afterPhotoUrl: z.string().url().max(2000)
+  afterPhotoStorageKey: z.string().min(20).max(500),
+  afterPhotoContentType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+  afterPhotoSizeBytes: z.number().int().positive().max(10 * 1024 * 1024)
 });
 
 const uploadSchema = z.object({
@@ -43,7 +45,9 @@ const uploadSchema = z.object({
 
 const evidenceSchema = z.object({
   evidenceType: z.literal("before_photo"),
-  fileUrl: z.string().url().max(2000)
+  storageKey: z.string().min(20).max(500),
+  contentType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+  sizeBytes: z.number().int().positive().max(10 * 1024 * 1024)
 });
 
 const declineSchema = z.object({
@@ -181,13 +185,15 @@ visitRouter.post("/:token/evidence", async (req, res) => {
   const access = await findVisit(req.params.token);
   if (!access) return res.status(404).json({ error: "Visit link is invalid or expired" });
   if (access.visit_status !== "checked_in") return res.status(409).json({ error: "Check in before uploading visit evidence" });
+  await verifyEvidenceUpload(access.task_id, "before_photo", parsed.data.storageKey, parsed.data.contentType, parsed.data.sizeBytes);
+  const fileUrl = evidenceFileUrl(parsed.data.storageKey);
   await withTransaction(null, async (client) => {
     await client.query(
       `INSERT INTO ops.visit_evidence (visit_id, task_id, evidence_type, file_url)
        VALUES ($1, $2, 'before_photo', $3)`,
-      [access.visit_id, access.task_id, parsed.data.fileUrl]
+      [access.visit_id, access.task_id, fileUrl]
     );
-    await client.query("UPDATE ops.tasks SET before_photo_url = $1 WHERE id = $2", [parsed.data.fileUrl, access.task_id]);
+    await client.query("UPDATE ops.tasks SET before_photo_url = $1 WHERE id = $2", [fileUrl, access.task_id]);
   });
   res.status(201).json({ status: "recorded" });
 });
@@ -207,6 +213,8 @@ visitRouter.post("/:token/complete", async (req, res) => {
     [access.visit_id]
   );
   if (!beforeEvidence.rows[0]?.exists) return res.status(409).json({ error: "Upload a before-work photo before completing the visit" });
+  await verifyEvidenceUpload(access.task_id, "after_photo", parsed.data.afterPhotoStorageKey, parsed.data.afterPhotoContentType, parsed.data.afterPhotoSizeBytes);
+  const afterPhotoUrl = evidenceFileUrl(parsed.data.afterPhotoStorageKey);
 
   await withTransaction(null, async (client) => {
     await client.query(
@@ -218,11 +226,11 @@ visitRouter.post("/:token/complete", async (req, res) => {
     await client.query(
       `INSERT INTO ops.visit_evidence (visit_id, task_id, evidence_type, file_url)
        VALUES ($1, $2, 'after_photo', $3)`,
-      [access.visit_id, access.task_id, parsed.data.afterPhotoUrl]
+      [access.visit_id, access.task_id, afterPhotoUrl]
     );
     await client.query(
       `UPDATE ops.tasks SET status = 'awaiting_care_confirmation', after_photo_url = $1 WHERE id = $2`,
-      [parsed.data.afterPhotoUrl, access.task_id]
+      [afterPhotoUrl, access.task_id]
     );
     await client.query(
       `INSERT INTO ops.task_status_events
