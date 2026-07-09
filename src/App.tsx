@@ -8,6 +8,7 @@ import { AdminPortal } from "./pages/AdminPortal";
 import { VisitPage } from "./pages/VisitPage";
 import { HandymanOnboardingPage } from "./pages/HandymanOnboardingPage";
 import { StaffOnboardingPage } from "./pages/StaffOnboardingPage";
+import { Brand } from "./components";
 
 export function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -71,9 +72,59 @@ function RedirectForUser({ user }: { user: User }) {
 }
 
 function AccessDenied() {
-  return <main className="error-page"><span>403</span><h1>Access is restricted.</h1><p>This workspace requires an authorised TaskBridge administrator account.</p><a className="button button-primary" href="/">Return home</a></main>;
+  return (
+    <ErrorPage
+      code="403"
+      eyebrow="Secure workspace"
+      title="Access is restricted."
+      message="This workspace requires an authorised TaskBridge administrator account."
+      actionLabel="Return home"
+      actionHref="/"
+    />
+  );
 }
 
 function NotFound() {
-  return <main className="error-page"><span>404</span><h1>We could not find that page.</h1><a className="button button-primary" href="/">Return home</a></main>;
+  return (
+    <ErrorPage
+      code="404"
+      eyebrow="Page not found"
+      title="This TaskBridge page is not available."
+      message="The link may be incorrect, expired, or no longer connected to this workspace."
+      actionLabel="Go to Growing Fig"
+      actionHref="/"
+    />
+  );
+}
+
+function ErrorPage({
+  code,
+  eyebrow,
+  title,
+  message,
+  actionLabel,
+  actionHref
+}: {
+  code: string;
+  eyebrow: string;
+  title: string;
+  message: string;
+  actionLabel: string;
+  actionHref: string;
+}) {
+  return (
+    <main className="error-page">
+      <section className="error-card" aria-labelledby="error-title">
+        <Brand />
+        <span className="error-code">{code}</span>
+        <p className="eyebrow">{eyebrow}</p>
+        <h1 id="error-title">{title}</h1>
+        <p>{message}</p>
+        <div className="error-actions">
+          <a className="button button-primary" href={actionHref}>{actionLabel}</a>
+          <a className="button button-secondary" href="/sign-in">Sign in</a>
+        </div>
+      </section>
+    </main>
+  );
 }
