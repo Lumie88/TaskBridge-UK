@@ -842,7 +842,7 @@ function Footer() {
         </a>
         <div className="footer-contact-row">
           <MapPin size={19} />
-          <address>Growing Fig,<br />TaskBridge operations,<br />85 Great Portland Street, First Floor,<br />London, W1W 7LT</address>
+          <address>Growing Fig,<br />Brightfield Business Hub,<br />Bakewell Road,<br />Orton Southgate,<br />Peterborough, PE2 6XU</address>
         </div>
       </section>
     </div>
