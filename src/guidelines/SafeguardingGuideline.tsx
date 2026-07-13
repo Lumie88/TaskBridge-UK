@@ -5,13 +5,13 @@ export default function SafeguardingShield() {
   const points = [
     {
       icon: <ShieldCheck className="h-6 w-6 text-rose-500" />,
-      title: "Enhanced DBS Checked Handymen Only",
+      title: "Enhanced DBS controls for vulnerable-adult visits",
       description: "Any operative attending a home visit holds active, validated Enhanced Disclosure and Barring Service clearance, ensuring peace of mind around vulnerable residents."
     },
     {
       icon: <EyeOff className="h-6 w-6 text-amber-500" />,
       title: "Resident Details Safely Escrowed",
-      description: "Direct mobile numbers and specific key safe access credentials are held in secure middleware storage. Operatives communicate with care coordinators rather than requesting phone callbacks from residents."
+      description: "Direct mobile numbers and specific key safe access credentials are held securely. Operatives communicate through the authorised workflow rather than requesting callbacks from residents."
     },
     {
       icon: <Camera className="h-6 w-6 text-indigo-500" />,

@@ -65,7 +65,7 @@ export default function IntegrationHub() {
                     <ShieldCheck className="h-4 w-4" />
                   </div>
                   <div className="text-left">
-                    <p className="font-display font-bold text-xs text-slate-800">Enhanced DBS Checked Operative</p>
+                    <p className="font-display font-bold text-xs text-slate-800">Safeguarding-checked operative</p>
                     <p className="text-[10px] text-slate-500">Safe, Timely Visit &amp; Photo-Checkoff</p>
                   </div>
                 </div>
@@ -83,7 +83,7 @@ export default function IntegrationHub() {
               Compatible with most leading care management applications.
             </h2>
             <p className="mt-4 text-base text-slate-600 leading-relaxed text-balance">
-              TaskBridge slots directly alongside your existing record-keeping solutions. By monitoring selected digital ledger folders or accepting secure carer note exports, our middleware handles risk sorting without requiring your frontlines to adopt and configure new app logins.
+              TaskBridge works alongside your existing care records. Care teams can send selected notes or task requests into a secure workflow, where practical home-safety risks are organised without asking frontline carers to learn another daily app.
             </p>
 
             <div className="mt-8 space-y-4">
@@ -93,7 +93,7 @@ export default function IntegrationHub() {
                 </div>
                 <div>
                   <h4 className="font-display font-semibold text-xs text-slate-800">No Extra Caregiver App Needed</h4>
-                  <p className="font-sans text-xs text-slate-500 mt-0.5">Carers note down observations exactly as they do today. Our secure middleware extracts practical hazards seamlessly behind the scenes.</p>
+                  <p className="font-sans text-xs text-slate-500 mt-0.5">Carers record observations as they do today. TaskBridge turns approved concerns into practical home-safety tasks for review.</p>
                 </div>
               </div>
 
@@ -123,7 +123,7 @@ export default function IntegrationHub() {
                 Enhanced DBS Verification Ready
               </span>
               <span className="font-mono text-[9px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 border border-slate-200 rounded px-2 py-1">
-                API COMPLIANT
+                INTEGRATION READY
               </span>
               <span className="font-mono text-[9px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 border border-slate-200 rounded px-2 py-1">
                 WEBHOOK INTEGRATED

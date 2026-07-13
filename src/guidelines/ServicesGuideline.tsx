@@ -79,12 +79,12 @@ export default function ServicesPanel() {
           {/* Quick Stats side block */}
           <div className="mt-6 md:mt-0 bg-slate-50 border border-slate-100 rounded-2xl p-4 flex gap-6 font-display shrink-0">
             <div>
-              <p className="text-2xl font-bold bg-gradient-to-r from-rose-600 to-amber-600 bg-clip-text text-transparent">100%</p>
-              <p className="text-[10px] uppercase font-mono tracking-wider text-slate-400 mt-1">DBS Checked</p>
+              <p className="text-2xl font-bold bg-gradient-to-r from-rose-600 to-amber-600 bg-clip-text text-transparent">DBS</p>
+              <p className="text-[10px] uppercase font-mono tracking-wider text-slate-400 mt-1">Controls Applied</p>
             </div>
             <div className="border-l border-slate-200 pl-6">
-              <p className="text-2xl font-bold text-slate-800">45 Min</p>
-              <p className="text-[10px] uppercase font-mono tracking-wider text-slate-400 mt-1">Average SLA</p>
+              <p className="text-2xl font-bold text-slate-800">Live</p>
+              <p className="text-[10px] uppercase font-mono tracking-wider text-slate-400 mt-1">Task Updates</p>
             </div>
           </div>
         </div>
@@ -185,7 +185,7 @@ export default function ServicesPanel() {
             <div>
               <h4 className="font-display font-semibold text-sm">Full Audit Logs Provided for Care Commissioners</h4>
               <p className="font-sans text-xs text-slate-300 mt-1 leading-relaxed max-w-2xl text-balance">
-                Every dispatch is logged in structural database logs, noting timestamps, vetting status matches, and before-and-after photo verification tokens—easily exportable for local authorities and safeguarding leads.
+                Every dispatch records timestamps, vetting status, visit progress and before-and-after photo evidence for authorised care teams and safeguarding leads.
               </p>
             </div>
           </div>

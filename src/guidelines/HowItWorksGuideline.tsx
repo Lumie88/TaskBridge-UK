@@ -48,7 +48,7 @@ export default function HowItWorksGuideline() {
         <div className="lifecycle-intro">
           <span className="eyebrow">TaskBridge workflow</span>
           <h2>How the TaskBridge lifecycle works</h2>
-          <p>Select any of the four key steps to see how the secure care middleware moves from a care note to verified on-site completion.</p>
+          <p>Select any of the four key steps to see how TaskBridge moves from a care note to verified on-site completion.</p>
         </div>
 
         <div className="lifecycle-pills" aria-label="TaskBridge workflow capabilities">
@@ -87,7 +87,7 @@ export default function HowItWorksGuideline() {
             </div>
 
             <div className="lifecycle-log lifecycle-log-secure">
-              <header><span>Secure middleware automation</span><strong>Active log</strong></header>
+              <header><span>Secure TaskBridge action</span><strong>Active log</strong></header>
               <p>{selectedStep.middlewareAction}</p>
             </div>
           </article>
@@ -95,7 +95,7 @@ export default function HowItWorksGuideline() {
           <aside className="lifecycle-control-card">
             <header>
               <div><i /><strong>Care dispatch control card</strong></div>
-              <span>Secure middleware</span>
+              <span>Secure coordination</span>
             </header>
 
             <div className="lifecycle-control-list">

@@ -93,7 +93,7 @@ export function DemoModal({ open, onClose }: { open: boolean; onClose: () => voi
 
         <aside className="studio-demo-insight">
           <div>
-            <span>Secure middleware</span>
+            <span>Secure coordination</span>
             <h3>TaskBridge by Growing Fig</h3>
             <p>Experience secure, coordinated home-safety dispatch with safeguarding controls built into every step.</p>
           </div>
@@ -101,7 +101,7 @@ export function DemoModal({ open, onClose }: { open: boolean; onClose: () => voi
             <div><Users size={17} /><p>Designed for home care managers and operations coordinators.</p></div>
             <div><ShieldAlert size={17} /><p>Enhanced DBS verification supports trusted vulnerable-adult visits.</p></div>
           </div>
-          <blockquote>“Making home safer for our vulnerable”</blockquote>
+          <blockquote>"Making home safer for our vulnerable"</blockquote>
         </aside>
 
         <div className="studio-demo-content">

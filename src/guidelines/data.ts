@@ -52,7 +52,7 @@ export const SOLUTION_STEPS: SolutionStep[] = [
     badge: "Risk Identification",
     description: "A frontline care worker notes down a practical home concern over their standard mobile terminal.",
     caregiverAction: "Observation spotted: 'Mrs. Higgins' rear slatted wooden path is covered in thick moss and extremely slick after rain.'",
-    middlewareAction: "TaskBridge ingests and parses care notes for structural home-safety hazard triggers.",
+    middlewareAction: "TaskBridge identifies practical home-safety concerns and prepares them for care-team review.",
     evidenceCapture: "Initial Care Note Log #8372"
   },
   {
@@ -61,7 +61,7 @@ export const SOLUTION_STEPS: SolutionStep[] = [
     badge: "Operations Ledger",
     description: "The care coordinator logs into TaskBridge to review the parsed home risk and approve safety-dispatch budgets.",
     caregiverAction: "Action approved: Care manager reviews loose tile hazard, marks as high-priority fall prevention task.",
-    middlewareAction: "Task details are sanitized—all sensitive medical diagnostic notes are stripped to protect privacy.",
+    middlewareAction: "Task details are checked and unnecessary medical information is removed to protect privacy.",
     evidenceCapture: "Coordinator Auth Signed"
   },
   {
@@ -70,7 +70,7 @@ export const SOLUTION_STEPS: SolutionStep[] = [
     badge: "Secure Dispatch",
     description: "TaskBridge broadcasts the sanitized safety task to local Enhanced DBS vetted handymen under strict service SLA.",
     caregiverAction: "Trader assigned: Skilled carpenter/handyman accepted path clearance and minor grab-rail installation.",
-    middlewareAction: "Trader receives geo-location only; resident's full private number remains secure.",
+    middlewareAction: "The operative receives only the approved visit details; resident contact information remains protected.",
     evidenceCapture: "operative ID matched"
   },
   {
@@ -79,7 +79,7 @@ export const SOLUTION_STEPS: SolutionStep[] = [
     badge: "Safety Verified",
     description: "The trader checks in via secure web-link upon arrival, takes before/after pictures, and gathers completion voucher.",
     caregiverAction: "Risk mitigated: Slip hazard fully pressure-washed, treated with anti-mould sealer. Photo upload complete.",
-    middlewareAction: "Evidence pack returned instantly into care office ledger for complete safeguarding audit.",
+    middlewareAction: "Visit evidence is returned to the authorised care team for review and safeguarding audit.",
     evidenceCapture: "timestamped photos saved"
   }
 ];

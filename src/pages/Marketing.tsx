@@ -82,13 +82,13 @@ export function MarketingHome() {
         <section className="studio-hero">
           <div className="site-width studio-hero-grid">
             <div className="studio-hero-copy">
-              <span className="studio-trust-pill"><ShieldCheck size={16} /> Compliant care operations middleware</span>
-              <h1>Connecting care teams with trusted, <span>vetted home safety</span> support.</h1>
-              <blockquote>“Making home safer for our vulnerable”</blockquote>
-              <p>TaskBridge by Growing Fig bridges the gap between care management and home safety. Convert carer observations into approved, trackable practical tasks while keeping resident identity and contact details secure.</p>
+              <span className="studio-trust-pill"><ShieldCheck size={16} /> Safeguarded care coordination</span>
+              <h1>Safer homes for vulnerable people, <span>coordinated through your care team.</span></h1>
+              <blockquote>"Making home safer for our vulnerable"</blockquote>
+              <p>TaskBridge by Growing Fig helps care teams turn everyday home-safety concerns into approved, trackable practical support while keeping resident identity and contact details protected.</p>
               <div className="studio-assurance" aria-label="Service assurances">
-                <span><BadgeCheck size={19} /> Enhanced DBS-checked operatives</span>
-                <span><BadgeCheck size={19} /> GDPR compliant</span>
+                <span><BadgeCheck size={19} /> Enhanced DBS controls for eligible visits</span>
+                <span><BadgeCheck size={19} /> UK GDPR-conscious data handling</span>
               </div>
               <div className="studio-hero-actions">
                 <button className="button studio-dark-button" onClick={() => setDemoOpen(true)}>Book a demo <ArrowRight size={17} /></button>
@@ -108,8 +108,8 @@ export function MarketingHome() {
           <div className="site-width">
             <div className="studio-section-title"><span>Engineered for complete peace of mind</span><h2>Four pillars of safe, trusted care support</h2></div>
             <div className="studio-trust-grid">
-              <StudioPillar icon={<Link2 />} tone="rose" title="Extremely compatible" detail="Compatible with most leading care management applications to sync notes smoothly." label="Integration ready" />
-              <StudioPillar icon={<ShieldCheck />} tone="amber" title="Enhanced DBS vetted" detail="Every handyman is checked against active safeguarding and insurance requirements." label="Safeguarding compliant" />
+              <StudioPillar icon={<Link2 />} tone="rose" title="Works with care systems" detail="Compatible with most leading care management applications, with simple routes for care notes and task updates." label="Integration ready" />
+              <StudioPillar icon={<ShieldCheck />} tone="amber" title="Safeguarding-led matching" detail="Eligible visits are checked against DBS, identity, insurance and service suitability controls before dispatch." label="Safeguarding first" />
               <StudioPillar icon={<Store />} tone="indigo" title="Private vetted networks" detail="Work is routed through controlled provider pools rather than public task feeds." label="Trusted trade panel" />
               <StudioPillar icon={<LockKeyhole />} tone="green" title="Resident details protected" detail="Home access details and direct resident contacts remain shielded from operatives." label="GDPR & cyber secure" />
             </div>
@@ -245,10 +245,10 @@ function CoordinatorDemoVideo() {
 function DemoScreen({ type }: { type: string }) {
   if (type === "dashboard") return <div className="demo-dashboard">
     <div><strong>18</strong><span>Open tasks</span></div><div><strong>5</strong><span>Pending assignment</span></div><div><strong>9</strong><span>Completed</span></div>
-    <article><h4>Loose rail repair</h4><p>Ring-Fence enforced · Awaiting assignment</p></article>
+    <article><h4>Loose rail repair</h4><p>Ring-Fence enforced - Awaiting assignment</p></article>
   </div>;
   if (type === "create") return <div className="demo-create">
-    <label>Service user<input readOnly value="Mary W. · vulnerable adult" /></label>
+    <label>Service user<input readOnly value="Mary W. - vulnerable adult" /></label>
     <label>Care note<textarea readOnly value={"Back path is slippery with moss. Kitchen cupboard handle loose. Carer on site Tuesday 10:00."} /></label>
     <button>Evaluate care note</button>
   </div>;
@@ -823,9 +823,9 @@ function GuidelinePage({ children }: { children: ReactNode }) {
 function StudioCallout({ onDemo }: { onDemo: () => void }) {
   return <section className="studio-callout-section">
     <div className="site-width studio-callout">
-      <span className="studio-callout-badge"><ShieldCheck size={14} /> Secure operational care middleware</span>
+      <span className="studio-callout-badge"><ShieldCheck size={14} /> Secure care coordination platform</span>
       <h2>Ready to transform safe resident care?</h2>
-      <p>See how the TaskBridge by Growing Fig secure gateway connects with your existing care management systems to coordinate approved, vetted home-safety support.</p>
+      <p>See how TaskBridge by Growing Fig connects with your care workflow to coordinate approved, vetted home-safety support.</p>
       <div className="studio-callout-actions">
         <button onClick={onDemo}>Book personal demonstration <ArrowRight size={18} /></button>
         <a href="/sign-in"><LogIn size={18} /> Care coordinator sign in</a>
@@ -848,7 +848,7 @@ function Footer() {
           <span><strong>Task<span>Bridge</span></strong><small>by Growing Fig</small></span>
         </a>
         <p>Connecting home care managers and safeguarding coordinators with verified, Enhanced DBS-vetted home support professionals.</p>
-        <blockquote>“Making home safer for our vulnerable”</blockquote>
+        <blockquote>"Making home safer for our vulnerable"</blockquote>
       </section>
 
       <nav className="footer-links" aria-label="System guidelines">
@@ -878,7 +878,7 @@ function Footer() {
     </div>
 
     <div className="site-width footer-bottom">
-      <div><p>© 2026 Growing Fig. All rights reserved.</p><small>TaskBridge by Growing Fig is a HealthTech and care operations middleware platform. Enhanced DBS validation supports vulnerable-adult safeguarding controls.</small></div>
+      <div><p>(c) 2026 Growing Fig. All rights reserved.</p><small>TaskBridge by Growing Fig is a HealthTech and care operations platform. Enhanced DBS validation supports vulnerable-adult safeguarding controls.</small></div>
       <nav aria-label="Security and legal">
         <a href="/how-it-works#security">Security standards</a>
         <a href="/safeguarding-policy">Safeguarding policy</a>
