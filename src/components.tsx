@@ -17,10 +17,21 @@ import {
 import type { User } from "./types";
 import { api } from "./api";
 
+export function TaskBridgeMark({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <path d="M16 3.5 25 7v7.4c0 6.3-3.7 11.2-9 14.1-5.3-2.9-9-7.8-9-14.1V7l9-3.5Z" fill="none" stroke="currentColor" strokeWidth="2.35" strokeLinejoin="round" />
+      <path d="M10 18.2c2.1-3.1 9.9-3.1 12 0" fill="none" stroke="currentColor" strokeWidth="2.35" strokeLinecap="round" />
+      <path d="M11 21h10" fill="none" stroke="currentColor" strokeWidth="2.35" strokeLinecap="round" />
+      <path d="m13 13.8 2 2 4.4-5" fill="none" stroke="currentColor" strokeWidth="2.35" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <a className="brand" href="/" aria-label="TaskBridge by Growing Fig home">
-      <span className="brand-mark"><ShieldCheck size={compact ? 19 : 22} strokeWidth={2.2} /><i /></span>
+      <span className="brand-mark"><TaskBridgeMark size={compact ? 19 : 23} /><i /></span>
       <span className="brand-copy"><strong>Task<span>Bridge</span></strong><small>by Growing Fig</small></span>
     </a>
   );

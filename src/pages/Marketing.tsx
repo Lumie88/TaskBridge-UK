@@ -28,19 +28,17 @@ import {
 } from "lucide-react";
 import heroImage from "../assets/home-safety-hero.jpg";
 import { api } from "../api";
-import { DemoModal, PublicHeader } from "../components";
+import { DemoModal, PublicHeader, TaskBridgeMark } from "../components";
 import HowItWorksGuideline from "../guidelines/HowItWorksGuideline";
 import IntegrationsGuideline from "../guidelines/IntegrationsGuideline";
 import SafeguardingGuideline from "../guidelines/SafeguardingGuideline";
 import ServicesGuideline from "../guidelines/ServicesGuideline";
 
 const services = [
-  "Minor home repairs",
-  "Grab rails and safety fittings",
-  "Garden paths and lawn care",
-  "Window cleaning",
-  "Appliance safety tasks",
-  "Locks, doors and access"
+  { title: "Reduce slips and falls", detail: "Mossy paths, loose rails, trip hazards and unsafe thresholds." },
+  { title: "Keep access safe", detail: "Locks, handles, door concerns and safer key access arrangements." },
+  { title: "Support safe daily living", detail: "Small repairs, fittings and practical jobs that protect independence." },
+  { title: "Tackle neglected outdoor risks", detail: "Lawn care, garden paths, window access and visible home hazards." }
 ];
 
 const handymanServices = [
@@ -89,6 +87,10 @@ export function MarketingHome() {
               <div className="studio-assurance" aria-label="Service assurances">
                 <span><BadgeCheck size={19} /> Enhanced DBS controls for eligible visits</span>
                 <span><BadgeCheck size={19} /> UK GDPR-conscious data handling</span>
+              </div>
+              <div className="studio-care-note">
+                <span><HeartPulse size={18} /></span>
+                <p><strong>From a carer note to a safer home:</strong> a slippery path, loose rail or access concern becomes a reviewed, evidenced task that the care team can follow through.</p>
               </div>
               <div className="studio-hero-actions">
                 <button className="button studio-dark-button" onClick={() => setDemoOpen(true)}>Book a demo <ArrowRight size={17} /></button>
@@ -150,8 +152,8 @@ export function MarketingHome() {
             <span className="eyebrow">Everyday support that matters</span>
             <h2>One trusted route to a safer home.</h2>
             <p>From a loose handle to an overgrown path, TaskBridge helps teams coordinate the small jobs that can make a meaningful difference to independence and wellbeing.</p>
-            <ul className="service-list">
-              {services.map((service) => <li key={service}><Check size={17} /> {service}</li>)}
+            <ul className="service-list service-outcome-list">
+              {services.map((service) => <li key={service.title}><Check size={17} /> <span><strong>{service.title}</strong><small>{service.detail}</small></span></li>)}
             </ul>
           </div>
           <div className="outcome-panel">
@@ -773,6 +775,10 @@ export function CookiePolicy() {
   />;
 }
 
+function policyAnchor(title: string) {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
 function PolicyPage({ eyebrow, title, intro, sections }: {
   eyebrow: string;
   title: string;
@@ -788,12 +794,20 @@ function PolicyPage({ eyebrow, title, intro, sections }: {
         <h1>{title}</h1>
         <p>{intro}</p>
       </section>
-      <section className="site-width policy-grid">
-        {sections.map((section) => <article key={section.title} className="policy-card">
-          <span><ShieldCheck size={18} /></span>
-          <h2>{section.title}</h2>
-          <p>{section.body}</p>
-        </article>)}
+      <section className="site-width policy-layout">
+        <aside className="policy-index" aria-label={`${title} sections`}>
+          <strong>On this page</strong>
+          <nav>
+            {sections.map((section) => <a key={section.title} href={`#${policyAnchor(section.title)}`}>{section.title}</a>)}
+          </nav>
+        </aside>
+        <div className="policy-grid">
+          {sections.map((section) => <article id={policyAnchor(section.title)} key={section.title} className="policy-card">
+            <span><ShieldCheck size={18} /></span>
+            <h2>{section.title}</h2>
+            <p>{section.body}</p>
+          </article>)}
+        </div>
       </section>
       <section className="site-width policy-contact">
         <div><h2>Need the formal pack?</h2><p>For agency onboarding, request the full privacy, safeguarding, DPA and operational policy pack from TaskBridge.</p></div>
@@ -844,7 +858,7 @@ function Footer() {
     <div className="site-width footer-main">
       <section className="footer-about" aria-label="About TaskBridge by Growing Fig">
         <a className="footer-brand" href="/" aria-label="TaskBridge by Growing Fig home">
-          <span className="footer-brand-mark"><ShieldCheck size={24} /></span>
+          <span className="footer-brand-mark"><TaskBridgeMark size={27} /></span>
           <span><strong>Task<span>Bridge</span></strong><small>by Growing Fig</small></span>
         </a>
         <p>Connecting home care managers and safeguarding coordinators with verified, Enhanced DBS-vetted home support professionals.</p>
