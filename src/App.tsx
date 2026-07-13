@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { User } from "./types";
 import { SignIn } from "./pages/AuthPages";
-import { AdultSafeguardingPolicy, ApiDocumentation, CookiePolicy, DataProtectionPolicy, GDPRShieldPolicy, HowItWorks, JoinHandymanPage, MarketingHome, OurServices, SafeguardingProtocol, SafeguardingSLA, SystemIntegrations } from "./pages/Marketing";
+import { AdultSafeguardingPolicy, ApiDocumentation, CookiePolicy, GDPRPolicy, HowItWorks, JoinHandymanPage, MarketingHome, OurServices, SafeguardingProtocol, SafeguardingSLA, SystemIntegrations } from "./pages/Marketing";
 import { CoordinatorPortal } from "./pages/CoordinatorPortal";
 import { AdminPortal } from "./pages/AdminPortal";
 import { VisitPage } from "./pages/VisitPage";
@@ -46,8 +46,7 @@ export function App() {
   if (path === "/integrations") return <SystemIntegrations />;
   if (path === "/api-documentation") return <ApiDocumentation />;
   if (path === "/adult-safeguarding-policy" || path === "/safeguarding-policy") return <AdultSafeguardingPolicy />;
-  if (path === "/data-protection-policy") return <DataProtectionPolicy />;
-  if (path === "/gdpr-shield-policy") return <GDPRShieldPolicy />;
+  if (path === "/gdpr-policy" || path === "/gdpr-shield-policy" || path === "/data-protection-policy") return <GDPRPolicy />;
   if (path === "/cookie-policy") return <CookiePolicy />;
   if (path === "/safeguarding-sla") return <SafeguardingSLA />;
   if (loading) return <div className="app-loading"><span className="loading-mark" />Loading TaskBridge...</div>;

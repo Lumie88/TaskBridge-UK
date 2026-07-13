@@ -625,15 +625,35 @@ export function AdultSafeguardingPolicy() {
   />;
 }
 
-export function GDPRShieldPolicy() {
+export function GDPRPolicy() {
   return <PolicyPage
     eyebrow="Privacy and data protection"
-    title="GDPR Shield Policy"
-    intro="TaskBridge is designed to minimise resident data exposure while helping care organisations coordinate approved home-safety tasks. This policy explains the practical privacy controls used across the platform."
+    title="GDPR Policy"
+    intro="TaskBridge by Growing Fig is committed to protecting personal data and privacy, particularly for vulnerable individuals whose homes may be visited for approved repair, maintenance and home-safety work. The platform is designed to minimise resident data exposure while meeting UK GDPR and Data Protection Act 2018 obligations."
     sections={[
       {
+        title: "Scope",
+        body: "This policy applies to employees, subcontractors, temporary workers, approved handymen, administrators and anyone working on behalf of TaskBridge by Growing Fig."
+      },
+      {
         title: "Data minimisation",
-        body: "TaskBridge asks care teams to share only the information needed to identify the service user, understand the practical task, coordinate the visit and evidence completion. Clinical notes, unnecessary medical details and unrelated family information should not be entered into task summaries."
+        body: "Care teams should share only the information needed to identify the service user, understand the practical task, coordinate the visit and evidence completion. Clinical notes, unnecessary medical details and unrelated family information should not be entered into task summaries."
+      },
+      {
+        title: "Personal data we collect",
+        body: "We may collect service-user names, addresses, telephone numbers, email addresses, property details relevant to repair work, appointment dates and times, emergency contact details where provided, before-and-after photographs where necessary, and staff or contractor employment and compliance records."
+      },
+      {
+        title: "Sensitive and access information",
+        body: "Where necessary to complete work safely, we may process limited information about disability, medical conditions, vulnerability, access requirements, safeguarding requirements or keysafe instructions. This information is limited to what is required for safe coordination and protected from unnecessary disclosure."
+      },
+      {
+        title: "How we use personal data",
+        body: "Personal data is used to arrange appointments, coordinate repair and maintenance work, communicate with authorised care organisations, landlords, housing providers, contractors and contacts, support safe working practices, meet legal or contractual obligations, respond to complaints or queries, and protect the safety and welfare of customers, service users and workers."
+      },
+      {
+        title: "Lawful basis for processing",
+        body: "TaskBridge processes personal data under one or more lawful bases, including performance of a contract, compliance with legal obligations, legitimate interests, consent where required, and protection of vital interests where necessary."
       },
       {
         title: "Protected resident identity",
@@ -642,48 +662,6 @@ export function GDPRShieldPolicy() {
       {
         title: "Role-based access",
         body: "Care coordinators can view their own organisation's service users, tasks and evidence. TaskBridge administrators can review assignment and compliance information required for safe operations. Super-admin access is restricted to privileged operational and governance functions."
-      },
-      {
-        title: "Visit evidence",
-        body: "GPS check-in data, before-and-after photos, completion notes and visit timestamps are used to evidence attendance and task completion. Access to this evidence is restricted to authorised users and retained only for operational, safeguarding, audit or dispute needs."
-      },
-      {
-        title: "Care-platform integrations",
-        body: "Inbound and outbound integrations use API keys, idempotency controls, retry logs and audit records. Completion callbacks should contain the minimum operational information needed to update the originating care record."
-      },
-      {
-        title: "Data rights and contact",
-        body: "Care organisations, handymen and relevant data subjects may raise privacy questions through privacy@growingfig.com. Production deployment should be supported by a Data Processing Agreement, retention schedule and solicitor-reviewed privacy notice."
-      }
-    ]}
-  />;
-}
-
-export function DataProtectionPolicy() {
-  return <PolicyPage
-    eyebrow="Privacy and data protection"
-    title="Data Protection Policy"
-    intro="TaskBridge by Growing Fig is committed to protecting personal data and privacy, particularly for vulnerable individuals whose homes may be visited for approved repair, maintenance and home-safety work. Compliance with the UK GDPR and Data Protection Act 2018 is central to how the service operates."
-    sections={[
-      {
-        title: "Scope",
-        body: "This policy applies to employees, subcontractors, temporary workers, approved handymen, administrators and anyone working on behalf of TaskBridge by Growing Fig."
-      },
-      {
-        title: "Personal data we collect",
-        body: "We may collect customer or service-user names, addresses, telephone numbers, email addresses, property details relevant to repair work, appointment dates and times, emergency contact details where provided, before-and-after photographs where necessary, and staff or contractor employment and compliance records."
-      },
-      {
-        title: "Sensitive and access information",
-        body: "Where necessary to complete work safely, we may process limited information about disabilities, medical conditions, vulnerability, access requirements, safeguarding requirements or keysafe instructions. This information must be limited to what is required for safe coordination and must be protected from unnecessary disclosure."
-      },
-      {
-        title: "How we use personal data",
-        body: "Personal data is used to arrange appointments, coordinate repair and maintenance work, communicate with care organisations, landlords, housing providers, contractors and authorised contacts, support safe working practices, meet legal or contractual obligations, respond to complaints or queries, and protect the safety and welfare of customers, service users and workers."
-      },
-      {
-        title: "Lawful basis for processing",
-        body: "TaskBridge processes personal data under one or more lawful bases, including performance of a contract, compliance with legal obligations, legitimate interests, consent where required, and protection of vital interests where necessary."
       },
       {
         title: "Working in homes",
@@ -696,6 +674,10 @@ export function DataProtectionPolicy() {
       {
         title: "Data security",
         body: "Electronic records are stored using protected systems, access is restricted to authorised users, paper records must be held securely where used, confidential documents must be disposed of securely, and company devices must be protected against unauthorised access."
+      },
+      {
+        title: "Visit evidence and integrations",
+        body: "GPS check-in data, before-and-after photos, completion notes and visit timestamps are used to evidence attendance and task completion. Care-platform integrations use API keys, idempotency controls, retry logs and audit records, and callbacks should contain only the minimum information needed to update the originating care record."
       },
       {
         title: "Information sharing",
@@ -712,6 +694,10 @@ export function DataProtectionPolicy() {
       {
         title: "Breaches, training and review",
         body: "Any loss, theft, unauthorised disclosure or suspected personal-data breach must be reported immediately to management. Staff must complete GDPR and confidentiality training, keep passwords secure, protect customer information on site and report suspected breaches or safeguarding concerns. This policy is reviewed annually or sooner if legislation or operations change."
+      },
+      {
+        title: "Data rights and contact",
+        body: "Care organisations, handymen and relevant data subjects may raise privacy questions through privacy@growingfig.com. Production deployment should be supported by a Data Processing Agreement, retention schedule and solicitor-reviewed privacy notice."
       }
     ]}
   />;
@@ -910,8 +896,7 @@ function Footer() {
       <nav aria-label="Security and legal">
         <a href="/how-it-works#security">Security standards</a>
         <a href="/safeguarding-policy">Safeguarding policy</a>
-        <a href="/data-protection-policy">Data protection policy</a>
-        <a href="/gdpr-shield-policy">GDPR shield policy</a>
+        <a href="/gdpr-policy">GDPR policy</a>
         <a href="/cookie-policy">Cookie policy</a>
         <a href="/safeguarding-sla">Safeguarding SLA</a>
       </nav>
