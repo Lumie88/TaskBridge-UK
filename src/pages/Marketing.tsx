@@ -559,11 +559,11 @@ export function JoinHandymanPage() {
   </div>;
 }
 
-export function AdultSafeguardingPolicy() {
+export function SafeguardingPolicy() {
   return <PolicyPage
     eyebrow="Safeguarding"
     title="Safeguarding Policy"
-    intro="TaskBridge by Growing Fig is committed to safeguarding and promoting the welfare, dignity, rights and wellbeing of adults at risk when practical home-safety work is coordinated on behalf of care providers."
+    intro="TaskBridge by Growing Fig is committed to safeguarding and promoting the welfare, dignity, rights and wellbeing of adults at risk when practical home-safety work is coordinated on behalf of care providers. This policy also sets the operational controls used for task review, escalation, secure visits and evidence handling."
     sections={[
       {
         title: "Policy statement",
@@ -586,6 +586,18 @@ export function AdultSafeguardingPolicy() {
         body: "A clear written task must be approved by the care provider before TaskBridge deploys a worker to a service user's property. Workers must only complete the authorised work and must not expand the visit into personal care, medical support or unrelated private arrangements."
       },
       {
+        title: "Care-team task review",
+        body: "Tasks must be reviewed and approved by the care organisation before TaskBridge releases them for assignment. AI-generated suggestions remain editable and must not replace professional judgement."
+      },
+      {
+        title: "Enhanced DBS and insurance controls",
+        body: "Vulnerable-adult work is assigned only to handymen who meet TaskBridge policy requirements, including active Enhanced DBS status where required, verified identity, verified insurance, service suitability and proximity checks."
+      },
+      {
+        title: "Operational response",
+        body: "New care-approved tasks should be reviewed by TaskBridge operations during business hours, with urgent safeguarding-sensitive items prioritised for same-day review where possible. Failed dispatches, missing compliance records and unclear task scope are held for admin decision."
+      },
+      {
         title: "Company responsibilities",
         body: "TaskBridge promotes safeguarding as everyone's responsibility. We provide safeguarding awareness, maintain appropriate checks where required, work cooperatively with partner care providers, protect confidential information and keep accurate records of safeguarding concerns, reports and actions taken."
       },
@@ -604,6 +616,14 @@ export function AdultSafeguardingPolicy() {
       {
         title: "Recording concerns",
         body: "Records should include the date, time, place, what was observed, who was present and the exact words used where possible. Workers must not investigate, question the service user extensively, promise confidentiality or confront any alleged perpetrator."
+      },
+      {
+        title: "Secure visit workflow",
+        body: "Handymen use a tokenised visit link for check-in, evidence upload and checkout. They must present identification to the resident or attending caregiver and must not request direct payment, personal contact details or unrelated work."
+      },
+      {
+        title: "Completion and payout hold",
+        body: "Tasks are not treated as fully complete until visit evidence is submitted and the care team confirms the outcome. Payment and payout records may remain on hold where evidence, complaints, disputes or safeguarding concerns require review."
       },
       {
         title: "Partnership working",
@@ -753,40 +773,6 @@ export function CookiePolicy() {
   />;
 }
 
-export function SafeguardingSLA() {
-  return <PolicyPage
-    eyebrow="Operational safeguarding"
-    title="Safeguarding SLA"
-    intro="TaskBridge operates as a safeguarded coordination layer for practical home-safety tasks. This SLA sets expectations for review, escalation, visit controls and evidence handling during pilot operations."
-    sections={[
-      {
-        title: "Care-team approval",
-        body: "Tasks must be reviewed and approved by the care organisation before TaskBridge releases them for assignment. AI-generated suggestions remain editable and must not replace professional judgement."
-      },
-      {
-        title: "Enhanced DBS and insurance controls",
-        body: "Vulnerable-adult work is assigned only to handymen who meet TaskBridge policy requirements, including active Enhanced DBS status where required, verified identity, verified insurance, service suitability and proximity checks."
-      },
-      {
-        title: "Target operational response",
-        body: "New care-approved tasks should be reviewed by TaskBridge operations during business hours, with urgent safeguarding-sensitive items prioritised for same-day review where possible. Failed dispatches, missing compliance records and unclear task scope are held for admin decision."
-      },
-      {
-        title: "Secure visit workflow",
-        body: "Handymen use a tokenised visit link for check-in, evidence upload and checkout. They must present identification to the resident or attending caregiver and must not request direct payment, personal contact details or unrelated work."
-      },
-      {
-        title: "Incident escalation",
-        body: "Safeguarding concerns, property damage, poor workmanship, failed attendance or data concerns are escalated to TaskBridge administration. Serious safeguarding concerns should also be escalated through the care agency's safeguarding route without delay."
-      },
-      {
-        title: "Completion and payout hold",
-        body: "Tasks are not treated as fully complete until visit evidence is submitted and the care team confirms the outcome. Payment and payout records may remain on hold where evidence, complaints, disputes or safeguarding concerns require review."
-      }
-    ]}
-  />;
-}
-
 function PolicyPage({ eyebrow, title, intro, sections }: {
   eyebrow: string;
   title: string;
@@ -898,7 +884,6 @@ function Footer() {
         <a href="/safeguarding-policy">Safeguarding policy</a>
         <a href="/gdpr-policy">GDPR policy</a>
         <a href="/cookie-policy">Cookie policy</a>
-        <a href="/safeguarding-sla">Safeguarding SLA</a>
       </nav>
     </div>
   </footer>;
