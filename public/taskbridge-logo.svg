@@ -1,11 +1,25 @@
-<svg width="236" height="56" viewBox="0 0 236 56" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">TaskBridge logo</title>
-  <desc id="desc">TaskBridge wordmark with a home and bridge symbol.</desc>
-  <rect width="56" height="56" rx="16" fill="#DFF5E8"/>
-  <path d="M14 34C19 25 24 21 28 21C32 21 37 25 42 34" stroke="#102027" stroke-width="4" stroke-linecap="round"/>
-  <path d="M18 32H46" stroke="#2563EB" stroke-width="4" stroke-linecap="round"/>
-  <path d="M21 29V41H36V29" stroke="#102027" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M18 29L28 20L38 29" stroke="#102027" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="70" y="36" fill="#102027" font-family="Inter, Arial, sans-serif" font-size="25" font-weight="800" letter-spacing="0">Task</text>
-  <text x="126" y="36" fill="#2563EB" font-family="Inter, Arial, sans-serif" font-size="25" font-weight="800" letter-spacing="0">Bridge</text>
+<svg width="310" height="82" viewBox="0 0 310 82" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">TaskBridge by Growing Fig logo</title>
+  <desc id="desc">TaskBridge wordmark with a shield and bridge mark.</desc>
+  <defs>
+    <linearGradient id="taskbridgeMark" x1="6" y1="8" x2="66" y2="68" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF315F"/>
+      <stop offset="1" stop-color="#FF9B22"/>
+    </linearGradient>
+    <linearGradient id="bridgeText" x1="144" y1="20" x2="248" y2="52" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F43F5E"/>
+      <stop offset="1" stop-color="#EA580C"/>
+    </linearGradient>
+  </defs>
+  <g>
+    <rect x="8" y="8" width="58" height="58" rx="16" fill="url(#taskbridgeMark)"/>
+    <path d="M37 17.5 51.5 23v11.8c0 10.1-6 18-14.5 22.7-8.5-4.7-14.5-12.6-14.5-22.7V23L37 17.5Z" stroke="white" stroke-width="3.4" stroke-linejoin="round"/>
+    <path d="M27.5 41.3c3.3-5 15.7-5 19 0" stroke="white" stroke-width="3.4" stroke-linecap="round"/>
+    <path d="M29.5 46h15" stroke="white" stroke-width="3.4" stroke-linecap="round"/>
+    <path d="m32.5 34 3.2 3.1 7-8" stroke="white" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="65" cy="65" r="7" fill="#22C55E" stroke="white" stroke-width="3"/>
+  </g>
+  <text x="82" y="43" fill="#0F172A" font-family="Outfit, Inter, Arial, sans-serif" font-size="31" font-weight="850" letter-spacing="-0.5">Task</text>
+  <text x="148" y="43" fill="url(#bridgeText)" font-family="Outfit, Inter, Arial, sans-serif" font-size="31" font-weight="850" letter-spacing="-0.5">Bridge</text>
+  <text x="84" y="61" fill="#94A3B8" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="800" letter-spacing="1.9">BY GROWING FIG</text>
 </svg>
