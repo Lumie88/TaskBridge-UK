@@ -653,7 +653,65 @@ export function GDPRShieldPolicy() {
       },
       {
         title: "Data rights and contact",
-        body: "Care organisations, handymen and relevant data subjects may raise privacy questions through privacy@taskbridge.tech. Production deployment should be supported by a Data Processing Agreement, retention schedule and solicitor-reviewed privacy notice."
+        body: "Care organisations, handymen and relevant data subjects may raise privacy questions through privacy@growingfig.com. Production deployment should be supported by a Data Processing Agreement, retention schedule and solicitor-reviewed privacy notice."
+      }
+    ]}
+  />;
+}
+
+export function DataProtectionPolicy() {
+  return <PolicyPage
+    eyebrow="Privacy and data protection"
+    title="Data Protection Policy"
+    intro="TaskBridge by Growing Fig is committed to protecting personal data and privacy, particularly for vulnerable individuals whose homes may be visited for approved repair, maintenance and home-safety work. Compliance with the UK GDPR and Data Protection Act 2018 is central to how the service operates."
+    sections={[
+      {
+        title: "Scope",
+        body: "This policy applies to employees, subcontractors, temporary workers, approved handymen, administrators and anyone working on behalf of TaskBridge by Growing Fig."
+      },
+      {
+        title: "Personal data we collect",
+        body: "We may collect customer or service-user names, addresses, telephone numbers, email addresses, property details relevant to repair work, appointment dates and times, emergency contact details where provided, before-and-after photographs where necessary, and staff or contractor employment and compliance records."
+      },
+      {
+        title: "Sensitive and access information",
+        body: "Where necessary to complete work safely, we may process limited information about disabilities, medical conditions, vulnerability, access requirements, safeguarding requirements or keysafe instructions. This information must be limited to what is required for safe coordination and must be protected from unnecessary disclosure."
+      },
+      {
+        title: "How we use personal data",
+        body: "Personal data is used to arrange appointments, coordinate repair and maintenance work, communicate with care organisations, landlords, housing providers, contractors and authorised contacts, support safe working practices, meet legal or contractual obligations, respond to complaints or queries, and protect the safety and welfare of customers, service users and workers."
+      },
+      {
+        title: "Lawful basis for processing",
+        body: "TaskBridge processes personal data under one or more lawful bases, including performance of a contract, compliance with legal obligations, legitimate interests, consent where required, and protection of vital interests where necessary."
+      },
+      {
+        title: "Working in homes",
+        body: "Workers must respect privacy and dignity, access only areas needed to complete authorised work, avoid handling personal belongings unless required and authorised, avoid discussing personal information outside work, report safeguarding concerns immediately, and avoid taking photographs that include personal possessions unless essential for recording the repair or safety issue."
+      },
+      {
+        title: "Confidentiality",
+        body: "Personal information must only be shared with authorised colleagues, care organisations, housing providers, contractors, safeguarding authorities or other organisations where necessary to provide services, meet legal obligations or protect welfare."
+      },
+      {
+        title: "Data security",
+        body: "Electronic records are stored using protected systems, access is restricted to authorised users, paper records must be held securely where used, confidential documents must be disposed of securely, and company devices must be protected against unauthorised access."
+      },
+      {
+        title: "Information sharing",
+        body: "Information is shared only where necessary to complete contracted work, comply with law, support safeguarding procedures or protect individuals. Only the minimum information necessary should be disclosed."
+      },
+      {
+        title: "Retention",
+        body: "Personal information is kept only for as long as necessary to meet legal, contractual, safeguarding, audit and business requirements. Records are then securely deleted or destroyed in line with the retention schedule."
+      },
+      {
+        title: "Individual rights",
+        body: "Individuals have rights to be informed, access their personal information, request correction, request deletion where applicable, restrict or object to certain processing, and complain to the Information Commissioner's Office if they believe their data has been handled improperly."
+      },
+      {
+        title: "Breaches, training and review",
+        body: "Any loss, theft, unauthorised disclosure or suspected personal-data breach must be reported immediately to management. Staff must complete GDPR and confidentiality training, keep passwords secure, protect customer information on site and report suspected breaches or safeguarding concerns. This policy is reviewed annually or sooner if legislation or operations change."
       }
     ]}
   />;
@@ -767,7 +825,7 @@ function PolicyPage({ eyebrow, title, intro, sections }: {
       </section>
       <section className="site-width policy-contact">
         <div><h2>Need the formal pack?</h2><p>For agency onboarding, request the full privacy, safeguarding, DPA and operational policy pack from TaskBridge.</p></div>
-        <a className="button button-primary" href="mailto:privacy@taskbridge.tech">Contact privacy team <ArrowRight size={17} /></a>
+        <a className="button button-primary" href="mailto:privacy@growingfig.com">Contact privacy team <ArrowRight size={17} /></a>
       </section>
     </main>
     <Footer />
@@ -852,6 +910,7 @@ function Footer() {
       <nav aria-label="Security and legal">
         <a href="/how-it-works#security">Security standards</a>
         <a href="/safeguarding-policy">Safeguarding policy</a>
+        <a href="/data-protection-policy">Data protection policy</a>
         <a href="/gdpr-shield-policy">GDPR shield policy</a>
         <a href="/cookie-policy">Cookie policy</a>
         <a href="/safeguarding-sla">Safeguarding SLA</a>
