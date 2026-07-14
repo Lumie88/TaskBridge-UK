@@ -41,6 +41,33 @@ const services = [
   { title: "Tackle neglected outdoor risks", detail: "Lawn care, garden paths, window access and visible home hazards." }
 ];
 
+const storyMoments = [
+  {
+    icon: MessageSquareText,
+    label: "Care note",
+    title: "A risk is spotted",
+    detail: "A carer records a practical concern in familiar language."
+  },
+  {
+    icon: ShieldAlert,
+    label: "Home hazard",
+    title: "TaskBridge separates the risk",
+    detail: "The note becomes one or more clear home-safety tasks."
+  },
+  {
+    icon: ShieldCheck,
+    label: "Vetted visit",
+    title: "Safeguards shape the assignment",
+    detail: "Only suitable operatives and visit windows move forward."
+  },
+  {
+    icon: Camera,
+    label: "Evidence returned",
+    title: "The care team sees the outcome",
+    detail: "Photos, timestamps and completion notes support review."
+  }
+];
+
 const handymanServices = [
   "Minor repairs",
   "Grab rail fitting",
@@ -127,6 +154,21 @@ export function MarketingHome() {
             <p>TaskBridge helps care teams act on everyday hazards before they become serious incidents. One note can contain several needs; each is identified, checked and followed through as its own task.</p>
             <a className="inline-link" href="/how-it-works">Explore the full process <ArrowRight size={17} /></a>
           </div>
+        </section>
+
+        <section className="site-width premium-story-band" aria-label="TaskBridge visual story">
+          {storyMoments.map((moment, index) => {
+            const Icon = moment.icon;
+            return (
+              <article key={moment.label}>
+                <span className="premium-story-number">{String(index + 1).padStart(2, "0")}</span>
+                <div className="premium-story-icon"><Icon size={20} /></div>
+                <small>{moment.label}</small>
+                <h3>{moment.title}</h3>
+                <p>{moment.detail}</p>
+              </article>
+            );
+          })}
         </section>
 
         <CoordinatorDemoVideo />
@@ -889,6 +931,12 @@ function Footer() {
           <address>Growing Fig,<br />Brightfield Business Hub,<br />Bakewell Road,<br />Orton Southgate,<br />Peterborough, PE2 6XU</address>
         </div>
       </section>
+    </div>
+
+    <div className="site-width footer-premium-strip" aria-label="TaskBridge assurances">
+      <span><ShieldCheck size={18} /> Safeguarding-led release controls</span>
+      <span><LockKeyhole size={18} /> Resident identity data shielded</span>
+      <span><FileCheck2 size={18} /> Evidence-led completion record</span>
     </div>
 
     <div className="site-width footer-bottom">
