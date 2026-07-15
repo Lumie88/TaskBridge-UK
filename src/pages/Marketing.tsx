@@ -919,9 +919,9 @@ function Footer() {
 
       <section className="footer-contact" aria-label="Inquiries and support">
         <h2>Inquiries &amp; support</h2>
-        <a className="footer-contact-row" href="tel:+442080501234">
+        <a className="footer-contact-row" href="tel:+447760861579">
           <Phone size={19} />
-          <span><strong>+44 (0) 20 8050 1234</strong><small>Mon - Fri: 8:00 AM - 6:00 PM GMT</small></span>
+          <span><strong>+44 7760 861579</strong><small>Mon - Fri: 8:00 AM - 6:00 PM GMT</small></span>
         </a>
         <a className="footer-contact-row" href="mailto:integrations@growingfig.com">
           <Mail size={19} /><span><strong>integrations@growingfig.com</strong></span>
