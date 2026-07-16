@@ -11,10 +11,12 @@ import {
   ClipboardList,
   Clock3,
   Command,
+  CreditCard,
   Eye,
   EyeOff,
   FileText,
   KeyRound,
+  Landmark,
   LayoutDashboard,
   LoaderCircle,
   MapPin,
@@ -39,7 +41,7 @@ import {
 } from "lucide-react";
 import { api, formatDate, humanize } from "../api";
 import { EmptyState, PortalShell, StatusBadge } from "../components";
-import type { CoordinatorTask, TaskSuggestion, User } from "../types";
+import type { CoordinatorTask, PaymentRoute, TaskSuggestion, User } from "../types";
 
 interface DashboardData {
   agencyName: string;
@@ -447,6 +449,9 @@ function TaskIntake({ serviceUsers, onCreated }: { serviceUsers: ServiceUser[]; 
   const [keysafeInfo, setKeysafeInfo] = useState("");
   const [warnings, setWarnings] = useState<string[]>([]);
   const [review, setReview] = useState({ fullName: "", address: "", town: "", county: "", postcode: "" });
+  const [paymentRoute, setPaymentRoute] = useState<PaymentRoute>("agency");
+  const [familyPayer, setFamilyPayer] = useState({ name: "", email: "", phone: "" });
+  const [funding, setFunding] = useState({ reference: "", notes: "" });
   const [planning, setPlanning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -481,6 +486,12 @@ function TaskIntake({ serviceUsers, onCreated }: { serviceUsers: ServiceUser[]; 
     setSaving(true);
     setError("");
     try {
+      if (paymentRoute === "family_representative" && (!familyPayer.name.trim() || !familyPayer.email.trim())) {
+        throw new Error("Add the family or representative payer name and email before approving.");
+      }
+      if (paymentRoute === "council_personal_budget" && !funding.reference.trim()) {
+        throw new Error("Add the council, personal budget or funding reference before approving.");
+      }
       await api("/api/coordinator/tasks", {
         method: "POST",
         body: JSON.stringify({
@@ -491,6 +502,11 @@ function TaskIntake({ serviceUsers, onCreated }: { serviceUsers: ServiceUser[]; 
           carerOnSite,
           preferredWindowStart: start ? new Date(start).toISOString() : null,
           preferredWindowEnd: end ? new Date(end).toISOString() : null,
+          paymentRoute: paymentRoute === "agency"
+            ? { route: "agency" }
+            : paymentRoute === "family_representative"
+              ? { route: "family_representative", payerName: familyPayer.name, payerEmail: familyPayer.email, payerPhone: familyPayer.phone || null }
+              : { route: "council_personal_budget", fundingReference: funding.reference, fundingNotes: funding.notes || null },
           suggestions: suggestions.map(({ category, summary, urgency }) => ({ category, summary, urgency }))
         })
       });
@@ -523,6 +539,17 @@ function TaskIntake({ serviceUsers, onCreated }: { serviceUsers: ServiceUser[]; 
         {vulnerable && <div className="safeguard-note"><ShieldCheck size={20} /><div><strong>Safeguarding controls apply</strong><span>Enhanced DBS and verified insurance are mandatory for assignment.</span></div></div>}
         {warnings.length > 0 && <div className="warning-list">{warnings.map((warning) => <p key={warning}><ShieldAlert size={16} /> {warning}</p>)}</div>}
         <section className="review-fields"><h3>Service-user and visit details</h3><div className="field-row"><label>Service-user name<input value={review.fullName} onChange={(event) => updateReview("fullName", event.target.value)} /></label><label>Postcode<input value={review.postcode} onChange={(event) => updateReview("postcode", event.target.value.toUpperCase())} /></label></div><label>Full street address<textarea rows={2} value={review.address} onChange={(event) => updateReview("address", event.target.value)} /></label><div className="field-row"><label>Town<input value={review.town} onChange={(event) => updateReview("town", event.target.value)} /></label><label>County<input value={review.county} onChange={(event) => updateReview("county", event.target.value)} /></label></div><div className="field-row"><label>Visit window start<input type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} /></label><label>Visit window end<input type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} /></label></div><label>Extracted keysafe information<div className="input-with-icon"><KeyRound size={16} /><input value={keysafeInfo} onChange={(event) => setKeysafeInfo(event.target.value)} placeholder="No keysafe code identified" /></div><small className="field-hint">Encrypted separately and visible only to authorised care users.</small></label></section>
+        <section className="payment-route-panel">
+          <h3>Payment route</h3>
+          <p>Choose how this work should be funded before TaskBridge releases it for assignment.</p>
+          <div className="payment-route-options">
+            <button type="button" className={paymentRoute === "agency" ? "active" : ""} onClick={() => setPaymentRoute("agency")}><FileText size={17} /><span><strong>Agency pays</strong><small>Included in agency invoice controls.</small></span></button>
+            <button type="button" className={paymentRoute === "family_representative" ? "active" : ""} onClick={() => setPaymentRoute("family_representative")}><CreditCard size={17} /><span><strong>Family or representative pays</strong><small>Admin clears payment before dispatch.</small></span></button>
+            <button type="button" className={paymentRoute === "council_personal_budget" ? "active" : ""} onClick={() => setPaymentRoute("council_personal_budget")}><Landmark size={17} /><span><strong>Council / funded support</strong><small>Funding approval is checked first.</small></span></button>
+          </div>
+          {paymentRoute === "family_representative" && <div className="payment-detail-grid"><label>Payer name<input value={familyPayer.name} onChange={(event) => setFamilyPayer((current) => ({ ...current, name: event.target.value }))} placeholder="Family member or representative" /></label><label>Payer email<input type="email" value={familyPayer.email} onChange={(event) => setFamilyPayer((current) => ({ ...current, email: event.target.value }))} placeholder="name@example.com" /></label><label>Payer phone<input value={familyPayer.phone} onChange={(event) => setFamilyPayer((current) => ({ ...current, phone: event.target.value }))} placeholder="+44..." /></label></div>}
+          {paymentRoute === "council_personal_budget" && <div className="payment-detail-grid"><label>Funding reference<input value={funding.reference} onChange={(event) => setFunding((current) => ({ ...current, reference: event.target.value }))} placeholder="Council PO, direct payment or personal budget ref" /></label><label>Funding notes<textarea rows={2} value={funding.notes} onChange={(event) => setFunding((current) => ({ ...current, notes: event.target.value }))} placeholder="Any funding authorisation note" /></label></div>}
+        </section>
         <div className="suggestion-list">{suggestions.map((suggestion, index) => <article className="suggestion-card" key={`${suggestion.category}-${index}`}>
           <div className="suggestion-top"><span>Task {index + 1}</span><button className="icon-button" type="button" onClick={() => setSuggestions(suggestions.filter((_, itemIndex) => itemIndex !== index))} aria-label="Remove suggestion"><Trash2 size={17} /></button></div>
           <label>Suggested category<input value={suggestion.category} onChange={(event) => setSuggestions(suggestions.map((item, itemIndex) => itemIndex === index ? { ...item, category: event.target.value } : item))} /></label>
@@ -918,6 +945,7 @@ function TaskDetailsDrawer({ task, detail, loading, onClose, onChanged }: { task
   return <div className="drawer-backdrop" onMouseDown={onClose}><aside className="side-drawer task-detail-drawer" onMouseDown={(event) => event.stopPropagation()} aria-label={`Task details for ${task.id}`}><header><div><span className="eyebrow">{task.id}</span><h2>{task.category}</h2></div><button className="icon-button" onClick={onClose} aria-label="Close task details"><X size={20} /></button></header><div className="drawer-scroll">
     <div className="drawer-task-heading"><span className="resident-avatar">{task.resident.initials}</span><div><strong>{task.resident.displayName}</strong><p>{task.summary}</p></div><StatusBadge status={task.status}>{humanize(task.status)}</StatusBadge></div>
     {task.ringFenceRequired && <div className="safeguard-note"><ShieldCheck size={20} /><div><strong>Ring-Fence Enforced</strong><span>Enhanced DBS and verified insurance controls apply.</span></div></div>}
+    <section className="drawer-section payment-summary"><h3><CreditCard size={17} /> Payment route</h3><p><strong>{paymentRouteLabel(task.payment.route)}</strong><br />{humanize(task.payment.status)}</p>{task.payment.payerName && <span className="geo-tag">{task.payment.payerName}{task.payment.payerEmail ? ` / ${task.payment.payerEmail}` : ""}</span>}{task.payment.fundingReference && <span className="geo-tag">{task.payment.fundingReference}</span>}</section>
     {loading ? <Loading /> : detail && <>
       <section className="drawer-section"><h3><MapPin size={17} /> Service-user location</h3><p>{formatDetailedAddress(detail.serviceUserAddress)}</p><span className="geo-tag"><Navigation size={14} /> {detail.location.latitude === null ? "Geolocation not yet recorded" : `${detail.location.latitude.toFixed(5)}, ${detail.location.longitude?.toFixed(5)}`}</span></section>
       <section className="drawer-section secure-keysafe"><h3><KeyRound size={17} /> Secure keysafe record</h3>{detail.keysafePasscode ? <div><code>{showKeysafe ? detail.keysafePasscode : "••••••"}</code><button className="icon-button" onClick={() => setShowKeysafe(!showKeysafe)} aria-label={showKeysafe ? "Hide keysafe code" : "Reveal keysafe code"}>{showKeysafe ? <EyeOff size={18} /> : <Eye size={18} />}</button></div> : <p>No keysafe information was recorded for this task.</p>}</section>
@@ -981,6 +1009,12 @@ function formatAddress(serviceUser: ServiceUser) {
 
 function formatDetailedAddress(address: TaskDetail["serviceUserAddress"]) {
   return [address.address, address.town, address.county, address.postcode].filter(Boolean).join(", ");
+}
+
+function paymentRouteLabel(route: PaymentRoute) {
+  if (route === "family_representative") return "Family or representative pays";
+  if (route === "council_personal_budget") return "Council / personal budget / funded support";
+  return "Agency pays";
 }
 
 function Loading() {

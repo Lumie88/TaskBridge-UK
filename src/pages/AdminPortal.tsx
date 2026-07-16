@@ -7,10 +7,12 @@ import {
   CircleAlert,
   ClipboardCheck,
   Copy,
+  CreditCard,
   ExternalLink,
   FileCheck2,
   FileWarning,
   KeyRound,
+  Landmark,
   LoaderCircle,
   Mail,
   MapPin,
@@ -288,6 +290,22 @@ function taskMatchesAdminFilter(task: AdminTask, filter: string) {
   return true;
 }
 
+function paymentRouteLabel(route: AdminTask["payment"]["route"]) {
+  if (route === "family_representative") return "Family or representative pays";
+  if (route === "council_personal_budget") return "Council / personal budget / funded support";
+  return "Agency pays";
+}
+
+function paymentRouteDetail(task: AdminTask) {
+  if (task.payment.route === "family_representative") {
+    return [task.payment.payerName, task.payment.payerEmail, task.payment.payerPhone].filter(Boolean).join(" / ") || "Payment details are awaiting completion.";
+  }
+  if (task.payment.route === "council_personal_budget") {
+    return [task.payment.fundingReference, task.payment.fundingNotes].filter(Boolean).join(" / ") || "Funding details are awaiting completion.";
+  }
+  return "This work will be included in the care-agency invoice process.";
+}
+
 function AssignmentDesk({ tasks, filter, onFilter, selectedTask, onSelect, onChanged }: {
   tasks: AdminTask[];
   filter: string;
@@ -318,6 +336,7 @@ function AdminTaskRow({ task, action, selected = false, onSelect }: { task: Admi
   return <article className={`admin-task-row ${selected ? "selected" : ""} ${onSelect ? "interactive" : ""}`} onClick={onSelect}>
     <span className="resident-avatar">{task.residentInitials}</span>
     <div><div className="task-title-line"><h3>{task.category}</h3>{task.ringFenceRequired && <span className="ring-badge"><ShieldCheck size={13} /> Ring-Fence</span>}</div><p>{task.summary}</p><small>{task.agencyName} · {task.id} · {formatDate(task.createdAt, true)}</small></div>
+    <span className={`payment-pill payment-${task.payment.status}`}>{paymentRouteLabel(task.payment.route)} / {humanize(task.payment.status)}</span>
     <StatusBadge status={task.status}>{humanize(task.status)}</StatusBadge>{action}
   </article>;
 }
@@ -327,6 +346,7 @@ function CandidatePanel({ task, onChanged }: { task: AdminTask | null; onChanged
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [dispatching, setDispatching] = useState("");
+  const [paymentBusy, setPaymentBusy] = useState("");
   const [visitUrl, setVisitUrl] = useState("");
 
   useEffect(() => {
@@ -348,9 +368,26 @@ function CandidatePanel({ task, onChanged }: { task: AdminTask | null; onChanged
     finally { setDispatching(""); }
   }
 
+  async function markPayment(paymentStatus: "family_paid" | "funding_approved" | "payment_waived") {
+    if (!task) return;
+    setPaymentBusy(paymentStatus); setError("");
+    try {
+      await api(`/api/admin/tasks/${task.id}/payment-status`, { method: "POST", body: JSON.stringify({ paymentStatus }) });
+      await onChanged();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to update payment status"); }
+    finally { setPaymentBusy(""); }
+  }
+
   return <aside className="candidate-panel">
     {!task ? <EmptyState icon={<UsersRound />} title="Select a task" detail="Choose a task to run the safeguarding and suitability checks." /> : <>
       <div className="candidate-heading"><div><span className="eyebrow">Candidate decision</span><h2>{task.category}</h2><p>{task.agencyName} · Resident {task.residentInitials}</p></div>{task.vulnerableAdult && <ShieldCheck size={26} />}</div>
+      <div className="payment-clearance-card">
+        <span>{task.payment.route === "council_personal_budget" ? <Landmark size={18} /> : <CreditCard size={18} />}</span>
+        <div><strong>{paymentRouteLabel(task.payment.route)}</strong><p>{paymentRouteDetail(task)}</p><StatusBadge status={task.payment.status}>{humanize(task.payment.status)}</StatusBadge></div>
+        {task.payment.status === "awaiting_family_payment" && <button className="button button-secondary button-small" disabled={Boolean(paymentBusy)} onClick={() => markPayment("family_paid")}>{paymentBusy ? "Saving..." : "Mark paid"}</button>}
+        {task.payment.status === "funding_pending" && <button className="button button-secondary button-small" disabled={Boolean(paymentBusy)} onClick={() => markPayment("funding_approved")}>{paymentBusy ? "Saving..." : "Approve funding"}</button>}
+        {["awaiting_family_payment", "funding_pending"].includes(task.payment.status) && <button className="button button-secondary button-small document-reject" disabled={Boolean(paymentBusy)} onClick={() => markPayment("payment_waived")}>Waive hold</button>}
+      </div>
       {error && <p className="form-error">{error}</p>}
       {visitUrl && <div className="alert alert-success"><span>Dispatch complete. The secure link is shown once.</span><a href={visitUrl} target="_blank" rel="noreferrer">Open visit link <ExternalLink size={15} /></a></div>}
       {loading ? <div className="app-loading"><LoaderCircle className="spin" /> Evaluating eligibility...</div> : <div className="candidate-list">{candidates.map((candidate) => <article key={candidate.id} className={`candidate ${candidate.eligible ? "eligible" : "ineligible"}`}>

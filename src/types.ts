@@ -15,6 +15,18 @@ export interface TaskSuggestion {
   safeguardingApplies?: boolean;
 }
 
+export type PaymentRoute = "agency" | "family_representative" | "council_personal_budget";
+
+export interface TaskPayment {
+  route: PaymentRoute;
+  status: "agency_invoice" | "awaiting_family_payment" | "family_paid" | "funding_pending" | "funding_approved" | "payment_waived";
+  payerName: string | null;
+  payerEmail: string | null;
+  payerPhone: string | null;
+  fundingReference: string | null;
+  fundingNotes: string | null;
+}
+
 export interface CoordinatorTask {
   id: string;
   resident: { displayName: string; initials: string };
@@ -27,6 +39,7 @@ export interface CoordinatorTask {
   ringFenceRequired: boolean;
   carerOnSite: boolean;
   preferredWindow: { start: string | null; end: string | null };
+  payment: TaskPayment;
   createdAt: string;
   assignedHandyman: null | {
     displayName: string;
@@ -47,6 +60,7 @@ export interface AdminTask {
   summary: string;
   vulnerableAdult: boolean;
   ringFenceRequired: boolean;
+  payment: TaskPayment;
   assignedHandyman: string | null;
   createdAt: string;
 }

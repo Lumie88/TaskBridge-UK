@@ -44,6 +44,13 @@ interface CoordinatorTaskRow {
   vulnerable_adult: boolean;
   ring_fence_required: boolean;
   carer_on_site: boolean;
+  payment_route: "agency" | "family_representative" | "council_personal_budget";
+  payment_status: "agency_invoice" | "awaiting_family_payment" | "family_paid" | "funding_pending" | "funding_approved" | "payment_waived";
+  payer_name: string | null;
+  payer_email: string | null;
+  payer_phone: string | null;
+  funding_reference: string | null;
+  funding_notes: string | null;
   preferred_window_start: string | null;
   preferred_window_end: string | null;
   created_at: string;
@@ -81,6 +88,23 @@ const serviceUserReviewSchema = z.object({
   postcode: z.string().trim().min(5).max(12)
 });
 
+const paymentRouteSchema = z.discriminatedUnion("route", [
+  z.object({
+    route: z.literal("agency")
+  }),
+  z.object({
+    route: z.literal("family_representative"),
+    payerName: z.string().trim().min(2).max(160),
+    payerEmail: z.string().trim().email().max(200),
+    payerPhone: z.string().trim().max(40).optional().nullable()
+  }),
+  z.object({
+    route: z.literal("council_personal_budget"),
+    fundingReference: z.string().trim().min(2).max(160),
+    fundingNotes: z.string().trim().max(2000).optional().nullable()
+  })
+]);
+
 const createTasksSchema = z.object({
   serviceUserId: z.string().uuid(),
   note: z.string().min(10).max(5000),
@@ -88,6 +112,7 @@ const createTasksSchema = z.object({
   preferredWindowEnd: z.string().datetime().optional().nullable(),
   carerOnSite: z.boolean().default(false),
   serviceUser: serviceUserReviewSchema,
+  paymentRoute: paymentRouteSchema.default({ route: "agency" }),
   keysafeInfo: z.string().trim().max(64).optional().nullable(),
   suggestions: z.array(z.object({
     category: z.string().min(2).max(120),
@@ -548,31 +573,39 @@ coordinatorRouter.post("/tasks", async (req, res) => {
       [req.auth!.agencyId, data.serviceUserId, req.auth!.userId, encryptField(data.note)]
     );
     const tasks: Array<{ id: string; publicId: string }> = [];
+    const paymentStatus = paymentStatusForRoute(data.paymentRoute.route);
     for (const suggestion of data.suggestions) {
       const taskPublicId = publicId("tsk");
       const taskResult = await client.query<{ id: string }>(
         `INSERT INTO ops.tasks
           (public_id, agency_id, service_user_id, care_note_id, created_by_user_id, category, urgency,
            status, summary, notes_ciphertext, preferred_window_start, preferred_window_end, carer_on_site,
-           vulnerable_adult, ring_fence_required, keysafe_ciphertext)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending_taskbridge_assignment', $8, $9, $10, $11, $12, $13, $13, $14)
+           vulnerable_adult, ring_fence_required, keysafe_ciphertext, payment_route, payment_status,
+           payer_name, payer_email, payer_phone, funding_reference, funding_notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending_taskbridge_assignment', $8, $9, $10, $11, $12, $13, $13, $14,
+                 $15, $16, $17, $18, $19, $20, $21)
          RETURNING id::text`,
         [taskPublicId, req.auth!.agencyId, data.serviceUserId, noteResult.rows[0].id, req.auth!.userId,
           suggestion.category, suggestion.urgency, suggestion.summary, encryptField(data.note),
           data.preferredWindowStart || null, data.preferredWindowEnd || null, data.carerOnSite, vulnerable,
-          data.keysafeInfo ? encryptField(data.keysafeInfo) : null]
+          data.keysafeInfo ? encryptField(data.keysafeInfo) : null, data.paymentRoute.route, paymentStatus,
+          data.paymentRoute.route === "family_representative" ? data.paymentRoute.payerName : null,
+          data.paymentRoute.route === "family_representative" ? data.paymentRoute.payerEmail : null,
+          data.paymentRoute.route === "family_representative" ? data.paymentRoute.payerPhone || null : null,
+          data.paymentRoute.route === "council_personal_budget" ? data.paymentRoute.fundingReference : null,
+          data.paymentRoute.route === "council_personal_budget" ? data.paymentRoute.fundingNotes || null : null]
       );
       await client.query(
         `INSERT INTO ops.task_status_events
-          (task_id, agency_id, previous_status, new_status, changed_by_user_id, reason)
-         VALUES ($1, $2, 'awaiting_care_approval', 'pending_taskbridge_assignment', $3, 'Approved by care team')`,
-        [taskResult.rows[0].id, req.auth!.agencyId, req.auth!.userId]
+          (task_id, agency_id, previous_status, new_status, changed_by_user_id, reason, metadata)
+         VALUES ($1, $2, 'awaiting_care_approval', 'pending_taskbridge_assignment', $3, 'Approved by care team', $4)`,
+        [taskResult.rows[0].id, req.auth!.agencyId, req.auth!.userId, { paymentRoute: data.paymentRoute.route, paymentStatus }]
       );
       tasks.push({ id: taskResult.rows[0].id, publicId: taskPublicId });
     }
     return tasks;
   });
-  await audit(req, "care.tasks.approved", "care_note", created[0]?.id || data.serviceUserId, { taskCount: created.length });
+  await audit(req, "care.tasks.approved", "care_note", created[0]?.id || data.serviceUserId, { taskCount: created.length, paymentRoute: data.paymentRoute.route });
   res.status(201).json({ tasks: created.map((task) => ({ id: task.publicId, status: "pending_taskbridge_assignment" })) });
 });
 
@@ -741,7 +774,9 @@ coordinatorRouter.post("/tasks/:publicId/reverse-assignment", asyncHandler(async
 function coordinatorTaskSql(suffix: string) {
   return `SELECT t.public_id, su.encrypted_name, t.category, t.urgency::text, t.status::text,
                  t.summary, t.notes_ciphertext, t.vulnerable_adult, t.ring_fence_required,
-                 t.carer_on_site, t.preferred_window_start::text, t.preferred_window_end::text,
+                 t.carer_on_site, t.payment_route, t.payment_status, t.payer_name,
+                 t.payer_email::text, t.payer_phone, t.funding_reference, t.funding_notes,
+                 t.preferred_window_start::text, t.preferred_window_end::text,
                  t.created_at::text, tr.display_name AS assigned_display_name, n.name AS assigned_network,
                  a.scheduled_start::text, a.scheduled_end::text, t.before_photo_url,
                  t.after_photo_url, v.completion_notes
@@ -774,6 +809,15 @@ function mapCoordinatorTask(row: CoordinatorTaskRow) {
     vulnerableAdult: row.vulnerable_adult,
     ringFenceRequired: row.ring_fence_required,
     carerOnSite: row.carer_on_site,
+    payment: {
+      route: row.payment_route,
+      status: row.payment_status,
+      payerName: row.payer_name,
+      payerEmail: row.payer_email,
+      payerPhone: row.payer_phone,
+      fundingReference: row.funding_reference,
+      fundingNotes: row.funding_notes
+    },
     preferredWindow: { start: row.preferred_window_start, end: row.preferred_window_end },
     createdAt: row.created_at,
     assignedHandyman: row.assigned_display_name ? {
@@ -788,6 +832,12 @@ function mapCoordinatorTask(row: CoordinatorTaskRow) {
       notes: row.completion_notes
     } : null
   };
+}
+
+function paymentStatusForRoute(route: CoordinatorTaskRow["payment_route"]) {
+  if (route === "family_representative") return "awaiting_family_payment";
+  if (route === "council_personal_budget") return "funding_pending";
+  return "agency_invoice";
 }
 
 function mapServiceUser(row: ServiceUserRow) {

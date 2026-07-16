@@ -25,6 +25,8 @@ interface CandidateTaskRow {
   radius_miles: string;
   preferred_window_start: string | null;
   preferred_window_end: string | null;
+  payment_route: "agency" | "family_representative" | "council_personal_budget";
+  payment_status: "agency_invoice" | "awaiting_family_payment" | "family_paid" | "funding_pending" | "funding_approved" | "payment_waived";
 }
 
 interface CandidateTraderRow {
@@ -114,6 +116,9 @@ const invoiceCreateSchema = z.object({
   dueDate: z.string().date().optional().nullable()
 });
 const invoiceStatusSchema = z.object({ status: z.enum(["issued", "paid", "void"]) });
+const paymentStatusSchema = z.object({
+  paymentStatus: z.enum(["family_paid", "funding_approved", "payment_waived"])
+});
 
 export const adminRouter = Router();
 adminRouter.use(requireRoles("taskbridge_admin", "taskbridge_super_admin"));
@@ -225,10 +230,16 @@ adminRouter.get("/tasks", async (_req, res) => {
   const result = await query<{
     public_id: string; agency_name: string; encrypted_name: string; category: string; urgency: string;
     status: string; summary: string; vulnerable_adult: boolean; ring_fence_required: boolean; created_at: string;
+    payment_route: "agency" | "family_representative" | "council_personal_budget";
+    payment_status: "agency_invoice" | "awaiting_family_payment" | "family_paid" | "funding_pending" | "funding_approved" | "payment_waived";
+    payer_name: string | null; payer_email: string | null; payer_phone: string | null;
+    funding_reference: string | null; funding_notes: string | null;
     assigned_display_name: string | null;
   }>(
     `SELECT t.public_id, ag.name AS agency_name, su.encrypted_name, t.category, t.urgency::text,
             t.status::text, t.summary, t.vulnerable_adult, t.ring_fence_required, t.created_at::text,
+            t.payment_route, t.payment_status, t.payer_name, t.payer_email::text, t.payer_phone,
+            t.funding_reference, t.funding_notes,
             tr.display_name AS assigned_display_name
      FROM ops.tasks t
      JOIN tenant.agencies ag ON ag.id = t.agency_id
@@ -252,11 +263,43 @@ adminRouter.get("/tasks", async (_req, res) => {
       summary: row.summary,
       vulnerableAdult: row.vulnerable_adult,
       ringFenceRequired: row.ring_fence_required,
+      payment: {
+        route: row.payment_route,
+        status: row.payment_status,
+        payerName: row.payer_name,
+        payerEmail: row.payer_email,
+        payerPhone: row.payer_phone,
+        fundingReference: row.funding_reference,
+        fundingNotes: row.funding_notes
+      },
       assignedHandyman: row.assigned_display_name,
       createdAt: row.created_at
     };
   }) });
 });
+
+adminRouter.post("/tasks/:publicId/payment-status", asyncHandler(async (req, res) => {
+  const parsed = paymentStatusSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: "Choose a valid payment clearance status" });
+  const result = await query<{ id: string; payment_route: string; payment_status: string }>(
+    `UPDATE ops.tasks
+     SET payment_status = $2, updated_at = clock_timestamp()
+     WHERE public_id = $1 AND deleted_at IS NULL
+       AND (
+         ($2 = 'family_paid' AND payment_route = 'family_representative')
+         OR ($2 = 'funding_approved' AND payment_route = 'council_personal_budget')
+         OR ($2 = 'payment_waived' AND payment_route IN ('family_representative', 'council_personal_budget'))
+       )
+     RETURNING id::text, payment_route, payment_status`,
+    [req.params.publicId, parsed.data.paymentStatus]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: "Task was not found or this payment status is not valid for its funding route" });
+  await audit(req, "admin.task.payment_status_updated", "task", result.rows[0].id, {
+    paymentRoute: result.rows[0].payment_route,
+    paymentStatus: result.rows[0].payment_status
+  });
+  res.json({ id: req.params.publicId, paymentStatus: result.rows[0].payment_status });
+}));
 
 adminRouter.get("/tasks/:publicId/candidates", async (req, res) => {
   const candidates = await evaluateCandidates(req.params.publicId);
@@ -289,17 +332,19 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
   const selected = candidates.evaluated.find((candidate) => candidate.trader.id === parsed.data.traderId);
   if (!selected) return res.status(404).json({ error: "Handyman not found in the eligible pool" });
   if (!selected.evaluation.eligible) return res.status(409).json({ error: selected.evaluation.reasons.join("; ") });
+  const paymentError = paymentClearanceError(candidates.task.payment_route, candidates.task.payment_status);
+  if (paymentError) return res.status(409).json({ error: paymentError });
   const quote = Number(selected.trader.hourly_rate);
-  const precheck = await monthlyCapCheck(candidates.task.agency_id, quote);
-  if (!precheck.allowed) {
+  const precheck = candidates.task.payment_route === "agency" ? await monthlyCapCheck(candidates.task.agency_id, quote) : null;
+  if (precheck && !precheck.allowed) {
     return res.status(409).json({
       error: `Agency monthly cap exceeded. Used £${precheck.used.toFixed(2)} of £${precheck.monthlyCap.toFixed(2)}; this dispatch requires £${precheck.totalAmount.toFixed(2)}.`
     });
   }
 
   const reservation = await withTransaction(req.auth!, async (client) => {
-    const locked = await client.query<{ id: string; agency_id: string; status: string }>(
-      `SELECT id::text, agency_id::text, status::text FROM ops.tasks
+    const locked = await client.query<{ id: string; agency_id: string; status: string; payment_route: CandidateTaskRow["payment_route"]; payment_status: CandidateTaskRow["payment_status"] }>(
+      `SELECT id::text, agency_id::text, status::text, payment_route, payment_status FROM ops.tasks
        WHERE public_id = $1 AND deleted_at IS NULL FOR UPDATE`,
       [req.params.publicId]
     );
@@ -308,6 +353,8 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
     if (!["pending_taskbridge_assignment", "assignment_review"].includes(task.status)) {
       throw Object.assign(new Error("Task is no longer available for assignment"), { statusCode: 409 });
     }
+    const paymentError = paymentClearanceError(task.payment_route, task.payment_status);
+    if (paymentError) throw Object.assign(new Error(paymentError), { statusCode: 409 });
     const activeAssignment = await client.query<{ id: string }>(
       `SELECT id::text FROM ops.assignments
        WHERE task_id = $1 AND status IN ('pending_admin_review', 'approved', 'dispatched')
@@ -366,8 +413,8 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
   }
 
   const created = await withTransaction(req.auth!, async (client) => {
-    const locked = await client.query<{ id: string; agency_id: string; status: string }>(
-      `SELECT id::text, agency_id::text, status::text FROM ops.tasks
+    const locked = await client.query<{ id: string; agency_id: string; status: string; payment_route: CandidateTaskRow["payment_route"]; payment_status: CandidateTaskRow["payment_status"] }>(
+      `SELECT id::text, agency_id::text, status::text, payment_route, payment_status FROM ops.tasks
        WHERE public_id = $1 AND deleted_at IS NULL FOR UPDATE`,
       [req.params.publicId]
     );
@@ -376,6 +423,10 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
     if (!["pending_taskbridge_assignment", "assignment_review"].includes(task.status)) {
       throw Object.assign(new Error("Task is no longer available for assignment"), { statusCode: 409 });
     }
+    const paymentError = paymentClearanceError(task.payment_route, task.payment_status);
+    if (paymentError) throw Object.assign(new Error(paymentError), { statusCode: 409 });
+    const totalAmount = Number((quote * 1.15).toFixed(2));
+    if (task.payment_route === "agency") {
     const cap = await client.query<{ monthly_cap: string | null; used: string }>(
       `SELECT bp.monthly_cap::text,
               COALESCE(SUM(tc.total_amount) FILTER (
@@ -390,7 +441,6 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
     );
     const monthlyCap = Number(cap.rows[0]?.monthly_cap || 500);
     const used = Number(cap.rows[0]?.used || 0);
-    const totalAmount = Number((quote * 1.15).toFixed(2));
     if (used + totalAmount > monthlyCap) {
       await client.query(
         `INSERT INTO ops.task_status_events
@@ -400,6 +450,7 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
       );
       await client.query("UPDATE ops.tasks SET status = 'blocked' WHERE id = $1", [task.id]);
       throw Object.assign(new Error(`Agency monthly cap exceeded. Used £${used.toFixed(2)} of £${monthlyCap.toFixed(2)}; this dispatch requires £${totalAmount.toFixed(2)}.`), { statusCode: 409 });
+    }
     }
     const assignment = await client.query<{ id: string }>(
       `UPDATE ops.assignments
@@ -415,11 +466,11 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
       `INSERT INTO billing.task_charges
         (task_id, agency_id, assignment_id, handyman_amount, agency_coordination_fee,
          platform_fee, total_amount, status, settlement_status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', 'not_invoiced')
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8)
        ON CONFLICT (task_id) DO UPDATE SET assignment_id = EXCLUDED.assignment_id
        RETURNING id::text`,
       [task.id, task.agency_id, assignment.rows[0].id, quote, Number((quote * 0.05).toFixed(2)),
-        Number((quote * 0.10).toFixed(2)), totalAmount]
+        Number((quote * 0.10).toFixed(2)), totalAmount, task.payment_route === "agency" ? "not_invoiced" : "agency_paid"]
     );
     await client.query(
       `INSERT INTO billing.payouts (trader_id, assignment_id, amount, currency, status, hold_reason)
@@ -1347,12 +1398,23 @@ async function monthlyCapCheck(agencyId: string, handymanAmount: number) {
   return { allowed: used + totalAmount <= monthlyCap, monthlyCap, used, totalAmount };
 }
 
+function paymentClearanceError(route: CandidateTaskRow["payment_route"], status: CandidateTaskRow["payment_status"]) {
+  if (route === "family_representative" && !["family_paid", "payment_waived"].includes(status)) {
+    return "Family or representative payment must be marked as received before dispatch.";
+  }
+  if (route === "council_personal_budget" && !["funding_approved", "payment_waived"].includes(status)) {
+    return "Council, personal budget or funded-support approval must be cleared before dispatch.";
+  }
+  return "";
+}
+
 async function evaluateCandidates(publicTaskId: string) {
   const taskResult = await query<CandidateTaskRow>(
     `SELECT t.id::text, t.public_id, t.agency_id::text, t.category, t.vulnerable_adult,
             t.status::text, t.summary, su.latitude::text, su.longitude::text,
             settings.default_visit_radius_miles::text AS radius_miles,
-            t.preferred_window_start::text, t.preferred_window_end::text
+            t.preferred_window_start::text, t.preferred_window_end::text,
+            t.payment_route, t.payment_status
      FROM ops.tasks t
      JOIN care.service_users su ON su.id = t.service_user_id
      JOIN tenant.agency_settings settings ON settings.agency_id = t.agency_id
