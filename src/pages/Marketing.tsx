@@ -933,12 +933,6 @@ function Footer() {
       </section>
     </div>
 
-    <div className="site-width footer-premium-strip" aria-label="TaskBridge assurances">
-      <span><ShieldCheck size={18} /> Safeguarding-led release controls</span>
-      <span><LockKeyhole size={18} /> Resident identity data shielded</span>
-      <span><FileCheck2 size={18} /> Evidence-led completion record</span>
-    </div>
-
     <div className="site-width footer-bottom">
       <div><p>(c) 2026 Growing Fig. All rights reserved.</p><small>TaskBridge by Growing Fig is a HealthTech and care operations platform. Enhanced DBS validation supports vulnerable-adult safeguarding controls.</small></div>
       <nav aria-label="Security and legal">
