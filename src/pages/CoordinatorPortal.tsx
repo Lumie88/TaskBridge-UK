@@ -674,6 +674,44 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
     return actions.length ? actions : [{ title: "No immediate analytics action", detail: "Current imported observations do not show deterioration signals.", tone: "green" }];
   }, [analyticsInsights.deterioratingMetrics.length, analyticsInsights.observationDensity, selectedSummary.improving, selectedSummary.observations]);
 
+  const analyticsUploadCount = analytics?.uploads.length || 0;
+  const cqcIntelligence = useMemo(() => {
+    const safeScore = selectedSummary.serviceUsersTracked
+      ? Math.max(0, Math.round(((selectedSummary.serviceUsersTracked - selectedSummary.deteriorating) / selectedSummary.serviceUsersTracked) * 100))
+      : 0;
+    const evidenceReadiness = Math.min(100, Math.round((analyticsInsights.observationDensity / 4) * 100));
+    const responsiveScore = selectedSummary.observations
+      ? Math.max(0, 100 - Math.round((analyticsInsights.deterioratingMetrics.length / Math.max(1, selectedSummary.observations)) * 100))
+      : 0;
+    const milestones = [
+      {
+        title: "Safe",
+        detail: `${selectedSummary.deteriorating} service user${selectedSummary.deteriorating === 1 ? "" : "s"} currently show deterioration signals.`,
+        score: safeScore,
+        status: selectedSummary.deteriorating ? "action_needed" : "ready"
+      },
+      {
+        title: "Effective",
+        detail: `${analyticsInsights.metricTypes.length} monitored outcome area${analyticsInsights.metricTypes.length === 1 ? "" : "s"} across the selected scope.`,
+        score: analyticsInsights.metricTypes.length >= 3 ? 85 : analyticsInsights.metricTypes.length ? 55 : 15,
+        status: analyticsInsights.metricTypes.length >= 3 ? "ready" : "building"
+      },
+      {
+        title: "Responsive",
+        detail: `${analyticsInsights.deterioratingMetrics.length} deteriorating metric${analyticsInsights.deterioratingMetrics.length === 1 ? "" : "s"} require review evidence.`,
+        score: responsiveScore,
+        status: analyticsInsights.deterioratingMetrics.length ? "action_needed" : "ready"
+      },
+      {
+        title: "Well-led",
+        detail: `${analyticsUploadCount} recent upload${analyticsUploadCount === 1 ? "" : "s"} available for audit traceability.`,
+        score: analyticsUploadCount ? 80 : 20,
+        status: analyticsUploadCount ? "ready" : "building"
+      }
+    ];
+    return { safeScore, evidenceReadiness, responsiveScore, milestones };
+  }, [analyticsInsights.deterioratingMetrics.length, analyticsInsights.metricTypes.length, analyticsInsights.observationDensity, analyticsUploadCount, selectedSummary.deteriorating, selectedSummary.observations, selectedSummary.serviceUsersTracked]);
+
   function selectAnalyticsServiceUser(value: string) {
     setSelectedAnalyticsServiceUserId(value);
     setAnalyticsFilter("all");
@@ -725,11 +763,55 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
     URL.revokeObjectURL(url);
   }
 
+  function downloadCqcPack() {
+    const rows = [
+      ["TaskBridge Premium Care Intelligence"],
+      ["Scope", selectedAnalyticsName],
+      ["Generated", new Date().toISOString()],
+      [],
+      ["CQC area", "Readiness score", "Status", "Evidence note"],
+      ...cqcIntelligence.milestones.map((milestone) => [milestone.title, `${milestone.score}%`, humanize(milestone.status), milestone.detail]),
+      [],
+      ["Service user", "Reference", "Overall trend", "Latest observation", "Metric", "Metric trend", "First", "Latest", "Unit"],
+      ...selectedAnalyticsServiceUsers.flatMap((serviceUser) => serviceUser.metrics.map((metric) => [
+        serviceUser.name,
+        serviceUser.reference,
+        humanize(serviceUser.overallTrend),
+        serviceUser.latestObservationDate,
+        humanize(metric.metricType),
+        humanize(metric.trend),
+        metric.first ?? "",
+        metric.latest ?? "",
+        metric.unit
+      ]))
+    ];
+    const csv = rows.map((row) => row.map((cell) => escapeCsvCell(String(cell ?? ""))).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "taskbridge-premium-cqc-evidence-pack.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (loading && !analytics) return <Loading />;
   if (!analytics?.enabled) return <AnalyticsLocked />;
   return <>
-    <div className="page-title-row"><div><span className="eyebrow">Free feature</span><h1>Care analytics dashboard</h1><p>Upload service-user health CSV data and review deterioration, stability and outcome trends.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Agency unlocked</span></div>
+    <div className="page-title-row"><div><span className="eyebrow">Premium care intelligence</span><h1>CQC-ready analytics dashboard</h1><p>Turn service-user observations into deterioration insight, outcome evidence, audit milestones and leadership-ready CQC reporting.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Premium unlocked</span></div>
     {error && <div className="alert alert-danger">{error}<button onClick={loadAnalytics}><RefreshCw size={16} /> Retry</button></div>}
+    <section className="panel analytics-premium-hero">
+      <div>
+        <span className="eyebrow">CQC evidence cockpit</span>
+        <h2>Spot risk earlier and show the evidence when inspectors ask.</h2>
+        <p>TaskBridge links uploaded observations to CQC-style domains, highlights milestone gaps and gives coordinators a clean audit pack for supervision, provider meetings and quality reviews.</p>
+      </div>
+      <div className="premium-score-ring" aria-label={`Evidence readiness ${cqcIntelligence.evidenceReadiness}%`}>
+        <strong>{cqcIntelligence.evidenceReadiness}%</strong>
+        <span>Evidence readiness</span>
+      </div>
+      <button className="button button-primary" type="button" onClick={downloadCqcPack}><FileText size={17} /> Export CQC pack</button>
+    </section>
     <section className="panel analytics-focus-panel">
       <label>Focus analytics by service user
         <select value={selectedAnalyticsServiceUserId} onChange={(event) => selectAnalyticsServiceUser(event.target.value)}>
@@ -758,6 +840,24 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
         <span><Clock3 size={20} /></span>
         <div><strong>{analyticsInsights.latestServiceUser ? formatDate(analyticsInsights.latestServiceUser.latestObservationDate) : "No data"}</strong><small>Latest imported observation date</small></div>
       </article>
+    </section>
+    <section className="analytics-cqc-grid">
+      {cqcIntelligence.milestones.map((milestone) => <article key={milestone.title} className={`panel cqc-milestone cqc-${milestone.status}`}>
+        <div>
+          <span>{milestone.status === "ready" ? <CheckCircle2 size={19} /> : milestone.status === "action_needed" ? <ShieldAlert size={19} /> : <CalendarDays size={19} />}</span>
+          <strong>{milestone.title}</strong>
+        </div>
+        <p>{milestone.detail}</p>
+        <footer><b>{milestone.score}%</b><small>{humanize(milestone.status)}</small></footer>
+      </article>)}
+    </section>
+    <section className="panel analytics-milestone-board">
+      <div className="panel-heading"><div><h2>Quality milestones</h2><p>Evidence prompts care leaders can use in supervision, governance meetings and CQC preparation.</p></div></div>
+      <div>
+        <article><span><ClipboardList size={18} /></span><strong>Monthly evidence review</strong><p>Confirm each high-risk service user has recent health observations and action notes.</p></article>
+        <article><span><TrendingDown size={18} /></span><strong>Deterioration escalation</strong><p>Review deteriorating metrics against care notes, family feedback and recent home-safety tasks.</p></article>
+        <article><span><CheckCircle2 size={18} /></span><strong>Outcome confirmation</strong><p>Record where interventions reduce falls risk, improve mobility or support independence.</p></article>
+      </div>
     </section>
     <div className="analytics-decision-grid">
       <section className="panel analytics-action-panel">
@@ -845,8 +945,8 @@ function AnalyticsMetric({ icon, label, value, tone, filter, active, onSelect }:
 function AnalyticsLocked() {
   return <section className="panel analytics-locked">
     <span><BarChart3 size={30} /></span>
-    <h1>Care analytics is locked for this agency</h1>
-    <p>This free feature can be unlocked by a TaskBridge super admin from Agency onboarding settings.</p>
+    <h1>Premium care intelligence is locked for this agency</h1>
+    <p>This premium CQC analytics module can be unlocked by a TaskBridge super admin from Agency onboarding settings.</p>
   </section>;
 }
 
