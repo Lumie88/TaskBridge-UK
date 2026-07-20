@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { type Request, type Response, Router } from "express";
 import { z } from "zod";
+import { normalizeCarePlatformEvent, parseCarePlatformProvider, type NormalizedCarePlatformEvent } from "../care-platform-adapters.js";
 import { config } from "../config.js";
 import { query, withTransaction } from "../db.js";
 import { normalizeDbsProviderCallback } from "../integrations.js";
@@ -24,6 +25,54 @@ const dbsCallbackSchema = z.object({
 });
 
 export const webhookRouter = Router();
+
+webhookRouter.post("/care-platforms/:provider", async (req, res) => {
+  const provider = parseCarePlatformProvider(req.params.provider);
+  if (!provider) return res.status(404).json({ error: "Care-platform provider is not supported" });
+
+  const agencyKey = await authenticateAgencyWebhookKey(req);
+  if (!agencyKey) return res.status(401).json({ error: "Agency API key is invalid or out of scope" });
+
+  const integration = await careProviderIntegration(agencyKey.agency_id, provider);
+  const signingSecret = integration?.settings?.webhookSigningSecret;
+  if (typeof signingSecret === "string" && signingSecret.trim()) {
+    const signature = req.get("signature") || req.get("x-webhook-signature") || req.get("x-taskbridge-signature") || "";
+    if (!validWebhookSignature(signature, signingSecret, req.rawBody || Buffer.alloc(0))) {
+      await logCarePlatformFailure(agencyKey.agency_id, integration?.provider_config_id || null, provider, "unknown", "signature_failed", req.body);
+      return res.status(401).json({ error: "Invalid webhook signature" });
+    }
+  }
+
+  const normalized = normalizeCarePlatformEvent(provider, req.body);
+  if (!normalized) {
+    await logCarePlatformFailure(agencyKey.agency_id, integration?.provider_config_id || null, provider, "unknown", "invalid_payload", req.body);
+    return res.status(422).json({ error: "Unsupported or invalid care-platform event" });
+  }
+
+  const idempotencyKey = req.get("idempotency-key") || `${provider}:${normalized.eventType}:${normalized.eventId}`;
+  const existing = await query<{ response_metadata: { taskIds?: string[]; serviceUserId?: string } }>(
+    `SELECT response_metadata FROM integration.webhook_logs
+     WHERE agency_id = $1 AND direction = 'inbound' AND idempotency_key = $2`,
+    [agencyKey.agency_id, idempotencyKey]
+  );
+  if (existing.rows[0]) return res.status(200).json({ duplicate: true, ...existing.rows[0].response_metadata });
+
+  try {
+    const processed = await processCarePlatformEvent(agencyKey.agency_id, integration?.provider_config_id || null, idempotencyKey, normalized);
+    res.status(processed.created ? 201 : 200).json(processed.response);
+  } catch (error) {
+    await logCarePlatformFailure(
+      agencyKey.agency_id,
+      integration?.provider_config_id || null,
+      provider,
+      normalized.eventType,
+      error instanceof Error ? error.message : "Care-platform event processing failed",
+      normalized.raw,
+      idempotencyKey
+    );
+    throw error;
+  }
+});
 
 webhookRouter.post("/incoming-care-task", async (req, res) => {
   const authorization = req.get("authorization") || "";
@@ -101,6 +150,195 @@ webhookRouter.post("/incoming-care-task", async (req, res) => {
   });
   res.status(201).json({ taskIds, status: "awaiting_care_approval", safeguardApplied: vulnerable });
 });
+
+async function authenticateAgencyWebhookKey(req: Request) {
+  const authorization = req.get("authorization") || "";
+  const rawKey = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+  if (!rawKey) return null;
+  const keyResult = await query<{ agency_id: string; scopes: string[] }>(
+    `UPDATE tenant.agency_api_keys k
+     SET last_used_at = clock_timestamp()
+     FROM tenant.agencies a
+     WHERE k.key_hash = $1 AND k.agency_id = a.id
+       AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > clock_timestamp())
+       AND a.status = 'active'
+     RETURNING k.agency_id::text, k.scopes`,
+    [hashToken(rawKey)]
+  );
+  const key = keyResult.rows[0];
+  return key?.scopes.includes("tasks:write") ? key : null;
+}
+
+async function careProviderIntegration(agencyId: string, provider: string) {
+  const result = await query<{ provider_config_id: string; settings: Record<string, unknown> }>(
+    `SELECT pc.id::text AS provider_config_id, ai.settings
+     FROM integration.provider_configs pc
+     JOIN integration.agency_integrations ai ON ai.provider_config_id = pc.id
+     WHERE ai.agency_id = $1
+       AND pc.provider_type = 'care_management'
+       AND lower(pc.name) = $2
+       AND pc.enabled
+       AND ai.enabled
+     LIMIT 1`,
+    [agencyId, provider]
+  );
+  return result.rows[0] || null;
+}
+
+function validWebhookSignature(signature: string, secret: string, rawBody: Buffer) {
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  return signature.length === expected.length && timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+}
+
+async function processCarePlatformEvent(
+  agencyId: string,
+  providerConfigId: string | null,
+  idempotencyKey: string,
+  event: NormalizedCarePlatformEvent
+) {
+  const taskText = event.eventType === "risk_hazard.logged" ? event.hazardText || event.noteText : event.noteText || event.hazardText;
+  const suggestions = event.eventType === "service_user.updated" || !taskText
+    ? []
+    : await createTaskPlan(taskText, event.serviceUser.riskLevel !== "standard");
+
+  const result = await withTransaction(null, async (client) => {
+    const serviceUser = await upsertWebhookServiceUser(client, agencyId, event);
+    const taskIds: string[] = [];
+    let careNoteId: string | null = null;
+
+    if (taskText) {
+      const note = await client.query<{ id: string }>(
+        `INSERT INTO care.care_notes
+          (agency_id, service_user_id, external_note_id, note_ciphertext, source, idempotency_key)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (agency_id, idempotency_key) DO UPDATE SET external_note_id = EXCLUDED.external_note_id
+         RETURNING id::text`,
+        [agencyId, serviceUser.id, event.eventId, encryptField(taskText), `${event.provider}_webhook`, idempotencyKey]
+      );
+      careNoteId = note.rows[0].id;
+    }
+
+    for (const suggestion of suggestions) {
+      const taskPublicId = publicId("tsk");
+      const task = await client.query<{ id: string }>(
+        `INSERT INTO ops.tasks
+          (public_id, agency_id, service_user_id, care_note_id, category, urgency, status, summary,
+           notes_ciphertext, preferred_window_start, preferred_window_end, carer_on_site,
+           vulnerable_adult, ring_fence_required)
+         VALUES ($1, $2, $3, $4, $5, $6, 'awaiting_care_approval', $7, $8, $9, $10, $11, $12, $12)
+         RETURNING id::text`,
+        [taskPublicId, agencyId, serviceUser.id, careNoteId, suggestion.category, suggestion.urgency,
+          suggestion.summary, encryptField(taskText || suggestion.summary), event.preferredWindowStart,
+          event.preferredWindowEnd, event.carerOnSite, event.serviceUser.riskLevel !== "standard"]
+      );
+      await client.query(
+        `INSERT INTO ops.task_status_events
+          (task_id, agency_id, new_status, reason, metadata)
+         VALUES ($1, $2, 'awaiting_care_approval', 'Received from care management application', $3)`,
+        [task.rows[0].id, agencyId, { provider: event.provider, eventType: event.eventType, eventId: event.eventId }]
+      );
+      taskIds.push(taskPublicId);
+    }
+
+    const response = {
+      accepted: true,
+      provider: event.provider,
+      eventType: event.eventType,
+      serviceUserId: serviceUser.publicId,
+      taskIds,
+      status: taskIds.length ? "awaiting_care_approval" : "service_user_synced"
+    };
+    await client.query(
+      `INSERT INTO integration.webhook_logs
+        (agency_id, provider_config_id, direction, endpoint, event_type, idempotency_key,
+         status, request_metadata, response_status, response_metadata, processed_at)
+       VALUES ($1, $2, 'inbound', $3, $4, $5, 'processed', $6, $7, $8, clock_timestamp())`,
+      [agencyId, providerConfigId, `/api/webhooks/care-platforms/${event.provider}`, event.eventType, idempotencyKey,
+        { provider: event.provider, eventId: event.eventId, serviceUserExternalId: event.serviceUser.externalId },
+        taskIds.length ? 201 : 200, response]
+    );
+    return response;
+  });
+
+  return { created: result.taskIds.length > 0, response: result };
+}
+
+async function upsertWebhookServiceUser(client: { query: typeof query }, agencyId: string, event: NormalizedCarePlatformEvent) {
+  const normalizedPostcode = event.serviceUser.postcode?.toUpperCase().replace(/\s+/g, "") || null;
+  const existing = await client.query<{ id: string; external_service_user_id: string }>(
+    `SELECT id::text, external_service_user_id
+     FROM care.service_users
+     WHERE agency_id = $1 AND external_service_user_id = $2 AND deleted_at IS NULL
+     LIMIT 1`,
+    [agencyId, event.serviceUser.externalId]
+  );
+  if (existing.rows[0]) {
+    const updated = await client.query<{ id: string; external_service_user_id: string }>(
+      `UPDATE care.service_users
+       SET encrypted_name = COALESCE($3, encrypted_name),
+           encrypted_address = COALESCE($4, encrypted_address),
+           town_ciphertext = COALESCE($5, town_ciphertext),
+           county_ciphertext = COALESCE($6, county_ciphertext),
+           postcode_ciphertext = COALESCE($7, postcode_ciphertext),
+           postcode_hash = COALESCE($8, postcode_hash),
+           risk_level = $9,
+           vulnerability_notes_ciphertext = COALESCE($10, vulnerability_notes_ciphertext),
+           updated_at = clock_timestamp()
+       WHERE id = $1 AND agency_id = $2
+       RETURNING id::text, external_service_user_id`,
+      [existing.rows[0].id, agencyId,
+        event.serviceUser.fullName ? encryptField(event.serviceUser.fullName) : null,
+        event.serviceUser.address ? encryptField(event.serviceUser.address) : null,
+        event.serviceUser.town ? encryptField(event.serviceUser.town) : null,
+        event.serviceUser.county ? encryptField(event.serviceUser.county) : null,
+        event.serviceUser.postcode ? encryptField(event.serviceUser.postcode.toUpperCase()) : null,
+        normalizedPostcode ? hashToken(normalizedPostcode) : null,
+        event.serviceUser.riskLevel,
+        event.serviceUser.vulnerabilityNotes ? encryptField(event.serviceUser.vulnerabilityNotes) : null]
+    );
+    return { id: updated.rows[0].id, publicId: updated.rows[0].external_service_user_id };
+  }
+
+  if (!event.serviceUser.fullName || !event.serviceUser.address) {
+    throw Object.assign(new Error("New service-user events must include at least name and address"), { statusCode: 422 });
+  }
+  const created = await client.query<{ id: string; external_service_user_id: string }>(
+    `INSERT INTO care.service_users
+      (agency_id, external_service_user_id, encrypted_name, encrypted_address, postcode_hash,
+       town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level, vulnerability_notes_ciphertext)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     RETURNING id::text, external_service_user_id`,
+    [agencyId, event.serviceUser.externalId, encryptField(event.serviceUser.fullName), encryptField(event.serviceUser.address),
+      normalizedPostcode ? hashToken(normalizedPostcode) : null,
+      event.serviceUser.town ? encryptField(event.serviceUser.town) : null,
+      event.serviceUser.county ? encryptField(event.serviceUser.county) : null,
+      event.serviceUser.postcode ? encryptField(event.serviceUser.postcode.toUpperCase()) : null,
+      event.serviceUser.riskLevel,
+      event.serviceUser.vulnerabilityNotes ? encryptField(event.serviceUser.vulnerabilityNotes) : null]
+  );
+  return { id: created.rows[0].id, publicId: created.rows[0].external_service_user_id };
+}
+
+async function logCarePlatformFailure(
+  agencyId: string,
+  providerConfigId: string | null,
+  provider: string,
+  eventType: string,
+  message: string,
+  payload: unknown,
+  idempotencyKey: string | null = null
+) {
+  await query(
+    `INSERT INTO integration.webhook_logs
+      (agency_id, provider_config_id, direction, endpoint, event_type, idempotency_key,
+       status, request_metadata, response_status, error_message)
+     VALUES ($1, $2, 'inbound', $3, $4, $5, 'failed', $6, 422, $7)
+     ON CONFLICT (agency_id, direction, idempotency_key) DO UPDATE
+       SET status = 'failed', error_message = EXCLUDED.error_message, response_status = EXCLUDED.response_status`,
+    [agencyId, providerConfigId, `/api/webhooks/care-platforms/${provider}`, eventType, idempotencyKey,
+      { provider, payloadPreview: payload }, message.slice(0, 500)]
+  );
+}
 
 async function handleDbsCallback(req: Request, res: Response) {
   if (!config.dbsWebhookSecret) return res.status(503).json({ error: "DBS webhook secret is not configured" });

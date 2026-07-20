@@ -326,9 +326,15 @@ export function SystemIntegrations() {
 const apiEndpoints = [
   {
     method: "POST",
+    path: "/api/webhooks/care-platforms/:provider",
+    title: "Care-platform event webhook",
+    description: "Production adapter endpoint for Birdie, PASS, Cera or generic care systems. Supports care_note.created, risk_hazard.logged and service_user.updated."
+  },
+  {
+    method: "POST",
     path: "/api/webhooks/incoming-care-task",
     title: "Inbound care task webhook",
-    description: "Used by care management tools to send a care note or safety concern into TaskBridge for AI task planning and care-team approval."
+    description: "Legacy generic intake for care systems that only need to send a direct care note into TaskBridge."
   },
   {
     method: "POST",
@@ -359,6 +365,32 @@ const careTaskCurl = `curl -X POST "https://www.growingfig.com/api/webhooks/inco
     "notes": "Mrs Higgins rear path is slippery with moss. Kitchen cupboard handle is loose.",
     "preferred_window_start": "2026-07-10T09:00:00.000Z",
     "preferred_window_end": "2026-07-10T12:00:00.000Z",
+    "carer_on_site": true
+  }'`;
+
+const carePlatformCurl = `curl -X POST "https://www.growingfig.com/api/webhooks/care-platforms/birdie" \\
+  -H "Authorization: Bearer tb_live_your_agency_key" \\
+  -H "Idempotency-Key: birdie-risk-83921" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "event_type": "risk_hazard.logged",
+    "event_id": "birdie-risk-83921",
+    "service_user": {
+      "id": "birdie-resident-123",
+      "name": "Mary Williams",
+      "address": "12 Example Street",
+      "town": "Croydon",
+      "county": "Greater London",
+      "postcode": "CR0 1AA",
+      "is_vulnerable": true
+    },
+    "hazard": {
+      "description": "Rear garden path is slippery with moss after rain."
+    },
+    "visit_window": {
+      "start": "2026-07-10T09:00:00.000Z",
+      "end": "2026-07-10T12:00:00.000Z"
+    },
     "carer_on_site": true
   }'`;
 
@@ -446,8 +478,8 @@ export function ApiDocumentation() {
         <div className="api-doc-content">
           <section id="authentication" className="api-doc-section">
             <h2>Authentication</h2>
-            <p>Care systems authenticate with an agency API key. Send it as a bearer token and include a unique idempotency key for every inbound event.</p>
-            <CodeBlock language="http" code={`Authorization: Bearer tb_live_your_agency_key\nIdempotency-Key: source-event-or-note-id\nContent-Type: application/json`} />
+            <p>Care systems authenticate with an agency API key. Send it as a bearer token and include a unique idempotency key for every inbound event. When a provider signing secret is configured, TaskBridge also verifies the `Signature`, `X-Webhook-Signature` or `X-TaskBridge-Signature` HMAC-SHA256 header.</p>
+            <CodeBlock language="http" code={`Authorization: Bearer tb_live_your_agency_key\nIdempotency-Key: source-event-or-note-id\nContent-Type: application/json\nSignature: hmac_sha256_raw_payload`} />
             <div className="api-note"><ShieldCheck size={18} /><span>Never send service-user contact numbers, direct resident contact details or unrestricted keysafe details to contractor-facing systems.</span></div>
           </section>
 
@@ -464,8 +496,9 @@ export function ApiDocumentation() {
           </section>
 
           <section id="care-task" className="api-doc-section">
-            <h2>Create a care task from a care note</h2>
-            <p>This is the main integration used by care platforms. TaskBridge receives the note, finds one or more home-safety tasks, stores them as awaiting care approval, and applies safeguarding controls.</p>
+            <h2>Create a care task from care-platform events</h2>
+            <p>The production care-platform endpoint accepts `care_note.created`, `risk_hazard.logged` and `service_user.updated`. Notes and hazards are converted into one or more home-safety tasks awaiting care approval; service-user updates sync the encrypted agency directory.</p>
+            <CodeBlock language="bash" title="Provider event cURL" code={carePlatformCurl} />
             <CodeBlock language="bash" title="cURL" code={careTaskCurl} />
             <CodeBlock language="ts" title="Node / JavaScript" code={careTaskJs} />
             <div className="api-response-grid">
