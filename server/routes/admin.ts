@@ -3,6 +3,7 @@ import { z } from "zod";
 import { asyncHandler } from "../async-handler.js";
 import { audit } from "../audit.js";
 import { requireRoles } from "../auth.js";
+import { carePlatformCredentialStatus, carePlatformHealthCheck } from "../care-platform-clients.js";
 import { normalizeCarePlatformEvent } from "../care-platform-adapters.js";
 import { config } from "../config.js";
 import { query, withTransaction } from "../db.js";
@@ -112,6 +113,7 @@ const integrationSandboxSchema = z.object({
   provider: z.enum(["birdie", "pass", "cera", "generic"]),
   payload: z.record(z.string(), z.unknown())
 });
+const carePlatformProviderSchema = z.object({ provider: z.enum(["birdie", "pass", "cera", "generic"]) });
 const settlementUpdateSchema = z.object({
   settlementStatus: z.enum(["not_invoiced", "invoiced", "agency_paid", "disputed", "written_off"]),
   settlementReference: z.string().trim().max(120).optional().nullable(),
@@ -194,6 +196,18 @@ adminRouter.post("/integrations/retry/run", requireRoles("taskbridge_super_admin
   const results = await withTransaction(req.auth!, (client) => processRetryQueue(client, limit));
   await audit(req, "super_admin.integration_retry.run", "retry_queue", "batch", { count: results.length });
   res.json({ processed: results.length, results });
+}));
+
+adminRouter.get("/integrations/providers/status", requireRoles("taskbridge_super_admin"), asyncHandler(async (_req, res) => {
+  res.json({ providers: carePlatformCredentialStatus() });
+}));
+
+adminRouter.post("/integrations/providers/:provider/health", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {
+  const parsed = carePlatformProviderSchema.safeParse(req.params);
+  if (!parsed.success) return res.status(404).json({ error: "Care-platform provider is not supported" });
+  const result = await carePlatformHealthCheck(parsed.data.provider);
+  await audit(req, "super_admin.care_platform.health_checked", "provider", parsed.data.provider, result);
+  res.json(result);
 }));
 
 adminRouter.get("/demo-requests", asyncHandler(async (_req, res) => {

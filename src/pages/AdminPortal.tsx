@@ -54,6 +54,14 @@ interface IntegrationFailure {
   createdAt: string;
 }
 
+interface CarePlatformProviderStatus {
+  provider: "birdie" | "pass" | "cera";
+  configured: boolean;
+  apiBaseUrlSet: boolean;
+  apiKeySet: boolean;
+  healthPath: string;
+}
+
 interface Trader {
   id: string;
   displayName: string;
@@ -193,6 +201,7 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   const [accessInvitations, setAccessInvitations] = useState<AccessInvitation[]>([]);
   const [integrationFailures, setIntegrationFailures] = useState<IntegrationFailure[]>([]);
+  const [providerStatuses, setProviderStatuses] = useState<CarePlatformProviderStatus[]>([]);
   const [demoRequests, setDemoRequests] = useState<DemoRequest[]>([]);
   const [billingCharges, setBillingCharges] = useState<BillingCharge[]>([]);
   const [invoices, setInvoices] = useState<AdminInvoice[]>([]);
@@ -206,13 +215,14 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
     setLoading(true);
     setError("");
     try {
-      const [summary, taskResult, traderResult, agencyResult, accessResult, integrationResult, demoResult, billingResult, invoiceResult] = await Promise.all([
+      const [summary, taskResult, traderResult, agencyResult, accessResult, integrationResult, providerResult, demoResult, billingResult, invoiceResult] = await Promise.all([
         api<AdminDashboard>("/api/admin/dashboard"),
         api<{ tasks: AdminTask[] }>("/api/admin/tasks"),
         api<{ traders: Trader[] }>("/api/admin/traders"),
         user.role === "taskbridge_super_admin" ? api<{ agencies: Agency[] }>("/api/admin/agencies") : Promise.resolve({ agencies: [] }),
         user.role === "taskbridge_super_admin" ? api<{ users: AccessUser[]; invitations: AccessInvitation[] }>("/api/admin/access/users") : Promise.resolve({ users: [], invitations: [] }),
         api<{ failures: IntegrationFailure[] }>("/api/admin/integrations/failures"),
+        user.role === "taskbridge_super_admin" ? api<{ providers: CarePlatformProviderStatus[] }>("/api/admin/integrations/providers/status") : Promise.resolve({ providers: [] }),
         api<{ requests: DemoRequest[] }>("/api/admin/demo-requests"),
         api<{ charges: BillingCharge[] }>("/api/admin/billing/task-charges"),
         api<{ invoices: AdminInvoice[] }>("/api/admin/billing/invoices")
@@ -220,6 +230,7 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
       setDashboard(summary); setTasks(taskResult.tasks); setTraders(traderResult.traders); setAgencies(agencyResult.agencies);
       setAccessUsers(accessResult.users); setAccessInvitations(accessResult.invitations);
       setIntegrationFailures(integrationResult.failures);
+      setProviderStatuses(providerResult.providers);
       setDemoRequests(demoResult.requests);
       setBillingCharges(billingResult.charges);
       setInvoices(invoiceResult.invoices);
@@ -251,7 +262,7 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
         : active === "tasks"
         ? <AssignmentDesk tasks={tasks} filter={taskFilter} onFilter={setTaskFilter} selectedTask={selectedTask} onSelect={setSelectedTask} onChanged={load} />
         : active === "integrations"
-          ? <IntegrationMonitor failures={integrationFailures} onRefresh={load} />
+          ? <IntegrationMonitor failures={integrationFailures} providerStatuses={providerStatuses} isSuperAdmin={user.role === "taskbridge_super_admin"} onRefresh={load} />
         : active === "billing"
           ? <FinanceControls charges={billingCharges} invoices={invoices} onChanged={load} />
         : active === "agencies" && user.role === "taskbridge_super_admin"
@@ -411,9 +422,16 @@ function CandidatePanel({ task, onChanged }: { task: AdminTask | null; onChanged
   </aside>;
 }
 
-function IntegrationMonitor({ failures, onRefresh }: { failures: IntegrationFailure[]; onRefresh: () => Promise<void> }) {
+function IntegrationMonitor({ failures, providerStatuses, isSuperAdmin, onRefresh }: {
+  failures: IntegrationFailure[];
+  providerStatuses: CarePlatformProviderStatus[];
+  isSuperAdmin: boolean;
+  onRefresh: () => Promise<void>;
+}) {
   const [refreshing, setRefreshing] = useState(false);
   const [running, setRunning] = useState(false);
+  const [checking, setChecking] = useState("");
+  const [healthMessage, setHealthMessage] = useState("");
   async function refresh() {
     setRefreshing(true);
     try { await onRefresh(); } finally { setRefreshing(false); }
@@ -425,8 +443,17 @@ function IntegrationMonitor({ failures, onRefresh }: { failures: IntegrationFail
       await onRefresh();
     } finally { setRunning(false); }
   }
+  async function checkProvider(provider: CarePlatformProviderStatus["provider"]) {
+    setChecking(provider); setHealthMessage("");
+    try {
+      const result = await api<{ ok?: boolean; status: string | number; durationMs?: number }>(`/api/admin/integrations/providers/${provider}/health`, { method: "POST" });
+      setHealthMessage(`${provider.toUpperCase()} responded with ${result.status}${result.durationMs !== undefined ? ` in ${result.durationMs}ms` : ""}.`);
+    } catch (caught) { setHealthMessage(caught instanceof Error ? caught.message : "Provider health check failed"); }
+    finally { setChecking(""); }
+  }
   return <>
     <div className="page-title-row"><div><span className="eyebrow">Integration operations</span><h1>Delivery failures</h1><p>Review failed and retrying care-platform callbacks and inbound events.</p></div><div className="row-actions"><button className="button button-secondary" onClick={runRetries} disabled={running}>{running ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />} Run retries</button><button className="button button-secondary" onClick={refresh} disabled={refreshing}>{refreshing ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />} Refresh</button></div></div>
+    {isSuperAdmin && <section className="panel provider-status-panel"><div className="panel-heading"><div><h2>Care-platform credentials</h2><p>Environment-backed provider access for production integrations. Secrets are never displayed.</p></div></div><div className="compliance-document-grid">{providerStatuses.map((provider) => <article key={provider.provider} className="compliance-document-card"><div className="compliance-document-heading"><span><Activity size={19} /></span><div><h3>{provider.provider.toUpperCase()}</h3><p>Health path: {provider.healthPath}</p></div><StatusBadge status={provider.configured ? "approved" : "pending"}>{provider.configured ? "Configured" : "Missing variables"}</StatusBadge></div><dl><div><dt>Base URL</dt><dd>{provider.apiBaseUrlSet ? "Set" : "Not set"}</dd></div><div><dt>API key</dt><dd>{provider.apiKeySet ? "Set" : "Not set"}</dd></div></dl><button className="button button-secondary button-small" disabled={!provider.configured || checking === provider.provider} onClick={() => checkProvider(provider.provider)}>{checking === provider.provider ? <><LoaderCircle className="spin" size={15} /> Checking...</> : "Run health check"}</button></article>)}</div>{healthMessage && <p className="form-success">{healthMessage}</p>}</section>}
     <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Care agency</th><th>Event</th><th>Endpoint</th><th>Status</th><th>Attempts</th><th>Received</th></tr></thead><tbody>{failures.map((failure) => <tr key={failure.id}><td><strong>{failure.agencyName || "Platform"}</strong><small>{humanize(failure.direction)}</small></td><td><strong>{humanize(failure.eventType)}</strong><small>{failure.errorMessage || (failure.responseStatus ? `HTTP ${failure.responseStatus}` : "Provider response unavailable")}</small></td><td><span className="integration-endpoint">{failure.endpoint}</span></td><td><StatusBadge status={failure.status}>{humanize(failure.status)}</StatusBadge>{failure.nextRetryAt && <small>Next retry {formatDate(failure.nextRetryAt, true)}</small>}</td><td>{failure.retryCount}</td><td>{formatDate(failure.createdAt, true)}</td></tr>)}</tbody></table></div>{!failures.length && <EmptyState icon={<BadgeCheck />} title="No integration failures" detail="Inbound events and care-platform callbacks are currently clear." />}</section>
   </>;
 }

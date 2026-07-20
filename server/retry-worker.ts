@@ -1,5 +1,6 @@
-import { createHmac } from "node:crypto";
 import type { PoolClient } from "pg";
+import { postCarePlatformCompletionCallback } from "./care-platform-clients.js";
+import type { CarePlatformProvider } from "./care-platform-adapters.js";
 import { cancelHandymanNetworkBooking } from "./integrations.js";
 import { decryptField } from "./security.js";
 
@@ -67,6 +68,7 @@ async function runJob(client: PoolClient, job: RetryJobRow) {
       secret_ciphertext: string | null;
       integration_callback_url: string | null;
       integration_secret_ciphertext: string | null;
+      integration_provider: CarePlatformProvider | null;
       public_id: string;
       status: string;
       summary: string;
@@ -76,10 +78,11 @@ async function runJob(client: PoolClient, job: RetryJobRow) {
       `SELECT cfg.callback_url, cfg.secret_ciphertext,
               care_integration.settings->>'callbackUrl' AS integration_callback_url,
               care_integration.settings->>'callbackSigningSecretCiphertext' AS integration_secret_ciphertext,
+              care_integration.provider AS integration_provider,
               t.public_id, t.status::text, t.summary, t.after_photo_url, t.completed_at::text
        FROM ops.tasks t
        LEFT JOIN LATERAL (
-         SELECT ai.settings
+         SELECT ai.settings, pc.name AS provider
          FROM integration.agency_integrations ai
          JOIN integration.provider_configs pc ON pc.id = ai.provider_config_id
          WHERE ai.agency_id = t.agency_id
@@ -98,26 +101,16 @@ async function runJob(client: PoolClient, job: RetryJobRow) {
     const callbackUrl = row.integration_callback_url || row.callback_url;
     const secretCiphertext = row.integration_secret_ciphertext || row.secret_ciphertext;
     if (!callbackUrl || !secretCiphertext) throw new Error("No enabled agency callback URL is configured");
-    const payload = JSON.stringify({
+    const payload = {
       event: "task.completed",
       taskId: row.public_id,
       status: row.status,
       summary: row.summary,
       afterPhotoUrl: row.after_photo_url,
       completedAt: row.completed_at
-    });
+    };
     const secret = decryptField(secretCiphertext);
-    const response = await fetch(callbackUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-taskbridge-event": "task.completed",
-        "x-taskbridge-signature": createHmac("sha256", secret).update(payload).digest("hex")
-      },
-      body: payload,
-      signal: AbortSignal.timeout(15_000)
-    });
-    if (!response.ok) throw new Error(`Care callback failed with HTTP ${response.status}`);
+    await postCarePlatformCompletionCallback(row.integration_provider || "generic", callbackUrl, secret, payload);
     return;
   }
   if (job.job_type === "handyman_assignment_cancellation") {

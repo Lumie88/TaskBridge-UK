@@ -18,6 +18,10 @@ function originListEnv(value: string | undefined, fallback: string[]) {
   return Array.from(new Set([...values, ...fallback]));
 }
 
+function providerEnv(provider: string, key: string) {
+  return process.env[`CARE_PLATFORM_${provider}_${key}`] || process.env[`${provider}_${key}`] || "";
+}
+
 const defaultAllowedOrigins = [
   "http://localhost:4173",
   "http://127.0.0.1:4173",
@@ -66,7 +70,24 @@ export const config = {
   objectStorageAccessKeyId: process.env.OBJECT_STORAGE_ACCESS_KEY_ID || "",
   objectStorageSecretAccessKey: process.env.OBJECT_STORAGE_SECRET_ACCESS_KEY || "",
   objectStorageBucket: process.env.OBJECT_STORAGE_BUCKET || "",
-  objectStoragePublicBaseUrl: process.env.OBJECT_STORAGE_PUBLIC_BASE_URL || ""
+  objectStoragePublicBaseUrl: process.env.OBJECT_STORAGE_PUBLIC_BASE_URL || "",
+  carePlatforms: {
+    birdie: {
+      apiBaseUrl: providerEnv("BIRDIE", "API_BASE_URL"),
+      apiKey: providerEnv("BIRDIE", "API_KEY"),
+      healthPath: providerEnv("BIRDIE", "HEALTH_PATH") || "/"
+    },
+    pass: {
+      apiBaseUrl: providerEnv("PASS", "API_BASE_URL"),
+      apiKey: providerEnv("PASS", "API_KEY"),
+      healthPath: providerEnv("PASS", "HEALTH_PATH") || "/"
+    },
+    cera: {
+      apiBaseUrl: providerEnv("CERA", "API_BASE_URL"),
+      apiKey: providerEnv("CERA", "API_KEY"),
+      healthPath: providerEnv("CERA", "HEALTH_PATH") || "/"
+    }
+  }
 };
 
 export const isProduction = config.nodeEnv === "production";
