@@ -63,24 +63,41 @@ async function runJob(client: PoolClient, job: RetryJobRow) {
     const taskId = String(job.payload.taskId || "");
     if (!taskId) throw new Error("Missing taskId for care completion callback");
     const target = await client.query<{
-      callback_url: string;
-      secret_ciphertext: string;
+      callback_url: string | null;
+      secret_ciphertext: string | null;
+      integration_callback_url: string | null;
+      integration_secret_ciphertext: string | null;
       public_id: string;
       status: string;
       summary: string;
       after_photo_url: string | null;
       completed_at: string | null;
     }>(
-      `SELECT cfg.callback_url, cfg.secret_ciphertext, t.public_id, t.status::text, t.summary,
-              t.after_photo_url, t.completed_at::text
+      `SELECT cfg.callback_url, cfg.secret_ciphertext,
+              care_integration.settings->>'callbackUrl' AS integration_callback_url,
+              care_integration.settings->>'callbackSigningSecretCiphertext' AS integration_secret_ciphertext,
+              t.public_id, t.status::text, t.summary, t.after_photo_url, t.completed_at::text
        FROM ops.tasks t
-       JOIN tenant.agency_webhook_configs cfg ON cfg.agency_id = t.agency_id AND cfg.enabled
+       LEFT JOIN LATERAL (
+         SELECT ai.settings
+         FROM integration.agency_integrations ai
+         JOIN integration.provider_configs pc ON pc.id = ai.provider_config_id
+         WHERE ai.agency_id = t.agency_id
+           AND pc.provider_type = 'care_management'
+           AND ai.enabled
+           AND NULLIF(ai.settings->>'callbackUrl', '') IS NOT NULL
+         ORDER BY ai.updated_at DESC LIMIT 1
+       ) care_integration ON true
+       LEFT JOIN tenant.agency_webhook_configs cfg ON cfg.agency_id = t.agency_id AND cfg.enabled
        WHERE t.public_id = $1 AND t.deleted_at IS NULL
        ORDER BY cfg.created_at DESC LIMIT 1`,
       [taskId]
     );
     const row = target.rows[0];
-    if (!row) throw new Error("No enabled agency callback URL is configured");
+    if (!row) throw new Error("Task was not found for care completion callback");
+    const callbackUrl = row.integration_callback_url || row.callback_url;
+    const secretCiphertext = row.integration_secret_ciphertext || row.secret_ciphertext;
+    if (!callbackUrl || !secretCiphertext) throw new Error("No enabled agency callback URL is configured");
     const payload = JSON.stringify({
       event: "task.completed",
       taskId: row.public_id,
@@ -89,8 +106,8 @@ async function runJob(client: PoolClient, job: RetryJobRow) {
       afterPhotoUrl: row.after_photo_url,
       completedAt: row.completed_at
     });
-    const secret = decryptField(row.secret_ciphertext);
-    const response = await fetch(row.callback_url, {
+    const secret = decryptField(secretCiphertext);
+    const response = await fetch(callbackUrl, {
       method: "POST",
       headers: {
         "content-type": "application/json",

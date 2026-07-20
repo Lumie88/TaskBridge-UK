@@ -5,7 +5,7 @@ import { normalizeCarePlatformEvent, parseCarePlatformProvider, type NormalizedC
 import { config } from "../config.js";
 import { query, withTransaction } from "../db.js";
 import { normalizeDbsProviderCallback } from "../integrations.js";
-import { encryptField, hashToken, publicId } from "../security.js";
+import { decryptField, encryptField, hashToken, publicId } from "../security.js";
 import { createTaskPlan } from "../task-planner.js";
 
 const incomingTaskSchema = z.object({
@@ -34,7 +34,9 @@ webhookRouter.post("/care-platforms/:provider", async (req, res) => {
   if (!agencyKey) return res.status(401).json({ error: "Agency API key is invalid or out of scope" });
 
   const integration = await careProviderIntegration(agencyKey.agency_id, provider);
-  const signingSecret = integration?.settings?.webhookSigningSecret;
+  const signingSecret = integration?.settings?.webhookSigningSecretCiphertext
+    ? decryptField(String(integration.settings.webhookSigningSecretCiphertext))
+    : integration?.settings?.webhookSigningSecret;
   if (typeof signingSecret === "string" && signingSecret.trim()) {
     const signature = req.get("signature") || req.get("x-webhook-signature") || req.get("x-taskbridge-signature") || "";
     if (!validWebhookSignature(signature, signingSecret, req.rawBody || Buffer.alloc(0))) {
@@ -197,7 +199,7 @@ async function processCarePlatformEvent(
   event: NormalizedCarePlatformEvent
 ) {
   const taskText = event.eventType === "risk_hazard.logged" ? event.hazardText || event.noteText : event.noteText || event.hazardText;
-  const suggestions = event.eventType === "service_user.updated" || !taskText
+  const suggestions = event.eventType === "service_user.updated" || event.eventType === "visit.completed" || !taskText
     ? []
     : await createTaskPlan(taskText, event.serviceUser.riskLevel !== "standard");
 
@@ -246,7 +248,7 @@ async function processCarePlatformEvent(
       eventType: event.eventType,
       serviceUserId: serviceUser.publicId,
       taskIds,
-      status: taskIds.length ? "awaiting_care_approval" : "service_user_synced"
+      status: event.eventType === "visit.completed" ? "visit_completion_received" : taskIds.length ? "awaiting_care_approval" : "service_user_synced"
     };
     await client.query(
       `INSERT INTO integration.webhook_logs

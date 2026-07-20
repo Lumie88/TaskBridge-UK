@@ -328,7 +328,7 @@ const apiEndpoints = [
     method: "POST",
     path: "/api/webhooks/care-platforms/:provider",
     title: "Care-platform event webhook",
-    description: "Production adapter endpoint for Birdie, PASS, Cera or generic care systems. Supports care_note.created, risk_hazard.logged and service_user.updated."
+    description: "Production adapter endpoint for Birdie, PASS, Cera or generic care systems. Supports care_note.created, risk_hazard.logged, service_user.updated and visit.completed."
   },
   {
     method: "POST",
@@ -497,7 +497,7 @@ export function ApiDocumentation() {
 
           <section id="care-task" className="api-doc-section">
             <h2>Create a care task from care-platform events</h2>
-            <p>The production care-platform endpoint accepts `care_note.created`, `risk_hazard.logged` and `service_user.updated`. Notes and hazards are converted into one or more home-safety tasks awaiting care approval; service-user updates sync the encrypted agency directory.</p>
+            <p>The production care-platform endpoint accepts `care_note.created`, `risk_hazard.logged`, `service_user.updated` and `visit.completed`. Notes and hazards are converted into one or more home-safety tasks awaiting care approval; service-user updates sync the encrypted agency directory; visit completion events can be accepted for partner reconciliation.</p>
             <CodeBlock language="bash" title="Provider event cURL" code={carePlatformCurl} />
             <CodeBlock language="bash" title="cURL" code={careTaskCurl} />
             <CodeBlock language="ts" title="Node / JavaScript" code={careTaskJs} />

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { asyncHandler } from "../async-handler.js";
 import { audit } from "../audit.js";
 import { requireRoles } from "../auth.js";
+import { normalizeCarePlatformEvent } from "../care-platform-adapters.js";
 import { config } from "../config.js";
 import { query, withTransaction } from "../db.js";
 import { dispatchToHandymanNetwork, sendHandymanOnboardingInvite, sendSecureVisitLink, sendStaffOnboardingInvite, startDbsVerification } from "../integrations.js";
@@ -98,6 +99,18 @@ const agencySettingsSchema = z.object({
   defaultVisitRadiusMiles: z.number().min(0.1).max(50),
   goLiveStatus: z.enum(["pilot_setup", "pilot_live", "paused", "suspended"]),
   monthlyCap: z.number().min(0).max(100000)
+});
+const agencyIntegrationSchema = z.object({
+  provider: z.enum(["birdie", "pass", "cera", "generic"]),
+  enabled: z.boolean(),
+  externalAccountId: z.string().trim().max(200).optional().nullable(),
+  callbackUrl: z.string().trim().url().optional().or(z.literal("")).nullable(),
+  webhookSigningSecret: z.string().trim().max(500).optional().nullable(),
+  callbackSigningSecret: z.string().trim().max(500).optional().nullable()
+});
+const integrationSandboxSchema = z.object({
+  provider: z.enum(["birdie", "pass", "cera", "generic"]),
+  payload: z.record(z.string(), z.unknown())
 });
 const settlementUpdateSchema = z.object({
   settlementStatus: z.enum(["not_invoiced", "invoiced", "agency_paid", "disputed", "written_off"]),
@@ -852,7 +865,8 @@ adminRouter.get("/agencies", requireRoles("taskbridge_super_admin"), asyncHandle
             settings.default_visit_radius_miles::text,
             settings.go_live_status,
             billing.monthly_cap::text,
-            billing.status AS billing_status
+            billing.status AS billing_status,
+            COALESCE(integrations.integrations, '[]'::jsonb) AS integrations
      FROM tenant.agencies a
      LEFT JOIN tenant.agency_settings settings ON settings.agency_id = a.id
      LEFT JOIN billing.agency_billing_profiles billing ON billing.agency_id = a.id
@@ -866,6 +880,20 @@ adminRouter.get("/agencies", requireRoles("taskbridge_super_admin"), asyncHandle
          AND (k.expires_at IS NULL OR k.expires_at > clock_timestamp())
        ORDER BY k.created_at DESC LIMIT 1
      ) api_key ON true
+     LEFT JOIN LATERAL (
+       SELECT jsonb_agg(jsonb_build_object(
+         'provider', pc.name,
+         'enabled', ai.enabled,
+         'externalAccountId', ai.external_account_id,
+         'callbackUrl', ai.settings->>'callbackUrl',
+         'webhookSigningSecretSet', ai.settings ? 'webhookSigningSecretCiphertext',
+         'callbackSigningSecretSet', ai.settings ? 'callbackSigningSecretCiphertext',
+         'updatedAt', ai.updated_at::text
+       ) ORDER BY pc.name) AS integrations
+       FROM integration.agency_integrations ai
+       JOIN integration.provider_configs pc ON pc.id = ai.provider_config_id
+       WHERE ai.agency_id = a.id AND pc.provider_type = 'care_management'
+     ) integrations ON true
      WHERE a.deleted_at IS NULL ORDER BY a.name`
   );
   res.json({ agencies: result.rows.map((row: Record<string, unknown>) => ({
@@ -887,7 +915,8 @@ adminRouter.get("/agencies", requireRoles("taskbridge_super_admin"), asyncHandle
       length: Number(row.key_length || 0),
       encryptionRepresentation: "SHA-256 hash · non-recoverable",
       issuedAt: row.api_key_created_at
-    } : null
+    } : null,
+    integrations: row.integrations || []
   })) });
 }));
 
@@ -984,6 +1013,95 @@ adminRouter.patch("/agencies/:id/settings", requireRoles("taskbridge_super_admin
   if (!result) return res.status(404).json({ error: "Care agency not found" });
   await audit(req, "super_admin.agency_settings.updated", "agency", result, data);
   res.json({ id: result, settings: data });
+}));
+
+adminRouter.patch("/agencies/:id/integrations", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {
+  const parsed = agencyIntegrationSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid integration settings" });
+  const data = parsed.data;
+  const result = await withTransaction(req.auth!, async (client) => {
+    const agency = await client.query<{ id: string }>(
+      "SELECT id::text FROM tenant.agencies WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+      [req.params.id]
+    );
+    if (!agency.rows[0]) return null;
+    const provider = await client.query<{ id: string }>(
+      `SELECT id::text FROM integration.provider_configs
+       WHERE provider_type = 'care_management' AND name = $1 AND enabled
+       LIMIT 1`,
+      [data.provider]
+    );
+    if (!provider.rows[0]) throw Object.assign(new Error("Care-platform provider is not configured"), { statusCode: 422 });
+    const existing = await client.query<{ settings: Record<string, unknown> }>(
+      `SELECT settings FROM integration.agency_integrations
+       WHERE agency_id = $1 AND provider_config_id = $2`,
+      [req.params.id, provider.rows[0].id]
+    );
+    const current = existing.rows[0]?.settings || {};
+    const settings = {
+      ...current,
+      callbackUrl: data.callbackUrl || null,
+      webhookSigningSecretCiphertext: data.webhookSigningSecret ? encryptField(data.webhookSigningSecret) : current.webhookSigningSecretCiphertext || null,
+      callbackSigningSecretCiphertext: data.callbackSigningSecret ? encryptField(data.callbackSigningSecret) : current.callbackSigningSecretCiphertext || null,
+      supportedEvents: ["care_note.created", "risk_hazard.logged", "service_user.updated", "visit.completed"]
+    };
+    await client.query(
+      `INSERT INTO integration.agency_integrations
+        (agency_id, provider_config_id, external_account_id, settings, enabled)
+       VALUES ($1, $2, NULLIF($3, ''), $4, $5)
+       ON CONFLICT (agency_id, provider_config_id) DO UPDATE
+       SET external_account_id = EXCLUDED.external_account_id,
+           settings = EXCLUDED.settings,
+           enabled = EXCLUDED.enabled,
+           updated_at = clock_timestamp()`,
+      [req.params.id, provider.rows[0].id, data.externalAccountId || null, settings, data.enabled]
+    );
+    return { agencyId: agency.rows[0].id, providerConfigId: provider.rows[0].id };
+  });
+  if (!result) return res.status(404).json({ error: "Care agency not found" });
+  await audit(req, "super_admin.agency_integration.updated", "agency", result.agencyId, {
+    provider: data.provider,
+    enabled: data.enabled,
+    externalAccountId: data.externalAccountId || null,
+    webhookSigningSecretSet: Boolean(data.webhookSigningSecret),
+    callbackSigningSecretSet: Boolean(data.callbackSigningSecret)
+  });
+  res.json({
+    agencyId: result.agencyId,
+    provider: data.provider,
+    enabled: data.enabled,
+    webhookSigningSecretSet: Boolean(data.webhookSigningSecret),
+    callbackSigningSecretSet: Boolean(data.callbackSigningSecret)
+  });
+}));
+
+adminRouter.post("/agencies/:id/integrations/sandbox", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {
+  const parsed = integrationSandboxSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid sandbox payload" });
+  const agency = await query<{ id: string }>(
+    "SELECT id::text FROM tenant.agencies WHERE id = $1 AND deleted_at IS NULL",
+    [req.params.id]
+  );
+  if (!agency.rows[0]) return res.status(404).json({ error: "Care agency not found" });
+  const normalized = normalizeCarePlatformEvent(parsed.data.provider, parsed.data.payload);
+  if (!normalized) return res.status(422).json({ error: "Payload does not match a supported care-platform event" });
+  await audit(req, "super_admin.agency_integration.sandbox_tested", "agency", req.params.id, {
+    provider: parsed.data.provider,
+    eventType: normalized.eventType,
+    eventId: normalized.eventId
+  });
+  res.json({
+    accepted: true,
+    dryRun: true,
+    normalized: {
+      provider: normalized.provider,
+      eventType: normalized.eventType,
+      eventId: normalized.eventId,
+      serviceUserExternalId: normalized.serviceUser.externalId,
+      taskWouldBeCreated: ["care_note.created", "risk_hazard.logged"].includes(normalized.eventType),
+      visitCompletionWouldBeAccepted: normalized.eventType === "visit.completed"
+    }
+  });
 }));
 
 adminRouter.get("/billing/task-charges", asyncHandler(async (_req, res) => {

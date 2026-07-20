@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export type CarePlatformProvider = "birdie" | "pass" | "cera" | "generic";
-export type CarePlatformEventType = "care_note.created" | "risk_hazard.logged" | "service_user.updated";
+export type CarePlatformEventType = "care_note.created" | "risk_hazard.logged" | "service_user.updated" | "visit.completed";
 
 export interface NormalizedServiceUser {
   externalId: string;
@@ -25,11 +25,14 @@ export interface NormalizedCarePlatformEvent {
   preferredWindowStart: string | null;
   preferredWindowEnd: string | null;
   carerOnSite: boolean;
+  externalTaskId: string | null;
+  completionNotes: string | null;
+  completedAt: string | null;
   raw: Record<string, unknown>;
 }
 
 const providerSchema = z.enum(["birdie", "pass", "cera", "generic"]);
-const supportedEvents: CarePlatformEventType[] = ["care_note.created", "risk_hazard.logged", "service_user.updated"];
+const supportedEvents: CarePlatformEventType[] = ["care_note.created", "risk_hazard.logged", "service_user.updated", "visit.completed"];
 
 export function parseCarePlatformProvider(value: string): CarePlatformProvider | null {
   const parsed = providerSchema.safeParse(value.toLowerCase());
@@ -79,6 +82,9 @@ export function normalizeCarePlatformEvent(provider: CarePlatformProvider, paylo
     preferredWindowStart: pickString(body, ["preferred_window_start", "preferredWindowStart", "visit_window.start", "visitWindow.start"]) || null,
     preferredWindowEnd: pickString(body, ["preferred_window_end", "preferredWindowEnd", "visit_window.end", "visitWindow.end"]) || null,
     carerOnSite: Boolean(pickValue(body, ["carer_on_site", "carerOnSite", "visit.carer_on_site", "visit.carerOnSite"])),
+    externalTaskId: pickString(body, ["task_id", "taskId", "task.id", "work_order_id", "workOrderId", "visit.task_id", "visit.taskId"]) || null,
+    completionNotes: pickString(body, ["completion_notes", "completionNotes", "visit.completion_notes", "visit.completionNotes", "visit.notes"]) || null,
+    completedAt: pickString(body, ["completed_at", "completedAt", "visit.completed_at", "visit.completedAt"]) || null,
     raw: body
   };
 }
@@ -89,6 +95,7 @@ function normalizeEventType(value: string | null): CarePlatformEventType | null 
   if (["care_note.created", "care_note_created", "note.created", "note_created", "carelog.created", "care_log.created"].includes(normalized)) return "care_note.created";
   if (["risk_hazard.logged", "risk_hazard_logged", "hazard.logged", "hazard_logged", "risk.logged", "risk_logged"].includes(normalized)) return "risk_hazard.logged";
   if (["service_user.updated", "service_user_updated", "resident.updated", "resident_updated", "client.updated", "client_updated", "care_recipient.updated"].includes(normalized)) return "service_user.updated";
+  if (["visit.completed", "visit_completed", "task.completed", "task_completed", "work_order.completed", "work_order_completed"].includes(normalized)) return "visit.completed";
   return supportedEvents.includes(value as CarePlatformEventType) ? value as CarePlatformEventType : null;
 }
 
