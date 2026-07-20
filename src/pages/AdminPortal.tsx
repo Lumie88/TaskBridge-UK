@@ -128,6 +128,8 @@ interface Agency {
     provider: "birdie" | "pass" | "cera" | "generic";
     enabled: boolean;
     externalAccountId: string | null;
+    providerApiBaseUrl: string | null;
+    providerAccessTokenSet: boolean;
     callbackUrl: string | null;
     webhookSigningSecretSet: boolean;
     callbackSigningSecretSet: boolean;
@@ -707,6 +709,8 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
     if (!provider || !["birdie", "pass", "cera", "generic"].includes(provider.trim().toLowerCase())) return;
     const existing = agency.integrations?.find((item) => item.provider === provider.trim().toLowerCase());
     const externalAccountId = window.prompt("Provider workspace/account ID", existing?.externalAccountId || agency.public_id);
+    const providerApiBaseUrl = window.prompt("Agency provider API base URL (leave blank to use Railway fallback)", existing?.providerApiBaseUrl || "");
+    const providerAccessToken = window.prompt(existing?.providerAccessTokenSet ? "Agency-authorised provider access token (leave blank to keep existing)" : "Agency-authorised provider access token");
     const callbackUrl = window.prompt("Outbound completion callback URL", existing?.callbackUrl || "");
     const webhookSigningSecret = window.prompt(existing?.webhookSigningSecretSet ? "Inbound webhook signing secret (leave blank to keep existing)" : "Inbound webhook signing secret");
     const callbackSigningSecret = window.prompt(existing?.callbackSigningSecretSet ? "Outbound callback signing secret (leave blank to keep existing)" : "Outbound callback signing secret");
@@ -716,6 +720,8 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
         provider: provider.trim().toLowerCase(),
         enabled: true,
         externalAccountId,
+        providerApiBaseUrl,
+        providerAccessToken,
         callbackUrl,
         webhookSigningSecret,
         callbackSigningSecret
@@ -723,6 +729,16 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
       setSuccess(`${agency.name} integration settings updated.`);
       await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to update integration settings"); }
+    finally { setSettingsBusy(""); }
+  }
+  async function healthCheckAgencyIntegration(agency: Agency) {
+    const provider = window.prompt("Provider health check: birdie, pass, cera or generic", agency.integrations?.find((item) => item.enabled)?.provider || "generic");
+    if (!provider || !["birdie", "pass", "cera", "generic"].includes(provider.trim().toLowerCase())) return;
+    setSettingsBusy(`${agency.id}-health`); setError(""); setSuccess("");
+    try {
+      const result = await api<{ status: string | number; durationMs?: number; credentialScope?: string }>(`/api/admin/agencies/${agency.id}/integrations/${provider.trim().toLowerCase()}/health`, { method: "POST" });
+      setSuccess(`${provider.toUpperCase()} health check returned ${result.status}${result.durationMs !== undefined ? ` in ${result.durationMs}ms` : ""} using ${humanize(result.credentialScope || "configured")} credentials.`);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Agency integration health check failed"); }
     finally { setSettingsBusy(""); }
   }
   async function sandboxIntegration(agency: Agency) {
@@ -752,7 +768,7 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
   return <>
     <div className="page-title-row"><div><span className="eyebrow">Super-admin control</span><h1>Care agency onboarding</h1><p>Only TaskBridge super administrators can create a care-organisation workspace.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Super admin only</span></div>
     <div className="agency-onboarding-layout">
-      <section className="panel"><div className="panel-heading"><div><h2>Care agencies</h2><p>{agencies.length} organisation{agencies.length === 1 ? "" : "s"} registered.</p></div></div><div className="agency-list agency-key-list">{agencies.map((agency) => <article key={agency.id}><span><Building2 size={19} /></span><div><h3>{agency.name}</h3><p><Mail size={14} /> {agency.primary_contact_email}</p><small>{agency.public_id} / {agency.work_email_domain}</small><div className="agency-operational-meta"><span><ClipboardCheck size={14} /> {agency.activeWorkorders} active workorder{agency.activeWorkorders === 1 ? "" : "s"}</span><span><ShieldCheck size={14} /> {humanize(agency.settings?.goLiveStatus || "pilot_setup")} · £{(agency.settings?.monthlyCap || 500).toFixed(0)} cap</span><span><Activity size={14} /> {(agency.integrations || []).filter((item) => item.enabled).map((item) => item.provider.toUpperCase()).join(", ") || "No care-platform integration"}</span>{agency.secretApiKey ? <span title={agency.secretApiKey.encryptionRepresentation}><KeyRound size={14} /> {agency.secretApiKey.masked} / {agency.secretApiKey.length} characters / {agency.secretApiKey.encryptionRepresentation}</span> : <span><KeyRound size={14} /> Integration key not issued</span>}</div></div><div className="row-actions"><StatusBadge status={agency.status}>{humanize(agency.status)}</StatusBadge><button className="button button-secondary button-small" disabled={settingsBusy === `${agency.id}-integration`} onClick={() => configureIntegration(agency)}>Integration</button><button className="button button-secondary button-small" disabled={settingsBusy === `${agency.id}-sandbox`} onClick={() => sandboxIntegration(agency)}>Sandbox</button><button className="button button-secondary button-small" disabled={settingsBusy === agency.id} onClick={() => updateSettings(agency)}>Settings</button></div></article>)}</div></section>
+      <section className="panel"><div className="panel-heading"><div><h2>Care agencies</h2><p>{agencies.length} organisation{agencies.length === 1 ? "" : "s"} registered.</p></div></div><div className="agency-list agency-key-list">{agencies.map((agency) => <article key={agency.id}><span><Building2 size={19} /></span><div><h3>{agency.name}</h3><p><Mail size={14} /> {agency.primary_contact_email}</p><small>{agency.public_id} / {agency.work_email_domain}</small><div className="agency-operational-meta"><span><ClipboardCheck size={14} /> {agency.activeWorkorders} active workorder{agency.activeWorkorders === 1 ? "" : "s"}</span><span><ShieldCheck size={14} /> {humanize(agency.settings?.goLiveStatus || "pilot_setup")} · £{(agency.settings?.monthlyCap || 500).toFixed(0)} cap</span><span><Activity size={14} /> {(agency.integrations || []).filter((item) => item.enabled).map((item) => `${item.provider.toUpperCase()}${item.providerAccessTokenSet ? " agency token" : " fallback"}`).join(", ") || "No care-platform integration"}</span>{agency.secretApiKey ? <span title={agency.secretApiKey.encryptionRepresentation}><KeyRound size={14} /> {agency.secretApiKey.masked} / {agency.secretApiKey.length} characters / {agency.secretApiKey.encryptionRepresentation}</span> : <span><KeyRound size={14} /> Integration key not issued</span>}</div></div><div className="row-actions"><StatusBadge status={agency.status}>{humanize(agency.status)}</StatusBadge><button className="button button-secondary button-small" disabled={settingsBusy === `${agency.id}-integration`} onClick={() => configureIntegration(agency)}>Integration</button><button className="button button-secondary button-small" disabled={settingsBusy === `${agency.id}-health`} onClick={() => healthCheckAgencyIntegration(agency)}>Health</button><button className="button button-secondary button-small" disabled={settingsBusy === `${agency.id}-sandbox`} onClick={() => sandboxIntegration(agency)}>Sandbox</button><button className="button button-secondary button-small" disabled={settingsBusy === agency.id} onClick={() => updateSettings(agency)}>Settings</button></div></article>)}</div></section>
       <aside className="agency-create-panel"><div className="resident-create-heading"><span><Plus size={20} /></span><div><h2>Onboard a care agency</h2><p>Create the tenant and invite its first care manager.</p></div></div><form className="stack" onSubmit={createAgency}><label>Agency name<input required name="name" minLength={2} /></label><label>Primary contact name<input required name="primaryContactName" minLength={2} /></label><label>Primary contact work email<input required name="primaryContactEmail" type="email" /></label><label>Approved work email domain<input required name="workEmailDomain" placeholder="careagency.co.uk" /></label>{error && <p className="form-error">{error}</p>}{success && <p className="form-success">{success}</p>}{staffInvitation && <div className="invitation-link"><input readOnly value={staffInvitation.url} aria-label="Care manager invitation URL" /><button className="icon-button" type="button" onClick={() => navigator.clipboard.writeText(staffInvitation.url)} aria-label="Copy manager invitation"><Copy size={18} /></button></div>}{issuedKey && <div className="issued-api-key"><strong>Copy the integration key now</strong><p>For security, the full secret is shown only once.</p><div><input readOnly value={issuedKey} aria-label="New agency API key" /><button className="icon-button" type="button" onClick={() => navigator.clipboard.writeText(issuedKey)} aria-label="Copy API key"><Copy size={18} /></button></div></div>}<button className="button button-primary button-full" disabled={busy} type="submit">{busy ? <><LoaderCircle className="spin" size={17} /> Creating...</> : <><Building2 size={17} /> Create agency workspace</>}</button></form></aside>
     </div>
   </>;

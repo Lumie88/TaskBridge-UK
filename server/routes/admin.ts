@@ -105,6 +105,8 @@ const agencyIntegrationSchema = z.object({
   provider: z.enum(["birdie", "pass", "cera", "generic"]),
   enabled: z.boolean(),
   externalAccountId: z.string().trim().max(200).optional().nullable(),
+  providerApiBaseUrl: z.string().trim().url().optional().or(z.literal("")).nullable(),
+  providerAccessToken: z.string().trim().max(2000).optional().nullable(),
   callbackUrl: z.string().trim().url().optional().or(z.literal("")).nullable(),
   webhookSigningSecret: z.string().trim().max(500).optional().nullable(),
   callbackSigningSecret: z.string().trim().max(500).optional().nullable()
@@ -899,6 +901,8 @@ adminRouter.get("/agencies", requireRoles("taskbridge_super_admin"), asyncHandle
          'provider', pc.name,
          'enabled', ai.enabled,
          'externalAccountId', ai.external_account_id,
+         'providerApiBaseUrl', ai.settings->>'providerApiBaseUrl',
+         'providerAccessTokenSet', ai.settings ? 'providerAccessTokenCiphertext',
          'callbackUrl', ai.settings->>'callbackUrl',
          'webhookSigningSecretSet', ai.settings ? 'webhookSigningSecretCiphertext',
          'callbackSigningSecretSet', ai.settings ? 'callbackSigningSecretCiphertext',
@@ -1054,6 +1058,8 @@ adminRouter.patch("/agencies/:id/integrations", requireRoles("taskbridge_super_a
     const current = existing.rows[0]?.settings || {};
     const settings = {
       ...current,
+      providerApiBaseUrl: data.providerApiBaseUrl || current.providerApiBaseUrl || null,
+      providerAccessTokenCiphertext: data.providerAccessToken ? encryptField(data.providerAccessToken) : current.providerAccessTokenCiphertext || null,
       callbackUrl: data.callbackUrl || null,
       webhookSigningSecretCiphertext: data.webhookSigningSecret ? encryptField(data.webhookSigningSecret) : current.webhookSigningSecretCiphertext || null,
       callbackSigningSecretCiphertext: data.callbackSigningSecret ? encryptField(data.callbackSigningSecret) : current.callbackSigningSecretCiphertext || null,
@@ -1077,6 +1083,8 @@ adminRouter.patch("/agencies/:id/integrations", requireRoles("taskbridge_super_a
     provider: data.provider,
     enabled: data.enabled,
     externalAccountId: data.externalAccountId || null,
+    providerApiBaseUrlSet: Boolean(data.providerApiBaseUrl),
+    providerAccessTokenSet: Boolean(data.providerAccessToken),
     webhookSigningSecretSet: Boolean(data.webhookSigningSecret),
     callbackSigningSecretSet: Boolean(data.callbackSigningSecret)
   });
@@ -1084,6 +1092,8 @@ adminRouter.patch("/agencies/:id/integrations", requireRoles("taskbridge_super_a
     agencyId: result.agencyId,
     provider: data.provider,
     enabled: data.enabled,
+    providerApiBaseUrlSet: Boolean(data.providerApiBaseUrl),
+    providerAccessTokenSet: Boolean(data.providerAccessToken),
     webhookSigningSecretSet: Boolean(data.webhookSigningSecret),
     callbackSigningSecretSet: Boolean(data.callbackSigningSecret)
   });
@@ -1116,6 +1126,38 @@ adminRouter.post("/agencies/:id/integrations/sandbox", requireRoles("taskbridge_
       visitCompletionWouldBeAccepted: normalized.eventType === "visit.completed"
     }
   });
+}));
+
+adminRouter.post("/agencies/:id/integrations/:provider/health", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {
+  const parsed = carePlatformProviderSchema.safeParse(req.params);
+  if (!parsed.success) return res.status(404).json({ error: "Care-platform provider is not supported" });
+  const result = await query<{ settings: Record<string, unknown>; enabled: boolean }>(
+    `SELECT ai.settings, ai.enabled
+     FROM integration.agency_integrations ai
+     JOIN integration.provider_configs pc ON pc.id = ai.provider_config_id
+     WHERE ai.agency_id = $1
+       AND pc.provider_type = 'care_management'
+       AND pc.name = $2
+       AND pc.enabled
+     LIMIT 1`,
+    [req.params.id, parsed.data.provider]
+  );
+  const integration = result.rows[0];
+  if (!integration) return res.status(404).json({ error: "Care-agency integration is not configured" });
+  if (!integration.enabled) return res.status(409).json({ error: "Care-agency integration is disabled" });
+  const providerAccessToken = integration.settings.providerAccessTokenCiphertext
+    ? decryptField(String(integration.settings.providerAccessTokenCiphertext))
+    : null;
+  const health = await carePlatformHealthCheck(parsed.data.provider, {
+    apiBaseUrl: typeof integration.settings.providerApiBaseUrl === "string" ? integration.settings.providerApiBaseUrl : null,
+    apiKey: providerAccessToken
+  });
+  await audit(req, "super_admin.agency_care_platform.health_checked", "agency", req.params.id, {
+    provider: parsed.data.provider,
+    usedAgencyToken: Boolean(providerAccessToken),
+    result: health
+  });
+  res.json({ ...health, credentialScope: providerAccessToken ? "agency" : "global_fallback" });
 }));
 
 adminRouter.get("/billing/task-charges", asyncHandler(async (_req, res) => {

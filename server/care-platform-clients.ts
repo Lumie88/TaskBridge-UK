@@ -10,9 +10,19 @@ type CarePlatformRequestOptions = {
   payload?: unknown;
   idempotencyKey?: string;
   extraHeaders?: Record<string, string>;
+  credentialsOverride?: {
+    apiBaseUrl: string;
+    apiKey: string;
+    healthPath: string;
+  };
 };
 
 const credentialProviders: ProviderWithCredentials[] = ["birdie", "pass", "cera"];
+
+export type CarePlatformCredentialOverride = {
+  apiBaseUrl?: string | null;
+  apiKey?: string | null;
+};
 
 export function carePlatformCredentialStatus() {
   return credentialProviders.map((provider) => {
@@ -27,16 +37,17 @@ export function carePlatformCredentialStatus() {
   });
 }
 
-export async function carePlatformHealthCheck(provider: CarePlatformProvider) {
+export async function carePlatformHealthCheck(provider: CarePlatformProvider, override: CarePlatformCredentialOverride = {}) {
   if (provider === "generic") return { provider, configured: true, status: "generic_adapter" };
-  const credentials = credentialsFor(provider);
+  const credentials = credentialsFor(provider, override);
   if (!credentials.apiBaseUrl || !credentials.apiKey) {
     throw Object.assign(new Error(`${provider.toUpperCase()} API credentials are not configured`), { statusCode: 422 });
   }
   const started = Date.now();
   const response = await carePlatformRequest(provider, {
     method: "GET",
-    path: credentials.healthPath
+    path: credentials.healthPath,
+    credentialsOverride: credentials
   });
   return {
     provider,
@@ -68,7 +79,9 @@ export async function postCarePlatformCompletionCallback(provider: CarePlatformP
 }
 
 async function carePlatformRequest(provider: ProviderWithCredentials, options: CarePlatformRequestOptions) {
-  const credentials = credentialsFor(provider);
+  const credentials = "credentialsOverride" in options && options.credentialsOverride
+    ? options.credentialsOverride as ReturnType<typeof credentialsFor>
+    : credentialsFor(provider);
   const body = options.payload === undefined ? undefined : JSON.stringify(options.payload);
   const response = await fetch(`${credentials.apiBaseUrl.replace(/\/$/, "")}${normalisePath(options.path)}`, {
     method: options.method || "POST",
@@ -89,8 +102,13 @@ async function carePlatformRequest(provider: ProviderWithCredentials, options: C
   return response;
 }
 
-function credentialsFor(provider: ProviderWithCredentials) {
-  return config.carePlatforms[provider];
+function credentialsFor(provider: ProviderWithCredentials, override: CarePlatformCredentialOverride = {}) {
+  const fallback = config.carePlatforms[provider];
+  return {
+    apiBaseUrl: override.apiBaseUrl || fallback.apiBaseUrl,
+    apiKey: override.apiKey || fallback.apiKey,
+    healthPath: fallback.healthPath
+  };
 }
 
 function normalisePath(path: string) {
