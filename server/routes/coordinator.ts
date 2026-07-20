@@ -128,6 +128,24 @@ const analyticsUploadSchema = z.object({
   fileName: z.string().trim().min(1).max(240),
   csvText: z.string().min(10).max(750_000)
 });
+const rotaPlanSchema = z.object({
+  branchPostcode: z.string().trim().min(3).max(12).optional().default(""),
+  caregivers: z.array(z.object({
+    name: z.string().trim().min(2).max(120),
+    startPostcode: z.string().trim().min(3).max(12).optional().default(""),
+    availableFrom: z.string().regex(/^\d{2}:\d{2}$/).default("08:00"),
+    availableTo: z.string().regex(/^\d{2}:\d{2}$/).default("18:00"),
+    skills: z.string().trim().max(300).optional().default("")
+  })).min(1).max(12),
+  calls: z.array(z.object({
+    serviceUserId: z.string().uuid(),
+    earliest: z.string().regex(/^\d{2}:\d{2}$/),
+    latest: z.string().regex(/^\d{2}:\d{2}$/),
+    durationMinutes: z.number().int().min(5).max(240),
+    priority: z.enum(["routine", "medium", "high"]).default("routine"),
+    requiredSkill: z.string().trim().max(120).optional().default("")
+  })).min(1).max(80)
+});
 
 export const coordinatorRouter = Router();
 coordinatorRouter.use(requireRoles("care_coordinator", "care_manager"), requireAgency);
@@ -274,6 +292,34 @@ coordinatorRouter.get("/analytics", asyncHandler(async (req, res) => {
       createdAt: upload.created_at
     }))
   });
+}));
+
+coordinatorRouter.post("/rota-planner/plan", asyncHandler(async (req, res) => {
+  const enabled = await rotaPlannerEnabled(req.auth!.agencyId!);
+  if (!enabled) return res.status(403).json({ error: "AI rota planner is not unlocked for this agency" });
+  const parsed = rotaPlanSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid rota planning request" });
+  const serviceUserIds = parsed.data.calls.map((call) => call.serviceUserId);
+  const serviceUsers = await query<ServiceUserRow & { latitude: string | null; longitude: string | null }>(
+    `SELECT id::text, external_service_user_id, encrypted_name, encrypted_address,
+            town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+            vulnerability_notes_ciphertext, latitude::text, longitude::text, created_at::text
+     FROM care.service_users
+     WHERE agency_id = $1 AND id = ANY($2::uuid[]) AND deleted_at IS NULL`,
+    [req.auth!.agencyId, serviceUserIds]
+  );
+  const serviceUserLookup = new Map(serviceUsers.rows.map((serviceUser) => [serviceUser.id, serviceUser]));
+  if (serviceUserLookup.size !== new Set(serviceUserIds).size) {
+    return res.status(404).json({ error: "One or more service users could not be found in this agency" });
+  }
+  const plan = buildRotaPlan(parsed.data, serviceUserLookup);
+  await audit(req, "care.rota_planner.generated", "agency", req.auth!.agencyId!, {
+    caregivers: parsed.data.caregivers.length,
+    calls: parsed.data.calls.length,
+    estimatedTravelMinutes: plan.summary.estimatedTravelMinutes,
+    estimatedMinutesSaved: plan.summary.estimatedMinutesSaved
+  });
+  res.json(plan);
 }));
 
 coordinatorRouter.post("/analytics/uploads", asyncHandler(async (req, res) => {
@@ -865,6 +911,171 @@ async function healthAnalyticsEnabled(agencyId: string) {
     [agencyId]
   );
   return result.rows[0]?.health_analytics_enabled === true;
+}
+
+async function rotaPlannerEnabled(agencyId: string) {
+  const result = await query<{ rota_planner_enabled: boolean }>(
+    "SELECT rota_planner_enabled FROM tenant.agency_settings WHERE agency_id = $1",
+    [agencyId]
+  );
+  return result.rows[0]?.rota_planner_enabled === true;
+}
+
+function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<string, ServiceUserRow & { latitude: string | null; longitude: string | null }>) {
+  const caregivers = input.caregivers.map((caregiver, index) => ({
+    id: `caregiver-${index + 1}`,
+    name: caregiver.name,
+    skills: caregiver.skills.toLowerCase().split(",").map((skill) => skill.trim()).filter(Boolean),
+    availableFrom: minutesFromTime(caregiver.availableFrom),
+    availableTo: minutesFromTime(caregiver.availableTo),
+    location: approximatePostcodeLocation(caregiver.startPostcode || input.branchPostcode)
+  }));
+  const calls = input.calls
+    .map((call, index) => {
+      const serviceUser = serviceUsers.get(call.serviceUserId)!;
+      const postcode = decryptOptional(serviceUser.postcode_ciphertext);
+      const storedLocation = serviceUser.latitude && serviceUser.longitude
+        ? { lat: Number(serviceUser.latitude), lng: Number(serviceUser.longitude), precision: "exact" }
+        : null;
+      return {
+        id: `call-${index + 1}`,
+        serviceUserId: serviceUser.id,
+        serviceUserName: decryptField(serviceUser.encrypted_name),
+        reference: serviceUser.external_service_user_id,
+        postcode,
+        location: storedLocation || approximatePostcodeLocation(postcode),
+        earliest: minutesFromTime(call.earliest),
+        latest: minutesFromTime(call.latest),
+        durationMinutes: call.durationMinutes,
+        priority: call.priority,
+        requiredSkill: call.requiredSkill.toLowerCase().trim(),
+        riskLevel: serviceUser.risk_level
+      };
+    })
+    .sort((left, right) => left.earliest - right.earliest || priorityWeight(right.priority) - priorityWeight(left.priority));
+
+  const schedules = caregivers.map((caregiver) => ({
+    caregiverId: caregiver.id,
+    caregiverName: caregiver.name,
+    available: `${timeFromMinutes(caregiver.availableFrom)}-${timeFromMinutes(caregiver.availableTo)}`,
+    calls: [] as Array<Record<string, unknown>>,
+    travelMinutes: 0,
+    warnings: [] as string[],
+    currentTime: caregiver.availableFrom,
+    currentLocation: caregiver.location
+  }));
+  const unassigned: Array<Record<string, unknown>> = [];
+  const manualTravelBaseline = calls.reduce((total, call, index) => {
+    const previous = index === 0 ? approximatePostcodeLocation(input.branchPostcode) : calls[index - 1].location;
+    return total + travelMinutes(previous, call.location);
+  }, 0);
+
+  for (const call of calls) {
+    const candidates = schedules
+      .map((schedule) => {
+        const caregiver = caregivers.find((item) => item.id === schedule.caregiverId)!;
+        const skillPenalty = call.requiredSkill && !caregiver.skills.includes(call.requiredSkill) ? 999 : 0;
+        const travel = travelMinutes(schedule.currentLocation, call.location);
+        const arrival = Math.max(call.earliest, schedule.currentTime + travel);
+        const finish = arrival + call.durationMinutes;
+        const lateBy = Math.max(0, arrival - call.latest);
+        const overtime = Math.max(0, finish - caregiver.availableTo);
+        return { schedule, travel, arrival, finish, lateBy, overtime, score: travel + lateBy * 4 + overtime * 3 + skillPenalty };
+      })
+      .sort((left, right) => left.score - right.score);
+    const best = candidates[0];
+    if (!best || best.score >= 999) {
+      unassigned.push({ serviceUserName: call.serviceUserName, reference: call.reference, reason: "No caregiver has the required skill" });
+      continue;
+    }
+    const warnings = [
+      best.lateBy ? `Late risk: ${best.lateBy} minutes after preferred window` : "",
+      best.overtime ? `Overtime risk: ${best.overtime} minutes beyond availability` : "",
+      call.riskLevel !== "standard" && call.priority === "routine" ? "Vulnerable or high-risk service user marked routine" : ""
+    ].filter(Boolean);
+    best.schedule.calls.push({
+      serviceUserName: call.serviceUserName,
+      reference: call.reference,
+      postcode: call.postcode || "No postcode",
+      window: `${timeFromMinutes(call.earliest)}-${timeFromMinutes(call.latest)}`,
+      arrive: timeFromMinutes(best.arrival),
+      leave: timeFromMinutes(best.finish),
+      travelMinutes: best.travel,
+      durationMinutes: call.durationMinutes,
+      priority: call.priority,
+      riskLevel: call.riskLevel,
+      warnings
+    });
+    best.schedule.travelMinutes += best.travel;
+    best.schedule.currentTime = best.finish;
+    best.schedule.currentLocation = call.location;
+    best.schedule.warnings.push(...warnings);
+  }
+
+  const estimatedTravelMinutes = schedules.reduce((total, schedule) => total + schedule.travelMinutes, 0);
+  return {
+    enabled: true,
+    summary: {
+      caregivers: schedules.length,
+      calls: calls.length,
+      assignedCalls: schedules.reduce((total, schedule) => total + schedule.calls.length, 0),
+      unassignedCalls: unassigned.length,
+      estimatedTravelMinutes,
+      estimatedMinutesSaved: Math.max(0, manualTravelBaseline - estimatedTravelMinutes),
+      riskWarnings: schedules.reduce((total, schedule) => total + schedule.warnings.length, 0) + unassigned.length
+    },
+    schedules: schedules.map(({ currentTime: _currentTime, currentLocation: _currentLocation, ...schedule }) => ({
+      ...schedule,
+      warnings: Array.from(new Set(schedule.warnings))
+    })),
+    unassigned,
+    method: "Low-budget nearest-next-call optimisation using postcode proximity, time windows, skills and risk flags. Coordinator approval is required before use."
+  };
+}
+
+function minutesFromTime(value: string) {
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function timeFromMinutes(value: number) {
+  const minutes = Math.max(0, Math.round(value));
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+function priorityWeight(priority: string) {
+  if (priority === "high") return 3;
+  if (priority === "medium") return 2;
+  return 1;
+}
+
+function approximatePostcodeLocation(postcode: string) {
+  const outward = (postcode || "PE2").toUpperCase().replace(/\s+/g, "").match(/^[A-Z]{1,2}\d{1,2}[A-Z]?/)?.[0] || "PE2";
+  let hash = 0;
+  for (const char of outward) hash = (hash * 31 + char.charCodeAt(0)) % 10000;
+  return {
+    lat: 52.57 + ((hash % 160) - 80) / 1000,
+    lng: -0.24 + ((Math.floor(hash / 160) % 160) - 80) / 1000,
+    precision: "postcode_area"
+  };
+}
+
+function travelMinutes(from: { lat: number; lng: number }, to: { lat: number; lng: number }) {
+  const distance = haversineMiles(from.lat, from.lng, to.lat, to.lng);
+  return Math.max(2, Math.round((distance / 22) * 60 + 4));
+}
+
+function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const radiusMiles = 3958.8;
+  const dLat = degreesToRadians(lat2 - lat1);
+  const dLng = degreesToRadians(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(degreesToRadians(lat1)) * Math.cos(degreesToRadians(lat2)) * Math.sin(dLng / 2) ** 2;
+  return radiusMiles * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function degreesToRadians(value: number) {
+  return value * Math.PI / 180;
 }
 
 function parseHealthCsv(csvText: string) {

@@ -120,7 +120,7 @@ interface AgencyInvoiceDashboard {
 type AnalyticsFilter = "all" | "deteriorating" | "improving" | "observations";
 
 type TaskFilter = "all" | "open" | "pending" | "assigned" | "confirmation" | "completed";
-type CoordinatorSection = "overview" | "new-task" | "tasks" | "service-users" | "analytics" | "billing" | "notifications";
+type CoordinatorSection = "overview" | "new-task" | "tasks" | "service-users" | "analytics" | "rota-planner" | "billing" | "notifications";
 
 const taskFilterLabels: Record<TaskFilter, string> = {
   all: "All tasks",
@@ -138,7 +138,7 @@ const analyticsFilterLabels: Record<AnalyticsFilter, string> = {
   observations: "All health observations"
 };
 
-const coordinatorSections: CoordinatorSection[] = ["overview", "new-task", "tasks", "service-users", "analytics", "billing", "notifications"];
+const coordinatorSections: CoordinatorSection[] = ["overview", "new-task", "tasks", "service-users", "analytics", "rota-planner", "billing", "notifications"];
 
 function initialTaskFilter(): TaskFilter {
   const value = new URLSearchParams(window.location.search).get("taskFilter");
@@ -205,7 +205,7 @@ export function CoordinatorPortal({ user, onSignOut }: { user: User; onSignOut: 
         return;
       }
       if (isTyping || event.ctrlKey || event.metaKey || event.altKey) return;
-      const destinations: Record<string, string> = { d: "overview", c: "new-task", s: "tasks", n: "notifications" };
+      const destinations: Record<string, string> = { d: "overview", c: "new-task", s: "tasks", r: "rota-planner", n: "notifications" };
       const destination = destinations[event.key.toLowerCase()];
       if (destination) openSection(destination);
     }
@@ -267,11 +267,13 @@ export function CoordinatorPortal({ user, onSignOut }: { user: User; onSignOut: 
             ? <ServiceUserDirectory serviceUsers={serviceUsers} onChanged={load} />
             : active === "analytics"
               ? <CareAnalyticsDashboard serviceUsers={serviceUsers} />
-              : active === "billing"
-                ? <AgencyInvoices />
-                : active === "notifications"
-                  ? <NotificationsHub notifications={notifications} onOpen={openNotification} />
-                  : <StatusBoard tasks={tasks} filter={taskFilter} onFilter={openTaskFilter} onOpenTask={openTask} />}
+              : active === "rota-planner"
+                ? <RotaPlannerDashboard serviceUsers={serviceUsers} />
+                : active === "billing"
+                  ? <AgencyInvoices />
+                  : active === "notifications"
+                    ? <NotificationsHub notifications={notifications} onOpen={openNotification} />
+                    : <StatusBoard tasks={tasks} filter={taskFilter} onFilter={openTaskFilter} onOpenTask={openTask} />}
       {notificationDrawerOpen && <NotificationDrawer notifications={notifications} onClose={() => setNotificationDrawerOpen(false)} onOpen={openNotification} onViewAll={() => openSection("notifications")} />}
       {selectedTask && <TaskDetailsDrawer task={selectedTask} detail={taskDetail} loading={detailLoading} onClose={() => { setSelectedTask(null); setTaskDetail(null); }} onChanged={async () => { setSelectedTask(null); setTaskDetail(null); await load(); }} />}
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} onChoose={openSection} />}
@@ -560,6 +562,123 @@ function TaskIntake({ serviceUsers, onCreated }: { serviceUsers: ServiceUser[]; 
       </> : <EmptyState icon={<FileText />} title="Evaluation appears here" detail="Select a service user, paste the care note and choose Evaluate care note." />}
     </aside>
   </div>;
+}
+
+interface RotaPlan {
+  enabled: boolean;
+  summary: {
+    caregivers: number;
+    calls: number;
+    assignedCalls: number;
+    unassignedCalls: number;
+    estimatedTravelMinutes: number;
+    estimatedMinutesSaved: number;
+    riskWarnings: number;
+  };
+  schedules: Array<{
+    caregiverId: string;
+    caregiverName: string;
+    available: string;
+    calls: Array<{
+      serviceUserName: string;
+      reference: string;
+      postcode: string;
+      window: string;
+      arrive: string;
+      leave: string;
+      travelMinutes: number;
+      durationMinutes: number;
+      priority: string;
+      riskLevel: string;
+      warnings: string[];
+    }>;
+    travelMinutes: number;
+    warnings: string[];
+  }>;
+  unassigned: Array<{ serviceUserName: string; reference: string; reason: string }>;
+  method: string;
+}
+
+function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] }) {
+  const [branchPostcode, setBranchPostcode] = useState(serviceUsers[0]?.postcode || "");
+  const [caregivers, setCaregivers] = useState([{ name: "Morning carer", startPostcode: serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "14:00", skills: "personal care, medication" }]);
+  const [calls, setCalls] = useState([
+    { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "11:00", durationMinutes: 30, priority: "medium", requiredSkill: "personal care" }
+  ]);
+  const [plan, setPlan] = useState<RotaPlan | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [locked, setLocked] = useState(false);
+  const [error, setError] = useState("");
+
+  async function generatePlan(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true); setError(""); setPlan(null); setLocked(false);
+    try {
+      const result = await api<RotaPlan>("/api/coordinator/rota-planner/plan", {
+        method: "POST",
+        body: JSON.stringify({ branchPostcode, caregivers, calls: calls.filter((call) => call.serviceUserId) })
+      });
+      setPlan(result);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Unable to generate rota plan";
+      setLocked(message.toLowerCase().includes("not unlocked"));
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function updateCaregiver(index: number, key: keyof typeof caregivers[number], value: string) {
+    setCaregivers((current) => current.map((caregiver, itemIndex) => itemIndex === index ? { ...caregiver, [key]: value } : caregiver));
+  }
+
+  function updateCall(index: number, key: keyof typeof calls[number], value: string | number) {
+    setCalls((current) => current.map((call, itemIndex) => itemIndex === index ? { ...call, [key]: value } : call));
+  }
+
+  if (locked) return <section className="panel analytics-locked">
+    <span><Navigation size={30} /></span>
+    <h1>Premium AI rota planner is locked for this agency</h1>
+    <p>This low-budget route optimisation module can be unlocked by a TaskBridge super admin from Agency onboarding settings.</p>
+  </section>;
+
+  return <form className="rota-planner-page" onSubmit={generatePlan}>
+    <div className="page-title-row"><div><span className="eyebrow">Premium rota intelligence</span><h1>AI rota planner</h1><p>Arrange calls by proximity, time windows and care risk to reduce travel time before the coordinator approves the rota.</p></div><button className="button button-primary" disabled={loading || !serviceUsers.length} type="submit">{loading ? <><LoaderCircle className="spin" size={17} /> Planning...</> : <><Sparkles size={17} /> Generate route plan</>}</button></div>
+    {error && !locked && <div className="alert alert-danger">{error}</div>}
+    <section className="panel rota-premium-hero">
+      <div><span className="eyebrow">Low-budget optimisation</span><h2>Nearest-call planning without expensive live map APIs.</h2><p>The MVP uses service-user postcodes, carer availability, visit windows and skills to produce a practical route proposal. Live traffic can be added later with Google Maps, Mapbox or HERE.</p></div>
+      <label>Branch postcode<input value={branchPostcode} onChange={(event) => setBranchPostcode(event.target.value.toUpperCase())} placeholder="PE2 6XU" /></label>
+    </section>
+    <div className="rota-planner-grid">
+      <section className="panel">
+        <div className="panel-heading"><div><h2>Caregivers</h2><p>Add the carers available for this planning run.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setCaregivers((current) => [...current, { name: `Carer ${current.length + 1}`, startPostcode: branchPostcode, availableFrom: "08:00", availableTo: "18:00", skills: "" }])}><Plus size={15} /> Add</button></div>
+        <div className="rota-input-list">{caregivers.map((caregiver, index) => <article key={index}>
+          <label>Name<input value={caregiver.name} onChange={(event) => updateCaregiver(index, "name", event.target.value)} /></label>
+          <label>Start postcode<input value={caregiver.startPostcode} onChange={(event) => updateCaregiver(index, "startPostcode", event.target.value.toUpperCase())} /></label>
+          <div className="field-row"><label>From<input type="time" value={caregiver.availableFrom} onChange={(event) => updateCaregiver(index, "availableFrom", event.target.value)} /></label><label>To<input type="time" value={caregiver.availableTo} onChange={(event) => updateCaregiver(index, "availableTo", event.target.value)} /></label></div>
+          <label>Skills<input value={caregiver.skills} onChange={(event) => updateCaregiver(index, "skills", event.target.value)} placeholder="personal care, medication" /></label>
+        </article>)}</div>
+      </section>
+      <section className="panel">
+        <div className="panel-heading"><div><h2>Calls</h2><p>Select service users and preferred call windows.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setCalls((current) => [...current, { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "12:00", durationMinutes: 30, priority: "routine", requiredSkill: "" }])}><Plus size={15} /> Add</button></div>
+        <div className="rota-input-list">{calls.map((call, index) => <article key={index}>
+          <label>Service user<select value={call.serviceUserId} onChange={(event) => updateCall(index, "serviceUserId", event.target.value)}><option value="">Select service user</option>{serviceUsers.map((serviceUser) => <option key={serviceUser.id} value={serviceUser.id}>{serviceUser.name} / {serviceUser.postcode}</option>)}</select></label>
+          <div className="field-row"><label>Earliest<input type="time" value={call.earliest} onChange={(event) => updateCall(index, "earliest", event.target.value)} /></label><label>Latest<input type="time" value={call.latest} onChange={(event) => updateCall(index, "latest", event.target.value)} /></label></div>
+          <div className="field-row"><label>Minutes<input type="number" min={5} max={240} value={call.durationMinutes} onChange={(event) => updateCall(index, "durationMinutes", Number(event.target.value))} /></label><label>Priority<select value={call.priority} onChange={(event) => updateCall(index, "priority", event.target.value)}><option value="routine">Routine</option><option value="medium">Medium</option><option value="high">High</option></select></label></div>
+          <label>Required skill<input value={call.requiredSkill} onChange={(event) => updateCall(index, "requiredSkill", event.target.value)} placeholder="personal care" /></label>
+        </article>)}</div>
+      </section>
+    </div>
+    {plan && <section className="rota-plan-results">
+      <div className="metric-grid coordinator-metrics">
+        <div className="metric"><span><Navigation /></span><div><strong>{plan.summary.estimatedTravelMinutes}</strong><small>Travel minutes</small></div></div>
+        <div className="metric metric-green"><span><TrendingUp /></span><div><strong>{plan.summary.estimatedMinutesSaved}</strong><small>Minutes saved</small></div></div>
+        <div className="metric metric-amber"><span><Clock3 /></span><div><strong>{plan.summary.assignedCalls}/{plan.summary.calls}</strong><small>Calls assigned</small></div></div>
+        <div className="metric metric-blue"><span><ShieldAlert /></span><div><strong>{plan.summary.riskWarnings}</strong><small>Risk warnings</small></div></div>
+      </div>
+      <section className="panel"><div className="panel-heading"><div><h2>Suggested rota</h2><p>{plan.method}</p></div></div><div className="rota-schedule-list">{plan.schedules.map((schedule) => <article key={schedule.caregiverId} className="rota-schedule-card"><header><div><h3>{schedule.caregiverName}</h3><p>{schedule.available} / {schedule.travelMinutes} travel minutes</p></div><StatusBadge status={schedule.warnings.length ? "pending" : "approved"}>{schedule.warnings.length ? "Review" : "Ready"}</StatusBadge></header>{schedule.calls.map((call, index) => <div key={`${call.reference}-${index}`} className="rota-call-row"><span>{call.arrive}</span><div><strong>{call.serviceUserName}</strong><p>{call.postcode} / {call.window} / {call.durationMinutes} mins / {humanize(call.priority)}</p>{call.warnings.length > 0 && <small>{call.warnings.join(" · ")}</small>}</div></div>)}{!schedule.calls.length && <p className="muted-copy">No calls assigned to this caregiver.</p>}</article>)}</div>{plan.unassigned.length > 0 && <div className="rota-unassigned">{plan.unassigned.map((call) => <p key={call.reference}><strong>{call.serviceUserName}</strong>: {call.reason}</p>)}</div>}</section>
+    </section>}
+  </form>;
 }
 
 function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] }) {
@@ -1071,6 +1190,7 @@ function CommandPalette({ onClose, onChoose }: { onClose: () => void; onChoose: 
     { section: "tasks", label: "Open status board", icon: <ClipboardList size={18} /> },
     { section: "service-users", label: "Manage service users", icon: <UsersRound size={18} /> },
     { section: "analytics", label: "Open care analytics", icon: <BarChart3 size={18} /> },
+    { section: "rota-planner", label: "Open AI rota planner", icon: <Navigation size={18} /> },
     { section: "notifications", label: "Review notifications", icon: <BellRing size={18} /> }
   ].filter((item) => item.label.toLowerCase().includes(query.toLowerCase()));
   useEffect(() => {

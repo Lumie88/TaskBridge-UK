@@ -161,6 +161,7 @@ export function PortalShell({ user, area, active, onActive, onSignOut, workspace
     ["tasks", "Status board"],
     ["service-users", "Service users"],
     ["analytics", "Care analytics"],
+    ["rota-planner", "Rota planner"],
     ["billing", "Invoices"],
     ["notifications", "Notifications"]
   ];

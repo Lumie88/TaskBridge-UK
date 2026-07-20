@@ -113,6 +113,7 @@ interface Agency {
     supervisedVisitExceptionAllowed: boolean;
     taskbridgeAssignmentRequiresAdminReview: boolean;
     healthAnalyticsEnabled: boolean;
+    rotaPlannerEnabled: boolean;
     defaultVisitRadiusMiles: number;
     goLiveStatus: string;
     monthlyCap: number;
@@ -688,6 +689,9 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
     const analytics = window.prompt("Free care analytics access: unlocked or locked", current?.healthAnalyticsEnabled ? "unlocked" : "locked");
     if (!analytics) return;
     const healthAnalyticsEnabled = analytics.trim().toLowerCase() === "unlocked";
+    const rotaPlanner = window.prompt("Premium AI rota planner access: unlocked or locked", current?.rotaPlannerEnabled ? "unlocked" : "locked");
+    if (!rotaPlanner) return;
+    const rotaPlannerEnabled = rotaPlanner.trim().toLowerCase() === "unlocked";
     setSettingsBusy(agency.id); setError("");
     try {
       await api(`/api/admin/agencies/${agency.id}/settings`, { method: "PATCH", body: JSON.stringify({
@@ -696,6 +700,7 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
         supervisedVisitExceptionAllowed: current?.supervisedVisitExceptionAllowed ?? false,
         taskbridgeAssignmentRequiresAdminReview: current?.taskbridgeAssignmentRequiresAdminReview ?? true,
         healthAnalyticsEnabled,
+        rotaPlannerEnabled,
         defaultVisitRadiusMiles: current?.defaultVisitRadiusMiles ?? 15,
         goLiveStatus,
         monthlyCap

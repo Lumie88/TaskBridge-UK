@@ -97,6 +97,7 @@ const agencySettingsSchema = z.object({
   supervisedVisitExceptionAllowed: z.boolean(),
   taskbridgeAssignmentRequiresAdminReview: z.boolean(),
   healthAnalyticsEnabled: z.boolean(),
+  rotaPlannerEnabled: z.boolean(),
   defaultVisitRadiusMiles: z.number().min(0.1).max(50),
   goLiveStatus: z.enum(["pilot_setup", "pilot_live", "paused", "suspended"]),
   monthlyCap: z.number().min(0).max(100000)
@@ -878,6 +879,7 @@ adminRouter.get("/agencies", requireRoles("taskbridge_super_admin"), asyncHandle
             settings.supervised_visit_exception_allowed,
             settings.taskbridge_assignment_requires_admin_review,
             settings.health_analytics_enabled,
+            settings.rota_planner_enabled,
             settings.default_visit_radius_miles::text,
             settings.go_live_status,
             billing.monthly_cap::text,
@@ -923,6 +925,7 @@ adminRouter.get("/agencies", requireRoles("taskbridge_super_admin"), asyncHandle
       supervisedVisitExceptionAllowed: row.supervised_visit_exception_allowed,
       taskbridgeAssignmentRequiresAdminReview: row.taskbridge_assignment_requires_admin_review,
       healthAnalyticsEnabled: row.health_analytics_enabled,
+      rotaPlannerEnabled: row.rota_planner_enabled,
       defaultVisitRadiusMiles: Number(row.default_visit_radius_miles || 15),
       goLiveStatus: row.go_live_status || "pilot_setup",
       monthlyCap: Number(row.monthly_cap || 500),
@@ -1013,12 +1016,13 @@ adminRouter.patch("/agencies/:id/settings", requireRoles("taskbridge_super_admin
          supervised_visit_exception_allowed = $4,
          taskbridge_assignment_requires_admin_review = $5,
          health_analytics_enabled = $6,
-         default_visit_radius_miles = $7,
-         go_live_status = $8
+         rota_planner_enabled = $7,
+         default_visit_radius_miles = $8,
+         go_live_status = $9
        WHERE agency_id = $1`,
       [req.params.id, data.vulnerableAdultRequiresEnhancedDbs, data.completionRequiresCareConfirmation,
         data.supervisedVisitExceptionAllowed, data.taskbridgeAssignmentRequiresAdminReview,
-        data.healthAnalyticsEnabled, data.defaultVisitRadiusMiles, data.goLiveStatus]
+        data.healthAnalyticsEnabled, data.rotaPlannerEnabled, data.defaultVisitRadiusMiles, data.goLiveStatus]
     );
     await client.query(
       `INSERT INTO billing.agency_billing_profiles (agency_id, monthly_cap, currency, status)

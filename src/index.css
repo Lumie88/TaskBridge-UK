@@ -1422,6 +1422,28 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 .analytics-locked > span { width: 62px; height: 62px; margin: 0 auto 18px; display: grid; place-items: center; color: #2563eb; background: #e8f1fe; border-radius: 12px; }
 .analytics-locked h1 { margin: 0 0 8px; }
 .analytics-locked p { margin: 0; color: #607477; }
+.rota-planner-page { display: block; }
+.rota-premium-hero { margin-bottom: 18px; padding: 22px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); gap: 22px; align-items: end; color: white; background: linear-gradient(135deg, #07111f 0%, #103244 58%, #0f766e 100%); border-color: rgba(255,255,255,.08); }
+.rota-premium-hero h2 { margin: 7px 0 8px; color: white; font-size: clamp(1.35rem, 2.5vw, 1.95rem); letter-spacing: 0; }
+.rota-premium-hero p { margin: 0; color: #d6ecf0; line-height: 1.62; }
+.rota-premium-hero label { color: white; }
+.rota-premium-hero input { margin-top: 8px; background: rgba(255,255,255,.96); }
+.rota-planner-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.rota-input-list { display: grid; gap: 12px; }
+.rota-input-list article { padding: 14px; display: grid; gap: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
+.rota-plan-results { margin-top: 20px; display: grid; gap: 18px; }
+.rota-schedule-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.rota-schedule-card { padding: 16px; border: 1px solid #dfe7e5; border-radius: 8px; background: white; }
+.rota-schedule-card header { margin-bottom: 12px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.rota-schedule-card h3 { margin: 0; font-size: .98rem; }
+.rota-schedule-card header p { margin: 4px 0 0; color: #64777a; font-size: .72rem; }
+.rota-call-row { padding: 12px 0; display: grid; grid-template-columns: 52px 1fr; gap: 12px; border-top: 1px solid #edf2f7; }
+.rota-call-row > span { height: 32px; display: grid; place-items: center; color: #0f766e; background: #ccfbf1; border-radius: 7px; font-size: .72rem; font-weight: 900; }
+.rota-call-row strong { color: #0f172a; font-size: .82rem; }
+.rota-call-row p { margin: 3px 0 0; color: #64777a; font-size: .7rem; }
+.rota-call-row small { display: block; margin-top: 5px; color: #be123c; font-size: .68rem; font-weight: 750; line-height: 1.45; }
+.rota-unassigned { margin-top: 14px; padding: 12px 14px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; }
+.rota-unassigned p { margin: 4px 0; color: #9f1239; font-size: .76rem; }
 
 @media (max-width: 1050px) {
   .intake-review-panel { max-height: none; }
@@ -1431,6 +1453,7 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .analytics-premium-hero, .analytics-focus-panel { grid-template-columns: 1fr; align-items: stretch; }
   .premium-score-ring { width: 132px; }
   .analytics-insight-grid, .analytics-decision-grid, .analytics-cqc-grid, .analytics-milestone-board > div:last-child { grid-template-columns: 1fr; }
+  .rota-premium-hero, .rota-planner-grid, .rota-schedule-list { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 780px) {
