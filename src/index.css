@@ -1472,6 +1472,38 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 .analytics-locked h1 { margin: 0 0 8px; }
 .analytics-locked p { margin: 0; color: #607477; }
 .rota-planner-page { display: block; }
+.rota-planday-hero { margin-bottom: 18px; padding: clamp(24px, 4vw, 38px); display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 340px); gap: 26px; align-items: center; color: white; background: radial-gradient(circle at 85% 0%, rgba(53,211,153,.3), transparent 34%), linear-gradient(135deg, #07111f 0%, #12343b 56%, #0d6370 100%); border-radius: 14px; box-shadow: 0 24px 60px rgba(7,43,50,.16); }
+.rota-planday-hero h1 { max-width: 820px; margin: 8px 0 12px; color: white; font-size: clamp(2.1rem, 5vw, 4.1rem); line-height: .98; letter-spacing: 0; }
+.rota-planday-hero p { max-width: 720px; margin: 0; color: #d6ecf0; font-size: 1rem; line-height: 1.65; }
+.rota-planday-hero .eyebrow { color: #ff6b89; }
+.rota-hero-actions { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.rota-hero-actions > span { display: inline-flex; align-items: center; gap: 7px; color: #d7f9ef; font-size: .82rem; font-weight: 800; }
+.rota-hero-preview { padding: 22px; display: grid; gap: 8px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18); border-radius: 12px; box-shadow: inset 0 1px 0 rgba(255,255,255,.12); }
+.rota-hero-preview strong { color: white; font-size: 3rem; line-height: 1; }
+.rota-hero-preview span { color: #d6f4ee; font-weight: 900; }
+.rota-hero-preview p { color: #bad6dc; font-size: .82rem; }
+.rota-how-strip { margin-bottom: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.rota-how-strip article { min-height: 88px; padding: 16px; display: grid; grid-template-columns: 42px 1fr; gap: 12px; align-items: center; background: white; border: 1px solid #dfe7e5; border-radius: 11px; box-shadow: 0 10px 26px rgba(7,43,50,.05); }
+.rota-how-strip article > span { width: 42px; height: 42px; display: grid; place-items: center; color: #0d6370; background: #e4f4f0; border-radius: 10px; }
+.rota-how-strip article strong { display: block; color: #0f172a; font-size: .86rem; }
+.rota-how-strip article small { color: #667a7e; font-size: .68rem; font-weight: 750; }
+.rota-how-strip article.active { border-color: #0d6370; box-shadow: inset 0 0 0 1px #0d6370, 0 16px 34px rgba(13,99,112,.1); }
+.rota-planday-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 20px; align-items: start; }
+.rota-builder-panel, .rota-live-preview { padding: 20px; background: #f8fbfb; border: 1px solid #dfe9e7; border-radius: 13px; }
+.rota-live-preview { position: sticky; top: 86px; display: grid; gap: 14px; }
+.rota-section-heading { margin-bottom: 16px; display: grid; grid-template-columns: 42px 1fr; gap: 12px; align-items: start; }
+.rota-section-heading > span { width: 42px; height: 42px; display: grid; place-items: center; color: white; background: #0d6370; border-radius: 10px; font-weight: 900; }
+.rota-section-heading h2 { margin: 0 0 4px; color: #0f172a; font-size: 1.2rem; letter-spacing: 0; }
+.rota-section-heading p { margin: 0; color: #64777a; font-size: .78rem; line-height: 1.5; }
+.rota-preview-card { padding: 20px; display: grid; gap: 8px; color: white; background: linear-gradient(135deg, #0f172a, #0d6370); border-radius: 12px; }
+.rota-preview-card > span { display: inline-flex; align-items: center; gap: 8px; color: #bdeee4; font-size: .72rem; font-weight: 900; text-transform: uppercase; }
+.rota-preview-card strong { color: white; font-size: 1.75rem; }
+.rota-preview-card p { margin: 0; color: #d3eceb; font-size: .78rem; line-height: 1.5; }
+.rota-preview-list { display: grid; gap: 10px; }
+.rota-preview-list article { padding: 14px; display: grid; grid-template-columns: 38px 1fr; gap: 11px; align-items: center; background: white; border: 1px solid #dfe7e5; border-radius: 10px; }
+.rota-preview-list article > span { width: 38px; height: 38px; display: grid; place-items: center; color: #0d6370; background: #e4f4f0; border-radius: 9px; }
+.rota-preview-list strong { color: #0f172a; font-size: .92rem; }
+.rota-preview-list p { margin: 3px 0 0; color: #64777a; font-size: .7rem; }
 .rota-premium-hero { margin-bottom: 18px; padding: 22px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 320px); gap: 22px; align-items: center; color: white; background: linear-gradient(135deg, #07111f 0%, #103244 58%, #0f766e 100%); border-color: rgba(255,255,255,.08); }
 .rota-premium-hero h2 { margin: 7px 0 8px; color: white; font-size: clamp(1.35rem, 2.5vw, 1.95rem); letter-spacing: 0; }
 .rota-premium-hero p { margin: 0; color: #d6ecf0; line-height: 1.62; }
@@ -1525,7 +1557,8 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .analytics-focus-panel, .analytics-owner-value { grid-template-columns: 1fr; align-items: stretch; }
   .premium-score-ring { width: 132px; }
   .analytics-insight-grid, .analytics-decision-grid, .analytics-milestone-board > div:last-child { grid-template-columns: 1fr; }
-  .rota-premium-hero, .rota-premium-controls, .rota-planner-grid, .rota-schedule-list, .rota-value-grid { grid-template-columns: 1fr; }
+  .rota-planday-hero, .rota-how-strip, .rota-planday-layout, .rota-premium-hero, .rota-premium-controls, .rota-planner-grid, .rota-schedule-list, .rota-value-grid { grid-template-columns: 1fr; }
+  .rota-live-preview { position: static; }
 }
 
 @media (max-width: 780px) {
@@ -1537,6 +1570,8 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .analytics-export-actions .button { width: 100%; justify-content: center; }
   .analytics-owner-value-grid { grid-template-columns: 1fr; }
   .rota-efficiency-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rota-how-strip { display: flex; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x mandatory; }
+  .rota-how-strip article { min-width: 230px; scroll-snap-align: start; }
   .board-toolbar { grid-template-columns: 1fr; }
   .analytics-action-list, .analytics-profile-card dl { grid-template-columns: 1fr; }
   .metric-trend-list { grid-template-columns: 1fr; }
@@ -1552,6 +1587,9 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .analytics-workspace, .analytics-toolbar, .analytics-premium-hero, .analytics-owner-value, .analytics-focus-panel { padding: 16px; }
   .analytics-command-strip { padding: 12px; }
   .analytics-tile { min-height: 180px; padding: 15px; }
+  .rota-planday-hero { padding: 22px; border-radius: 12px; }
+  .rota-planday-hero h1 { font-size: 2.05rem; }
+  .rota-builder-panel, .rota-live-preview { padding: 15px; }
   .rota-premium-hero, .rota-premium-controls { padding: 16px; }
   .rota-owner-value strong { font-size: 1.8rem; }
   .rota-efficiency-strip { grid-template-columns: 1fr; }

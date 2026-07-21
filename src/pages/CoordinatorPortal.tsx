@@ -678,49 +678,87 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
     <p>This low-budget route optimisation module can be unlocked by a TaskBridge super admin from Agency onboarding settings.</p>
   </section>;
 
+  const rotaSteps = [
+    { label: "Add caregivers", detail: `${caregivers.length} available today`, icon: UsersRound },
+    { label: "Select visits", detail: `${calls.filter((call) => call.serviceUserId).length} planned calls`, icon: CalendarDays },
+    { label: "Set rules", detail: humanize(optimisationGoal), icon: ShieldCheck },
+    { label: "Review rota", detail: plan ? `${plan.summary.routeEfficiencyScore}% efficient` : "Awaiting plan", icon: Navigation }
+  ];
+
   return <form className="rota-planner-page" onSubmit={generatePlan}>
-    <div className="page-title-row"><div><span className="eyebrow">Premium rota intelligence</span><h1>AI rota planner</h1><p>Arrange calls by proximity, time windows and care risk to reduce travel time before the coordinator approves the rota.</p></div><button className="button button-primary" disabled={loading || !serviceUsers.length} type="submit">{loading ? <><LoaderCircle className="spin" size={17} /> Planning...</> : <><Sparkles size={17} /> Generate route plan</>}</button></div>
-    {error && !locked && <div className="alert alert-danger">{error}</div>}
-    <section className="panel rota-premium-hero">
-      <div><span className="eyebrow">Workforce value cockpit</span><h2>Plan safer visits while proving travel, capacity and continuity gains.</h2><p>TaskBridge turns the day list into a coordinator-ready rota with route efficiency, care hours recovered, long-travel alerts and continuity checks before the rota is approved.</p></div>
-      <div className="rota-owner-value">
-        <strong>{plan ? `${plan.summary.routeEfficiencyScore}%` : "Ready"}</strong>
-        <span>{plan ? "Route efficiency" : "Premium planner"}</span>
-        <small>{plan?.summary.ownerValue || "Generate a plan to see the care-owner value in pounds, hours and risk controls."}</small>
+    <section className="rota-planday-hero">
+      <div>
+        <span className="eyebrow">Premium rota intelligence</span>
+        <h1>Build a safer homecare rota in minutes.</h1>
+        <p>Plan caregiver visits around proximity, time windows, continuity, skill mix and safeguarding risk before the coordinator approves the day.</p>
+        <div className="rota-hero-actions">
+          <button className="button button-primary" disabled={loading || !serviceUsers.length} type="submit">{loading ? <><LoaderCircle className="spin" size={17} /> Planning...</> : <><Sparkles size={17} /> Generate route plan</>}</button>
+          <span><ShieldCheck size={16} /> Built for care-owner visibility and CQC evidence</span>
+        </div>
       </div>
+      <aside className="rota-hero-preview">
+        <strong>{plan ? `${plan.summary.routeEfficiencyScore}%` : `${calls.length}`}</strong>
+        <span>{plan ? "Route efficiency" : "Visits ready to plan"}</span>
+        <p>{plan?.summary.ownerValue || "Add caregivers, select service users and generate a practical rota proposal."}</p>
+      </aside>
     </section>
-    <section className="panel rota-premium-controls">
-      <label>Branch postcode<input value={branchPostcode} onChange={(event) => setBranchPostcode(event.target.value.toUpperCase())} placeholder="PE2 6XU" /></label>
-      <label>Optimisation goal<select value={optimisationGoal} onChange={(event) => setOptimisationGoal(event.target.value)}><option value="balanced">Balanced rota</option><option value="minimise_travel">Minimise travel</option><option value="protect_continuity">Protect continuity</option><option value="risk_first">High-risk first</option></select></label>
-      <label>Target utilisation %<input type="number" min={50} max={95} value={targetUtilisationPercent} onChange={(event) => setTargetUtilisationPercent(Number(event.target.value))} /></label>
-      <label>Max travel segment<input type="number" min={5} max={120} value={maxTravelMinutesBetweenCalls} onChange={(event) => setMaxTravelMinutesBetweenCalls(Number(event.target.value))} /></label>
+    {error && !locked && <div className="alert alert-danger">{error}</div>}
+    <section className="rota-how-strip" aria-label="Rota planning steps">
+      {rotaSteps.map((step, index) => {
+        const Icon = step.icon;
+        return <article key={step.label} className={plan && index === 3 ? "active" : ""}><span><Icon size={19} /></span><div><strong>{step.label}</strong><small>{step.detail}</small></div></article>;
+      })}
     </section>
-    <div className="rota-planner-grid">
-      <section className="panel">
-        <div className="panel-heading"><div><h2>Caregivers</h2><p>Add the carers available for this planning run.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setCaregivers((current) => [...current, { name: `Carer ${current.length + 1}`, startPostcode: branchPostcode, availableFrom: "08:00", availableTo: "18:00", skills: "" }])}><Plus size={15} /> Add</button></div>
-        <div className="rota-input-list">{caregivers.map((caregiver, index) => <article key={index}>
-          <label>Name<input value={caregiver.name} onChange={(event) => updateCaregiver(index, "name", event.target.value)} /></label>
-          <label>Start postcode<input value={caregiver.startPostcode} onChange={(event) => updateCaregiver(index, "startPostcode", event.target.value.toUpperCase())} /></label>
-          <div className="field-row"><label>From<input type="time" value={caregiver.availableFrom} onChange={(event) => updateCaregiver(index, "availableFrom", event.target.value)} /></label><label>To<input type="time" value={caregiver.availableTo} onChange={(event) => updateCaregiver(index, "availableTo", event.target.value)} /></label></div>
-          <label>Skills<input value={caregiver.skills} onChange={(event) => updateCaregiver(index, "skills", event.target.value)} placeholder="personal care, medication" /></label>
-        </article>)}</div>
+    <div className="rota-planday-layout">
+      <section className="rota-builder-panel">
+        <div className="rota-section-heading"><span>01</span><div><h2>Build the day plan</h2><p>Use this workspace to capture staff availability, visit windows and safeguarding planning rules.</p></div></div>
+        <section className="rota-premium-controls">
+          <label>Branch postcode<input value={branchPostcode} onChange={(event) => setBranchPostcode(event.target.value.toUpperCase())} placeholder="PE2 6XU" /></label>
+          <label>Optimisation goal<select value={optimisationGoal} onChange={(event) => setOptimisationGoal(event.target.value)}><option value="balanced">Balanced rota</option><option value="minimise_travel">Minimise travel</option><option value="protect_continuity">Protect continuity</option><option value="risk_first">High-risk first</option></select></label>
+          <label>Target utilisation %<input type="number" min={50} max={95} value={targetUtilisationPercent} onChange={(event) => setTargetUtilisationPercent(Number(event.target.value))} /></label>
+          <label>Max travel segment<input type="number" min={5} max={120} value={maxTravelMinutesBetweenCalls} onChange={(event) => setMaxTravelMinutesBetweenCalls(Number(event.target.value))} /></label>
+        </section>
+        <div className="rota-planner-grid">
+          <section className="panel">
+            <div className="panel-heading"><div><h2>Caregivers</h2><p>Add the carers available for this planning run.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setCaregivers((current) => [...current, { name: `Carer ${current.length + 1}`, startPostcode: branchPostcode, availableFrom: "08:00", availableTo: "18:00", skills: "" }])}><Plus size={15} /> Add</button></div>
+            <div className="rota-input-list">{caregivers.map((caregiver, index) => <article key={index}>
+              <label>Name<input value={caregiver.name} onChange={(event) => updateCaregiver(index, "name", event.target.value)} /></label>
+              <label>Start postcode<input value={caregiver.startPostcode} onChange={(event) => updateCaregiver(index, "startPostcode", event.target.value.toUpperCase())} /></label>
+              <div className="field-row"><label>From<input type="time" value={caregiver.availableFrom} onChange={(event) => updateCaregiver(index, "availableFrom", event.target.value)} /></label><label>To<input type="time" value={caregiver.availableTo} onChange={(event) => updateCaregiver(index, "availableTo", event.target.value)} /></label></div>
+              <label>Skills<input value={caregiver.skills} onChange={(event) => updateCaregiver(index, "skills", event.target.value)} placeholder="personal care, medication" /></label>
+            </article>)}</div>
+          </section>
+          <section className="panel">
+            <div className="panel-heading"><div><h2>Calls</h2><p>Select service users and preferred call windows.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setCalls((current) => [...current, { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "12:00", durationMinutes: 30, priority: "routine", requiredSkill: "" }])}><Plus size={15} /> Add</button></div>
+            <div className="rota-input-list">{calls.map((call, index) => <article key={index}>
+              <label>Service user<select value={call.serviceUserId} onChange={(event) => updateCall(index, "serviceUserId", event.target.value)}><option value="">Select service user</option>{serviceUsers.map((serviceUser) => <option key={serviceUser.id} value={serviceUser.id}>{serviceUser.name} / {serviceUser.postcode}</option>)}</select></label>
+              <div className="field-row"><label>Earliest<input type="time" value={call.earliest} onChange={(event) => updateCall(index, "earliest", event.target.value)} /></label><label>Latest<input type="time" value={call.latest} onChange={(event) => updateCall(index, "latest", event.target.value)} /></label></div>
+              <div className="field-row"><label>Minutes<input type="number" min={5} max={240} value={call.durationMinutes} onChange={(event) => updateCall(index, "durationMinutes", Number(event.target.value))} /></label><label>Priority<select value={call.priority} onChange={(event) => updateCall(index, "priority", event.target.value)}><option value="routine">Routine</option><option value="medium">Medium</option><option value="high">High</option></select></label></div>
+              <label>Required skill<input value={call.requiredSkill} onChange={(event) => updateCall(index, "requiredSkill", event.target.value)} placeholder="personal care" /></label>
+            </article>)}</div>
+          </section>
+          <section className="panel rota-continuity-panel">
+            <div className="panel-heading"><div><h2>Continuity of care</h2><p>Optional preferences for people who benefit from a familiar caregiver.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setContinuity((current) => [...current, { serviceUserId: serviceUsers[0]?.id || "", preferredCaregiverName: caregivers[0]?.name || "" }])}><Plus size={15} /> Add</button></div>
+            <div className="rota-input-list">{continuity.length ? continuity.map((item, index) => <article key={index}>
+              <label>Service user<select value={item.serviceUserId} onChange={(event) => updateContinuity(index, "serviceUserId", event.target.value)}><option value="">Select service user</option>{serviceUsers.map((serviceUser) => <option key={serviceUser.id} value={serviceUser.id}>{serviceUser.name} / {serviceUser.reference}</option>)}</select></label>
+              <label>Preferred caregiver<select value={item.preferredCaregiverName} onChange={(event) => updateContinuity(index, "preferredCaregiverName", event.target.value)}><option value="">Select caregiver</option>{caregivers.map((caregiver, caregiverIndex) => <option key={`${caregiver.name}-${caregiverIndex}`} value={caregiver.name}>{caregiver.name}</option>)}</select></label>
+            </article>) : <p className="muted-copy">Add continuity preferences where familiarity reduces anxiety, refusal risk or safeguarding concern.</p>}</div>
+          </section>
+        </div>
       </section>
-      <section className="panel">
-        <div className="panel-heading"><div><h2>Calls</h2><p>Select service users and preferred call windows.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setCalls((current) => [...current, { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "12:00", durationMinutes: 30, priority: "routine", requiredSkill: "" }])}><Plus size={15} /> Add</button></div>
-        <div className="rota-input-list">{calls.map((call, index) => <article key={index}>
-          <label>Service user<select value={call.serviceUserId} onChange={(event) => updateCall(index, "serviceUserId", event.target.value)}><option value="">Select service user</option>{serviceUsers.map((serviceUser) => <option key={serviceUser.id} value={serviceUser.id}>{serviceUser.name} / {serviceUser.postcode}</option>)}</select></label>
-          <div className="field-row"><label>Earliest<input type="time" value={call.earliest} onChange={(event) => updateCall(index, "earliest", event.target.value)} /></label><label>Latest<input type="time" value={call.latest} onChange={(event) => updateCall(index, "latest", event.target.value)} /></label></div>
-          <div className="field-row"><label>Minutes<input type="number" min={5} max={240} value={call.durationMinutes} onChange={(event) => updateCall(index, "durationMinutes", Number(event.target.value))} /></label><label>Priority<select value={call.priority} onChange={(event) => updateCall(index, "priority", event.target.value)}><option value="routine">Routine</option><option value="medium">Medium</option><option value="high">High</option></select></label></div>
-          <label>Required skill<input value={call.requiredSkill} onChange={(event) => updateCall(index, "requiredSkill", event.target.value)} placeholder="personal care" /></label>
-        </article>)}</div>
-      </section>
-      <section className="panel rota-continuity-panel">
-        <div className="panel-heading"><div><h2>Continuity of care</h2><p>Optional preferences for people who benefit from a familiar caregiver.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setContinuity((current) => [...current, { serviceUserId: serviceUsers[0]?.id || "", preferredCaregiverName: caregivers[0]?.name || "" }])}><Plus size={15} /> Add</button></div>
-        <div className="rota-input-list">{continuity.length ? continuity.map((item, index) => <article key={index}>
-          <label>Service user<select value={item.serviceUserId} onChange={(event) => updateContinuity(index, "serviceUserId", event.target.value)}><option value="">Select service user</option>{serviceUsers.map((serviceUser) => <option key={serviceUser.id} value={serviceUser.id}>{serviceUser.name} / {serviceUser.reference}</option>)}</select></label>
-          <label>Preferred caregiver<select value={item.preferredCaregiverName} onChange={(event) => updateContinuity(index, "preferredCaregiverName", event.target.value)}><option value="">Select caregiver</option>{caregivers.map((caregiver, caregiverIndex) => <option key={`${caregiver.name}-${caregiverIndex}`} value={caregiver.name}>{caregiver.name}</option>)}</select></label>
-        </article>) : <p className="muted-copy">Add continuity preferences where familiarity reduces anxiety, refusal risk or safeguarding concern.</p>}</div>
-      </section>
+      <aside className="rota-live-preview">
+        <div className="rota-section-heading"><span>02</span><div><h2>Live planning value</h2><p>The proposal updates after you generate the rota.</p></div></div>
+        <div className="rota-preview-card">
+          <span><Clock3 size={18} /> Planning window</span>
+          <strong>{calls[0]?.earliest || "09:00"}-{calls[calls.length - 1]?.latest || "12:00"}</strong>
+          <p>{calls.filter((call) => call.serviceUserId).length} calls, {caregivers.length} caregivers, {continuity.length} continuity preference{continuity.length === 1 ? "" : "s"}.</p>
+        </div>
+        <div className="rota-preview-list">
+          <article><span><Navigation size={17} /></span><div><strong>{plan ? `${plan.summary.estimatedTravelMinutes} mins` : `Max ${maxTravelMinutesBetweenCalls} mins`}</strong><p>{plan ? "Estimated travel" : "Travel segment rule"}</p></div></article>
+          <article><span><TrendingUp size={17} /></span><div><strong>{plan ? `£${plan.summary.estimatedCostSavingPounds}` : `${targetUtilisationPercent}%`}</strong><p>{plan ? "Estimated saving" : "Target utilisation"}</p></div></article>
+          <article><span><ShieldAlert size={17} /></span><div><strong>{plan ? plan.summary.riskWarnings : humanize(optimisationGoal)}</strong><p>{plan ? "Review warnings" : "Optimisation goal"}</p></div></article>
+        </div>
+      </aside>
     </div>
     {plan && <section className="rota-plan-results">
       <div className="metric-grid coordinator-metrics">
