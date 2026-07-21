@@ -61,6 +61,9 @@ interface CoordinatorTaskRow {
   before_photo_url: string | null;
   after_photo_url: string | null;
   completion_notes: string | null;
+  safeguarding_risk_score: number;
+  safeguarding_risk_band: string;
+  safeguarding_risk_factors: string[];
 }
 
 const planSchema = z.object({
@@ -256,6 +259,62 @@ coordinatorRouter.get("/billing/invoices/:id/export.csv", asyncHandler(async (re
   const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll("\"", "\"\"")}"`).join(",")).join("\n");
   res.setHeader("content-type", "text/csv; charset=utf-8");
   res.setHeader("content-disposition", `attachment; filename="${header.invoice_number}.csv"`);
+  res.send(csv);
+}));
+
+coordinatorRouter.get("/cqc/evidence-pack.csv", asyncHandler(async (req, res) => {
+  const agencyId = req.auth!.agencyId!;
+  const result = await query<{
+    public_id: string; encrypted_name: string; category: string; urgency: string; status: string;
+    vulnerable_adult: boolean; ring_fence_required: boolean; safeguarding_risk_score: number;
+    safeguarding_risk_band: string; safeguarding_risk_factors: string[]; created_at: string;
+    completed_at: string | null; assigned_display_name: string | null; before_photo_url: string | null;
+    after_photo_url: string | null; confirmed_at: string | null;
+  }>(
+    `SELECT t.public_id, su.encrypted_name, t.category, t.urgency::text, t.status::text,
+            t.vulnerable_adult, t.ring_fence_required, t.safeguarding_risk_score,
+            t.safeguarding_risk_band, t.safeguarding_risk_factors, t.created_at::text,
+            t.completed_at::text, tr.display_name AS assigned_display_name,
+            t.before_photo_url, t.after_photo_url, v.confirmed_at::text
+     FROM ops.tasks t
+     JOIN care.service_users su ON su.id = t.service_user_id
+     LEFT JOIN LATERAL (
+       SELECT trader_id FROM ops.assignments aa WHERE aa.task_id = t.id ORDER BY aa.created_at DESC LIMIT 1
+     ) a ON true
+     LEFT JOIN trader.traders tr ON tr.id = a.trader_id
+     LEFT JOIN LATERAL (
+       SELECT confirmed_at FROM ops.visits vv WHERE vv.task_id = t.id ORDER BY vv.created_at DESC LIMIT 1
+     ) v ON true
+     WHERE t.agency_id = $1 AND t.deleted_at IS NULL
+     ORDER BY t.created_at DESC`,
+    [agencyId]
+  );
+  const rows = [
+    ["Task", "Service user", "Category", "Urgency", "Status", "Safeguarding risk", "Risk band", "Risk factors", "Vulnerable adult", "Ring fence", "Assigned handyman", "Before photo", "After photo", "Care confirmed", "Created", "Completed"]
+  ];
+  for (const row of result.rows) {
+    rows.push([
+      row.public_id,
+      safeInitials(decryptField(row.encrypted_name)),
+      row.category,
+      row.urgency,
+      row.status,
+      String(row.safeguarding_risk_score),
+      row.safeguarding_risk_band,
+      row.safeguarding_risk_factors.join("; "),
+      row.vulnerable_adult ? "Yes" : "No",
+      row.ring_fence_required ? "Yes" : "No",
+      row.assigned_display_name || "",
+      row.before_photo_url ? "Recorded" : "Missing",
+      row.after_photo_url ? "Recorded" : "Missing",
+      row.confirmed_at || "",
+      row.created_at,
+      row.completed_at || ""
+    ]);
+  }
+  const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll("\"", "\"\"")}"`).join(",")).join("\n");
+  res.setHeader("content-type", "text/csv; charset=utf-8");
+  res.setHeader("content-disposition", `attachment; filename="taskbridge-cqc-evidence-pack.csv"`);
   res.send(csv);
 }));
 
@@ -584,8 +643,9 @@ coordinatorRouter.post("/task-plan", async (req, res) => {
   if (!serviceUser.rows[0]) return res.status(404).json({ error: "Service-user record not found" });
   const vulnerable = serviceUser.rows[0].risk_level !== "standard";
   const analysis = await analyzeCareNote(parsed.data.note, vulnerable);
+  const intelligence = buildCareNoteIntelligence(parsed.data.note, vulnerable, analysis.suggestions);
   await audit(req, "care.task_plan.created", "service_user", parsed.data.serviceUserId, { count: analysis.suggestions.length });
-  res.json({ ...analysis, vulnerableAdult: vulnerable });
+  res.json({ ...analysis, vulnerableAdult: vulnerable, intelligence });
 });
 
 coordinatorRouter.post("/tasks", async (req, res) => {
@@ -622,14 +682,25 @@ coordinatorRouter.post("/tasks", async (req, res) => {
     const paymentStatus = paymentStatusForRoute(data.paymentRoute.route);
     for (const suggestion of data.suggestions) {
       const taskPublicId = publicId("tsk");
+      const risk = calculateSafeguardingRisk({
+        vulnerable,
+        urgency: suggestion.urgency,
+        category: suggestion.category,
+        note: data.note,
+        carerOnSite: data.carerOnSite,
+        preferredWindowStart: data.preferredWindowStart || null,
+        preferredWindowEnd: data.preferredWindowEnd || null,
+        keysafeInfo: data.keysafeInfo || null
+      });
       const taskResult = await client.query<{ id: string }>(
         `INSERT INTO ops.tasks
           (public_id, agency_id, service_user_id, care_note_id, created_by_user_id, category, urgency,
            status, summary, notes_ciphertext, preferred_window_start, preferred_window_end, carer_on_site,
            vulnerable_adult, ring_fence_required, keysafe_ciphertext, payment_route, payment_status,
-           payer_name, payer_email, payer_phone, funding_reference, funding_notes)
+           payer_name, payer_email, payer_phone, funding_reference, funding_notes,
+           safeguarding_risk_score, safeguarding_risk_band, safeguarding_risk_factors)
          VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending_taskbridge_assignment', $8, $9, $10, $11, $12, $13, $13, $14,
-                 $15, $16, $17, $18, $19, $20, $21)
+                 $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
          RETURNING id::text`,
         [taskPublicId, req.auth!.agencyId, data.serviceUserId, noteResult.rows[0].id, req.auth!.userId,
           suggestion.category, suggestion.urgency, suggestion.summary, encryptField(data.note),
@@ -639,7 +710,8 @@ coordinatorRouter.post("/tasks", async (req, res) => {
           data.paymentRoute.route === "family_representative" ? data.paymentRoute.payerEmail : null,
           data.paymentRoute.route === "family_representative" ? data.paymentRoute.payerPhone || null : null,
           data.paymentRoute.route === "council_personal_budget" ? data.paymentRoute.fundingReference : null,
-          data.paymentRoute.route === "council_personal_budget" ? data.paymentRoute.fundingNotes || null : null]
+          data.paymentRoute.route === "council_personal_budget" ? data.paymentRoute.fundingNotes || null : null,
+          risk.score, risk.band, risk.factors]
       );
       await client.query(
         `INSERT INTO ops.task_status_events
@@ -825,7 +897,8 @@ function coordinatorTaskSql(suffix: string) {
                  t.preferred_window_start::text, t.preferred_window_end::text,
                  t.created_at::text, tr.display_name AS assigned_display_name, n.name AS assigned_network,
                  a.scheduled_start::text, a.scheduled_end::text, t.before_photo_url,
-                 t.after_photo_url, v.completion_notes
+                 t.after_photo_url, v.completion_notes, t.safeguarding_risk_score,
+                 t.safeguarding_risk_band, t.safeguarding_risk_factors
           FROM ops.tasks t
           JOIN care.service_users su ON su.id = t.service_user_id
           LEFT JOIN LATERAL (
@@ -855,6 +928,11 @@ function mapCoordinatorTask(row: CoordinatorTaskRow) {
     vulnerableAdult: row.vulnerable_adult,
     ringFenceRequired: row.ring_fence_required,
     carerOnSite: row.carer_on_site,
+    safeguardingRisk: {
+      score: row.safeguarding_risk_score,
+      band: row.safeguarding_risk_band,
+      factors: row.safeguarding_risk_factors
+    },
     payment: {
       route: row.payment_route,
       status: row.payment_status,
@@ -877,6 +955,48 @@ function mapCoordinatorTask(row: CoordinatorTaskRow) {
       afterPhotoUrl: row.after_photo_url,
       notes: row.completion_notes
     } : null
+  };
+}
+
+function calculateSafeguardingRisk(input: {
+  vulnerable: boolean;
+  urgency: string;
+  category: string;
+  note: string;
+  carerOnSite: boolean;
+  preferredWindowStart: string | null;
+  preferredWindowEnd: string | null;
+  keysafeInfo: string | null;
+}) {
+  const factors: string[] = [];
+  let score = 10;
+  if (input.vulnerable) { score += 30; factors.push("Vulnerable adult"); }
+  if (input.urgency === "urgent") { score += 25; factors.push("Urgent risk"); }
+  else if (input.urgency === "high") { score += 18; factors.push("High urgency"); }
+  else if (input.urgency === "medium") { score += 8; factors.push("Medium urgency"); }
+  if (/fall|slip|trip|unsafe|broken|loose|blocked exit/i.test(input.note)) { score += 14; factors.push("Fall or physical safety trigger"); }
+  if (/alone|unaccompanied|no carer|without (?:a )?carer/i.test(input.note) || !input.carerOnSite) { score += 10; factors.push("Lone-visit control needed"); }
+  if (input.keysafeInfo) { score += 8; factors.push("Keysafe information present"); }
+  if (/electrical|gas|boiler|structural|roof/i.test(input.category)) { score += 12; factors.push("Specialist or high-risk trade category"); }
+  if (!input.preferredWindowStart || !input.preferredWindowEnd) { score += 5; factors.push("Visit window not fully specified"); }
+  const capped = Math.min(100, score);
+  const band = capped >= 80 ? "critical" : capped >= 60 ? "high" : capped >= 35 ? "elevated" : "standard";
+  return { score: capped, band, factors };
+}
+
+function buildCareNoteIntelligence(note: string, vulnerable: boolean, suggestions: Array<{ category: string; urgency: string }>) {
+  const signals: string[] = [];
+  if (/again|repeat|repeated|still|ongoing|keeps/i.test(note)) signals.push("Possible repeated hazard or unresolved issue");
+  if (/worse|worsening|decline|deteriorat|more confused|less mobile/i.test(note)) signals.push("Possible deterioration signal for care review");
+  if (/missed visit|no visit|carer did not attend|missed call/i.test(note)) signals.push("Possible missed-care or visit continuity issue");
+  if (/self-neglect|hoard|clutter|soiled|neglect/i.test(note)) signals.push("Possible self-neglect or environment escalation");
+  if (/cannot access|locked out|unsafe access|key safe|keysafe/i.test(note)) signals.push("Access or keysafe handling concern");
+  if (vulnerable) signals.push("Enhanced safeguarding controls required");
+  const urgentCount = suggestions.filter((suggestion) => ["urgent", "high"].includes(suggestion.urgency)).length;
+  return {
+    signals,
+    escalationRecommended: signals.length >= 2 || urgentCount > 0,
+    suggestedReview: signals.length ? "Coordinator should review the care note alongside recent visits, family feedback and open home-safety tasks." : "No additional intelligence signal detected beyond the task suggestions."
   };
 }
 

@@ -929,7 +929,10 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
         <strong>{cqcIntelligence.evidenceReadiness}%</strong>
         <span>Evidence readiness</span>
       </div>
-      <button className="button button-primary" type="button" onClick={downloadCqcPack}><FileText size={17} /> Export CQC pack</button>
+      <div className="analytics-export-actions">
+        <button className="button button-primary" type="button" onClick={downloadCqcPack}><FileText size={17} /> Export analytics pack</button>
+        <a className="button button-secondary" href="/api/coordinator/cqc/evidence-pack.csv"><FileText size={17} /> Export task evidence</a>
+      </div>
     </section>
     <section className="panel analytics-focus-panel">
       <label>Focus analytics by service user
@@ -1164,6 +1167,7 @@ function TaskDetailsDrawer({ task, detail, loading, onClose, onChanged }: { task
   return <div className="drawer-backdrop" onMouseDown={onClose}><aside className="side-drawer task-detail-drawer" onMouseDown={(event) => event.stopPropagation()} aria-label={`Task details for ${task.id}`}><header><div><span className="eyebrow">{task.id}</span><h2>{task.category}</h2></div><button className="icon-button" onClick={onClose} aria-label="Close task details"><X size={20} /></button></header><div className="drawer-scroll">
     <div className="drawer-task-heading"><span className="resident-avatar">{task.resident.initials}</span><div><strong>{task.resident.displayName}</strong><p>{task.summary}</p></div><StatusBadge status={task.status}>{humanize(task.status)}</StatusBadge></div>
     {task.ringFenceRequired && <div className="safeguard-note"><ShieldCheck size={20} /><div><strong>Ring-Fence Enforced</strong><span>Enhanced DBS and verified insurance controls apply.</span></div></div>}
+    {task.safeguardingRisk && <div className="risk-score-card"><strong>Safeguarding risk {task.safeguardingRisk.score}/100</strong><StatusBadge status={task.safeguardingRisk.band}>{humanize(task.safeguardingRisk.band)}</StatusBadge><p>{task.safeguardingRisk.factors.join(", ") || "Standard controls"}</p></div>}
     <section className="drawer-section payment-summary"><h3><CreditCard size={17} /> Payment route</h3><p><strong>{paymentRouteLabel(task.payment.route)}</strong><br />{humanize(task.payment.status)}</p>{task.payment.payerName && <span className="geo-tag">{task.payment.payerName}{task.payment.payerEmail ? ` / ${task.payment.payerEmail}` : ""}</span>}{task.payment.fundingReference && <span className="geo-tag">{task.payment.fundingReference}</span>}</section>
     {loading ? <Loading /> : detail && <>
       <section className="drawer-section"><h3><MapPin size={17} /> Service-user location</h3><p>{formatDetailedAddress(detail.serviceUserAddress)}</p><span className="geo-tag"><Navigation size={14} /> {detail.location.latitude === null ? "Geolocation not yet recorded" : `${detail.location.latitude.toFixed(5)}, ${detail.location.longitude?.toFixed(5)}`}</span></section>

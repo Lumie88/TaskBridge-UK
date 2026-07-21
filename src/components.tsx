@@ -170,6 +170,7 @@ export function PortalShell({ user, area, active, onActive, onSignOut, workspace
     ["demo-requests", "Demo requests"],
     ["tasks", "Assignments"],
     ["traders", "Handyman compliance"],
+    ["incidents", "Incidents"],
     ["integrations", "Integrations"],
     ["billing", "Finance controls"]
   ];

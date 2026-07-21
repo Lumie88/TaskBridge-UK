@@ -137,6 +137,26 @@ const invoiceStatusSchema = z.object({ status: z.enum(["issued", "paid", "void"]
 const paymentStatusSchema = z.object({
   paymentStatus: z.enum(["family_paid", "funding_approved", "payment_waived"])
 });
+const familyPaymentLinkSchema = z.object({
+  amount: z.number().min(1).max(100000),
+  payerEmail: z.string().trim().email().max(200).optional(),
+  payerName: z.string().trim().max(160).optional()
+});
+const familyUpdateLinkSchema = z.object({
+  recipientEmail: z.string().trim().email().max(200),
+  recipientName: z.string().trim().max(160).optional()
+});
+const incidentCreateSchema = z.object({
+  taskPublicId: z.string().trim().max(40).optional().nullable(),
+  type: z.enum(["failed_visit", "handyman_declined", "family_complaint", "missing_evidence", "safeguarding_concern", "payment_dispute"]),
+  severity: z.enum(["low", "medium", "high", "critical"]).default("medium"),
+  title: z.string().trim().min(3).max(200),
+  description: z.string().trim().min(5).max(2000)
+});
+const incidentUpdateSchema = z.object({
+  status: z.enum(["open", "investigating", "escalated", "resolved", "closed"]),
+  resolutionNotes: z.string().trim().max(2000).optional().nullable()
+});
 
 export const adminRouter = Router();
 adminRouter.use(requireRoles("taskbridge_admin", "taskbridge_super_admin"));
@@ -264,12 +284,14 @@ adminRouter.get("/tasks", async (_req, res) => {
     payment_status: "agency_invoice" | "awaiting_family_payment" | "family_paid" | "funding_pending" | "funding_approved" | "payment_waived";
     payer_name: string | null; payer_email: string | null; payer_phone: string | null;
     funding_reference: string | null; funding_notes: string | null;
+    safeguarding_risk_score: number; safeguarding_risk_band: string; safeguarding_risk_factors: string[];
     assigned_display_name: string | null;
   }>(
     `SELECT t.public_id, ag.name AS agency_name, su.encrypted_name, t.category, t.urgency::text,
             t.status::text, t.summary, t.vulnerable_adult, t.ring_fence_required, t.created_at::text,
             t.payment_route, t.payment_status, t.payer_name, t.payer_email::text, t.payer_phone,
-            t.funding_reference, t.funding_notes,
+            t.funding_reference, t.funding_notes, t.safeguarding_risk_score,
+            t.safeguarding_risk_band, t.safeguarding_risk_factors,
             tr.display_name AS assigned_display_name
      FROM ops.tasks t
      JOIN tenant.agencies ag ON ag.id = t.agency_id
@@ -293,6 +315,11 @@ adminRouter.get("/tasks", async (_req, res) => {
       summary: row.summary,
       vulnerableAdult: row.vulnerable_adult,
       ringFenceRequired: row.ring_fence_required,
+      safeguardingRisk: {
+        score: row.safeguarding_risk_score,
+        band: row.safeguarding_risk_band,
+        factors: row.safeguarding_risk_factors
+      },
       payment: {
         route: row.payment_route,
         status: row.payment_status,
@@ -329,6 +356,68 @@ adminRouter.post("/tasks/:publicId/payment-status", asyncHandler(async (req, res
     paymentStatus: result.rows[0].payment_status
   });
   res.json({ id: req.params.publicId, paymentStatus: result.rows[0].payment_status });
+}));
+
+adminRouter.post("/tasks/:publicId/family-payment-link", asyncHandler(async (req, res) => {
+  const parsed = familyPaymentLinkSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Payment link details are invalid" });
+  const rawToken = createOpaqueToken(36);
+  const result = await withTransaction(req.auth!, async (client) => {
+    const task = await client.query<{
+      id: string; agency_id: string; payment_route: string; payer_email: string | null; payer_name: string | null;
+    }>(
+      `SELECT id::text, agency_id::text, payment_route, payer_email::text, payer_name
+       FROM ops.tasks WHERE public_id = $1 AND deleted_at IS NULL FOR UPDATE`,
+      [req.params.publicId]
+    );
+    const row = task.rows[0];
+    if (!row) throw Object.assign(new Error("Task not found"), { statusCode: 404 });
+    if (row.payment_route !== "family_representative") {
+      throw Object.assign(new Error("This task is not set to family or representative payment"), { statusCode: 409 });
+    }
+    const payerEmail = parsed.data.payerEmail || row.payer_email;
+    if (!payerEmail) throw Object.assign(new Error("A payer email is required before a family payment link can be created"), { statusCode: 422 });
+    const session = await client.query<{ id: string }>(
+      `INSERT INTO billing.family_payment_sessions
+        (task_id, agency_id, payer_email, payer_name, token_hash, amount, expires_at, created_by_user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, clock_timestamp() + interval '7 days', $7)
+       RETURNING id::text`,
+      [row.id, row.agency_id, payerEmail.toLowerCase(), parsed.data.payerName || row.payer_name,
+        hashToken(rawToken), parsed.data.amount, req.auth!.userId]
+    );
+    return { id: session.rows[0].id, taskId: row.id };
+  });
+  await audit(req, "admin.family_payment_link.created", "task", result.taskId, { amount: parsed.data.amount });
+  res.status(201).json({ id: result.id, paymentUrl: `${config.appOrigin}/family-payment/${rawToken}` });
+}));
+
+adminRouter.post("/tasks/:publicId/family-update-link", asyncHandler(async (req, res) => {
+  const parsed = familyUpdateLinkSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Family update link details are invalid" });
+  const rawToken = createOpaqueToken(36);
+  const result = await withTransaction(req.auth!, async (client) => {
+    const task = await client.query<{ id: string; agency_id: string; status: string }>(
+      `SELECT id::text, agency_id::text, status::text
+       FROM ops.tasks WHERE public_id = $1 AND deleted_at IS NULL FOR UPDATE`,
+      [req.params.publicId]
+    );
+    const row = task.rows[0];
+    if (!row) throw Object.assign(new Error("Task not found"), { statusCode: 404 });
+    if (!["awaiting_care_confirmation", "completed"].includes(row.status)) {
+      throw Object.assign(new Error("Family update links are available after visit evidence is returned"), { statusCode: 409 });
+    }
+    const link = await client.query<{ id: string }>(
+      `INSERT INTO ops.family_update_links
+        (task_id, agency_id, recipient_email, recipient_name, token_hash, expires_at, created_by_user_id)
+       VALUES ($1, $2, $3, $4, $5, clock_timestamp() + interval '30 days', $6)
+       RETURNING id::text`,
+      [row.id, row.agency_id, parsed.data.recipientEmail.toLowerCase(), parsed.data.recipientName || null,
+        hashToken(rawToken), req.auth!.userId]
+    );
+    return { id: link.rows[0].id, taskId: row.id };
+  });
+  await audit(req, "admin.family_update_link.created", "task", result.taskId, { recipientEmail: parsed.data.recipientEmail });
+  res.status(201).json({ id: result.id, updateUrl: `${config.appOrigin}/family-update/${rawToken}` });
 }));
 
 adminRouter.get("/tasks/:publicId/candidates", async (req, res) => {
@@ -646,6 +735,169 @@ adminRouter.get("/traders/:id/documents", asyncHandler(async (req, res) => {
     };
   }));
   res.json({ trader: { id: trader.id, displayName: trader.display_name, services: trader.services }, documents: mapped });
+}));
+
+adminRouter.get("/traders/:id/passport", asyncHandler(async (req, res) => {
+  const traderResult = await query<{
+    id: string; display_name: string; email: string | null; encrypted_mobile: string;
+    hourly_rate: string; radius_miles: string; status: string; quality_score: string;
+    dbs_status: string; dbs_expiry_date: string | null; insurance_status: string;
+    insurance_expiry_date: string | null; services: string[];
+  }>(
+    `SELECT t.id::text, t.display_name, t.email::text, t.encrypted_mobile,
+            t.hourly_rate::text, t.radius_miles::text, t.status::text, t.quality_score::text,
+            COALESCE(d.status::text, 'not_started') AS dbs_status, d.expiry_date::text AS dbs_expiry_date,
+            COALESCE(i.status::text, 'unverified') AS insurance_status, i.expiry_date::text AS insurance_expiry_date,
+            COALESCE(s.services, '{}') AS services
+     FROM trader.traders t
+     LEFT JOIN LATERAL (
+       SELECT status, expiry_date FROM trader.dbs_verifications dv WHERE dv.trader_id = t.id ORDER BY dv.created_at DESC LIMIT 1
+     ) d ON true
+     LEFT JOIN LATERAL (
+       SELECT status, expiry_date FROM trader.insurance_records ir WHERE ir.trader_id = t.id ORDER BY ir.created_at DESC LIMIT 1
+     ) i ON true
+     LEFT JOIN LATERAL (
+       SELECT array_agg(service_category ORDER BY service_category) AS services
+       FROM trader.trader_services ts WHERE ts.trader_id = t.id AND ts.active
+     ) s ON true
+     WHERE t.id = $1 AND t.deleted_at IS NULL`,
+    [req.params.id]
+  );
+  const trader = traderResult.rows[0];
+  if (!trader) return res.status(404).json({ error: "Handyman not found" });
+  const stats = await query<{
+    total_assignments: string; accepted: string; completed: string; declined: string;
+    complaint_count: string; care_approved: string;
+  }>(
+    `SELECT count(a.id)::text AS total_assignments,
+            count(*) FILTER (WHERE a.status IN ('approved', 'dispatched'))::text AS accepted,
+            count(*) FILTER (WHERE t.status = 'completed')::text AS completed,
+            count(*) FILTER (WHERE a.status = 'rejected')::text AS declined,
+            count(i.id)::text AS complaint_count,
+            count(*) FILTER (WHERE v.confirmed_at IS NOT NULL)::text AS care_approved
+     FROM ops.assignments a
+     LEFT JOIN ops.tasks t ON t.id = a.task_id
+     LEFT JOIN ops.visits v ON v.assignment_id = a.id
+     LEFT JOIN ops.incidents i ON i.task_id = a.task_id AND i.type IN ('family_complaint', 'safeguarding_concern')
+     WHERE a.trader_id = $1`,
+    [req.params.id]
+  );
+  const row = stats.rows[0];
+  const total = Number(row?.total_assignments || 0);
+  const accepted = Number(row?.accepted || 0);
+  const completed = Number(row?.completed || 0);
+  const declined = Number(row?.declined || 0);
+  const complaints = Number(row?.complaint_count || 0);
+  const careApproved = Number(row?.care_approved || 0);
+  const dbsActive = trader.dbs_status === "approved" && (!trader.dbs_expiry_date || new Date(`${trader.dbs_expiry_date}T23:59:59Z`) >= new Date());
+  const insuranceActive = trader.insurance_status === "verified" && (!trader.insurance_expiry_date || new Date(`${trader.insurance_expiry_date}T23:59:59Z`) >= new Date());
+  const acceptanceRate = total ? accepted / total : 1;
+  const completionRate = accepted ? completed / accepted : 1;
+  const approvalRate = completed ? careApproved / completed : 1;
+  const complaintPenalty = Math.min(30, complaints * 8);
+  const reliabilityScore = Math.max(0, Math.min(100,
+    Math.round(acceptanceRate * 25 + completionRate * 25 + approvalRate * 20 + (dbsActive ? 15 : 0) + (insuranceActive ? 15 : 0) - complaintPenalty)
+  ));
+  res.json({
+    passport: {
+      id: trader.id,
+      displayName: trader.display_name,
+      email: trader.email,
+      mobile: decryptField(trader.encrypted_mobile),
+      status: trader.status,
+      hourlyRate: Number(trader.hourly_rate),
+      serviceRadiusMiles: Number(trader.radius_miles),
+      services: trader.services,
+      compliance: {
+        dbsStatus: trader.dbs_status,
+        dbsExpiryDate: trader.dbs_expiry_date,
+        insuranceStatus: trader.insurance_status,
+        insuranceExpiryDate: trader.insurance_expiry_date
+      },
+      reliability: {
+        score: reliabilityScore,
+        totalAssignments: total,
+        accepted,
+        completed,
+        declined,
+        careApproved,
+        complaints
+      },
+      qualityScore: Number(trader.quality_score)
+    }
+  });
+}));
+
+adminRouter.get("/incidents", asyncHandler(async (_req, res) => {
+  const result = await query<{
+    id: string; public_id: string; task_public_id: string | null; agency_name: string | null;
+    type: string; severity: string; status: string; title: string; description: string;
+    owner_name: string | null; created_at: string; updated_at: string; resolved_at: string | null;
+  }>(
+    `SELECT i.id::text, i.public_id, t.public_id AS task_public_id, ag.name AS agency_name,
+            i.type, i.severity, i.status, i.title, i.description, u.full_name AS owner_name,
+            i.created_at::text, i.updated_at::text, i.resolved_at::text
+     FROM ops.incidents i
+     LEFT JOIN ops.tasks t ON t.id = i.task_id
+     LEFT JOIN tenant.agencies ag ON ag.id = i.agency_id
+     LEFT JOIN auth.users u ON u.id = i.owner_user_id
+     ORDER BY i.created_at DESC LIMIT 200`
+  );
+  res.json({ incidents: result.rows.map((row) => ({
+    id: row.id,
+    publicId: row.public_id,
+    taskId: row.task_public_id,
+    agencyName: row.agency_name,
+    type: row.type,
+    severity: row.severity,
+    status: row.status,
+    title: row.title,
+    description: row.description,
+    ownerName: row.owner_name,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    resolvedAt: row.resolved_at
+  })) });
+}));
+
+adminRouter.post("/incidents", asyncHandler(async (req, res) => {
+  const parsed = incidentCreateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Incident details are invalid" });
+  const result = await withTransaction(req.auth!, async (client) => {
+    const task = parsed.data.taskPublicId ? await client.query<{ id: string; agency_id: string }>(
+      "SELECT id::text, agency_id::text FROM ops.tasks WHERE public_id = $1 AND deleted_at IS NULL",
+      [parsed.data.taskPublicId]
+    ) : { rows: [] as Array<{ id: string; agency_id: string }> };
+    const incident = await client.query<{ id: string; public_id: string }>(
+      `INSERT INTO ops.incidents
+        (public_id, task_id, agency_id, reported_by_user_id, owner_user_id, type, severity, title, description)
+       VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8)
+       RETURNING id::text, public_id`,
+      [publicId("inc"), task.rows[0]?.id || null, task.rows[0]?.agency_id || null, req.auth!.userId,
+        parsed.data.type, parsed.data.severity, parsed.data.title, parsed.data.description]
+    );
+    return incident.rows[0];
+  });
+  await audit(req, "admin.incident.created", "incident", result.id, { type: parsed.data.type, severity: parsed.data.severity });
+  res.status(201).json({ id: result.id, publicId: result.public_id });
+}));
+
+adminRouter.patch("/incidents/:id", asyncHandler(async (req, res) => {
+  const parsed = incidentUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Incident update is invalid" });
+  const result = await query<{ id: string }>(
+    `UPDATE ops.incidents
+     SET status = $2, resolution_notes = NULLIF($3, ''),
+         escalated_at = CASE WHEN $2 = 'escalated' THEN COALESCE(escalated_at, clock_timestamp()) ELSE escalated_at END,
+         resolved_at = CASE WHEN $2 IN ('resolved', 'closed') THEN COALESCE(resolved_at, clock_timestamp()) ELSE resolved_at END,
+         updated_at = clock_timestamp()
+     WHERE id = $1
+     RETURNING id::text`,
+    [req.params.id, parsed.data.status, parsed.data.resolutionNotes || ""]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: "Incident not found" });
+  await audit(req, "admin.incident.updated", "incident", result.rows[0].id, { status: parsed.data.status });
+  res.json({ id: result.rows[0].id, status: parsed.data.status });
 }));
 
 adminRouter.post("/traders/:id/documents/:documentId/review", asyncHandler(async (req, res) => {

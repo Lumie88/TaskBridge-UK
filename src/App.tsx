@@ -8,6 +8,7 @@ import { AdminPortal } from "./pages/AdminPortal";
 import { VisitPage } from "./pages/VisitPage";
 import { HandymanOnboardingPage } from "./pages/HandymanOnboardingPage";
 import { StaffOnboardingPage } from "./pages/StaffOnboardingPage";
+import { FamilyPaymentPage, FamilyUpdatePage } from "./pages/FamilyPages";
 import { Brand } from "./components";
 
 export function App() {
@@ -38,6 +39,8 @@ export function App() {
   if (path.startsWith("/visit/")) return <VisitPage token={path.slice("/visit/".length)} />;
   if (path.startsWith("/handyman-onboarding/")) return <HandymanOnboardingPage token={path.slice("/handyman-onboarding/".length)} />;
   if (path.startsWith("/staff-onboarding/")) return <StaffOnboardingPage token={path.slice("/staff-onboarding/".length)} />;
+  if (path.startsWith("/family-payment/")) return <FamilyPaymentPage token={path.slice("/family-payment/".length)} />;
+  if (path.startsWith("/family-update/")) return <FamilyUpdatePage token={path.slice("/family-update/".length)} />;
   if (path === "/") return <MarketingHome />;
   if (path === "/how-it-works") return <HowItWorks />;
   if (path === "/services") return <OurServices />;

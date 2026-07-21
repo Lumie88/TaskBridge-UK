@@ -185,6 +185,22 @@ interface AdminInvoice {
   lineCount: number;
 }
 
+interface Incident {
+  id: string;
+  publicId: string;
+  taskId: string | null;
+  agencyName: string | null;
+  type: string;
+  severity: string;
+  status: string;
+  title: string;
+  description: string;
+  ownerName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+}
+
 interface AccessUser {
   id: string; full_name: string; email: string; role: string; status: string;
   last_login_at: string | null; created_at: string; agency_name: string | null;
@@ -208,6 +224,7 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
   const [demoRequests, setDemoRequests] = useState<DemoRequest[]>([]);
   const [billingCharges, setBillingCharges] = useState<BillingCharge[]>([]);
   const [invoices, setInvoices] = useState<AdminInvoice[]>([]);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [selectedTask, setSelectedTask] = useState<AdminTask | null>(null);
@@ -218,7 +235,7 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
     setLoading(true);
     setError("");
     try {
-      const [summary, taskResult, traderResult, agencyResult, accessResult, integrationResult, providerResult, demoResult, billingResult, invoiceResult] = await Promise.all([
+      const [summary, taskResult, traderResult, agencyResult, accessResult, integrationResult, providerResult, demoResult, billingResult, invoiceResult, incidentResult] = await Promise.all([
         api<AdminDashboard>("/api/admin/dashboard"),
         api<{ tasks: AdminTask[] }>("/api/admin/tasks"),
         api<{ traders: Trader[] }>("/api/admin/traders"),
@@ -228,7 +245,8 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
         user.role === "taskbridge_super_admin" ? api<{ providers: CarePlatformProviderStatus[] }>("/api/admin/integrations/providers/status") : Promise.resolve({ providers: [] }),
         api<{ requests: DemoRequest[] }>("/api/admin/demo-requests"),
         api<{ charges: BillingCharge[] }>("/api/admin/billing/task-charges"),
-        api<{ invoices: AdminInvoice[] }>("/api/admin/billing/invoices")
+        api<{ invoices: AdminInvoice[] }>("/api/admin/billing/invoices"),
+        api<{ incidents: Incident[] }>("/api/admin/incidents")
       ]);
       setDashboard(summary); setTasks(taskResult.tasks); setTraders(traderResult.traders); setAgencies(agencyResult.agencies);
       setAccessUsers(accessResult.users); setAccessInvitations(accessResult.invitations);
@@ -237,6 +255,7 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
       setDemoRequests(demoResult.requests);
       setBillingCharges(billingResult.charges);
       setInvoices(invoiceResult.invoices);
+      setIncidents(incidentResult.incidents);
       setSelectedTask((current) => current ? taskResult.tasks.find((task) => task.id === current.id) || null : null);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load administration"); }
     finally { setLoading(false); }
@@ -264,6 +283,8 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
         ? <DemoRequestDesk requests={demoRequests} onChanged={load} />
         : active === "tasks"
         ? <AssignmentDesk tasks={tasks} filter={taskFilter} onFilter={setTaskFilter} selectedTask={selectedTask} onSelect={setSelectedTask} onChanged={load} />
+        : active === "incidents"
+          ? <IncidentDesk incidents={incidents} tasks={tasks} onChanged={load} />
         : active === "integrations"
           ? <IntegrationMonitor failures={integrationFailures} providerStatuses={providerStatuses} isSuperAdmin={user.role === "taskbridge_super_admin"} onRefresh={load} />
         : active === "billing"
@@ -401,6 +422,40 @@ function CandidatePanel({ task, onChanged }: { task: AdminTask | null; onChanged
     finally { setPaymentBusy(""); }
   }
 
+  async function createFamilyPaymentLink() {
+    if (!task) return;
+    const amount = Number(window.prompt("Amount to request from family / representative in GBP", "75"));
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    setPaymentBusy("payment-link"); setError("");
+    try {
+      const result = await api<{ paymentUrl: string }>(`/api/admin/tasks/${task.id}/family-payment-link`, {
+        method: "POST",
+        body: JSON.stringify({ amount })
+      });
+      await navigator.clipboard.writeText(result.paymentUrl);
+      window.alert("Secure family payment link copied to clipboard.");
+      await onChanged();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to create family payment link"); }
+    finally { setPaymentBusy(""); }
+  }
+
+  async function createFamilyUpdateLink() {
+    if (!task) return;
+    const recipientEmail = window.prompt("Family or representative email address");
+    if (!recipientEmail) return;
+    const recipientName = window.prompt("Recipient name", "") || "";
+    setPaymentBusy("update-link"); setError("");
+    try {
+      const result = await api<{ updateUrl: string }>(`/api/admin/tasks/${task.id}/family-update-link`, {
+        method: "POST",
+        body: JSON.stringify({ recipientEmail, recipientName })
+      });
+      await navigator.clipboard.writeText(result.updateUrl);
+      window.alert("Secure family update link copied to clipboard.");
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to create family update link"); }
+    finally { setPaymentBusy(""); }
+  }
+
   return <aside className="candidate-panel">
     {!task ? <EmptyState icon={<UsersRound />} title="Select a task" detail="Choose a task to run the safeguarding and suitability checks." /> : <>
       <div className="candidate-heading"><div><span className="eyebrow">Candidate decision</span><h2>{task.category}</h2><p>{task.agencyName} · Resident {task.residentInitials}</p></div>{task.vulnerableAdult && <ShieldCheck size={26} />}</div>
@@ -408,9 +463,12 @@ function CandidatePanel({ task, onChanged }: { task: AdminTask | null; onChanged
         <span>{task.payment.route === "council_personal_budget" ? <Landmark size={18} /> : <CreditCard size={18} />}</span>
         <div><strong>{paymentRouteLabel(task.payment.route)}</strong><p>{paymentRouteDetail(task)}</p><StatusBadge status={task.payment.status}>{humanize(task.payment.status)}</StatusBadge></div>
         {task.payment.status === "awaiting_family_payment" && <button className="button button-secondary button-small" disabled={Boolean(paymentBusy)} onClick={() => markPayment("family_paid")}>{paymentBusy ? "Saving..." : "Mark paid"}</button>}
+        {task.payment.status === "awaiting_family_payment" && <button className="button button-secondary button-small" disabled={Boolean(paymentBusy)} onClick={createFamilyPaymentLink}>{paymentBusy === "payment-link" ? "Creating..." : "Create pay link"}</button>}
         {task.payment.status === "funding_pending" && <button className="button button-secondary button-small" disabled={Boolean(paymentBusy)} onClick={() => markPayment("funding_approved")}>{paymentBusy ? "Saving..." : "Approve funding"}</button>}
         {["awaiting_family_payment", "funding_pending"].includes(task.payment.status) && <button className="button button-secondary button-small document-reject" disabled={Boolean(paymentBusy)} onClick={() => markPayment("payment_waived")}>Waive hold</button>}
       </div>
+      {task.safeguardingRisk && <div className="risk-score-card"><strong>Safeguarding risk {task.safeguardingRisk.score}/100</strong><StatusBadge status={task.safeguardingRisk.band}>{humanize(task.safeguardingRisk.band)}</StatusBadge><p>{task.safeguardingRisk.factors.join(", ") || "Standard controls"}</p></div>}
+      {["awaiting_care_confirmation", "completed"].includes(task.status) && <button className="button button-secondary button-full" disabled={Boolean(paymentBusy)} onClick={createFamilyUpdateLink}>{paymentBusy === "update-link" ? "Creating update..." : "Create family update link"}</button>}
       {error && <p className="form-error">{error}</p>}
       {visitUrl && <div className="alert alert-success"><span>Dispatch complete. The secure link is shown once.</span><a href={visitUrl} target="_blank" rel="noreferrer">Open visit link <ExternalLink size={15} /></a></div>}
       {loading ? <div className="app-loading"><LoaderCircle className="spin" /> Evaluating eligibility...</div> : <div className="candidate-list">{candidates.map((candidate) => <article key={candidate.id} className={`candidate ${candidate.eligible ? "eligible" : "ineligible"}`}>
@@ -423,6 +481,42 @@ function CandidatePanel({ task, onChanged }: { task: AdminTask | null; onChanged
       {!loading && !candidates.length && <EmptyState icon={<UserCheck />} title="No candidates to show" detail={task.status === "dispatched" ? "This task has already been assigned." : "No matching handyman records were returned."} />}
     </>}
   </aside>;
+}
+
+function IncidentDesk({ incidents, tasks, onChanged }: { incidents: Incident[]; tasks: AdminTask[]; onChanged: () => Promise<void> }) {
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  async function createIncident() {
+    const taskPublicId = window.prompt("Task ID, if linked to a task", tasks[0]?.id || "") || "";
+    const type = window.prompt("Type: failed_visit, handyman_declined, family_complaint, missing_evidence, safeguarding_concern, payment_dispute", "safeguarding_concern");
+    const severity = window.prompt("Severity: low, medium, high, critical", "medium");
+    const title = window.prompt("Short incident title");
+    const description = window.prompt("Describe what happened and what needs to be done");
+    if (!type || !severity || !title || !description) return;
+    setBusy("create"); setError("");
+    try {
+      await api("/api/admin/incidents", {
+        method: "POST",
+        body: JSON.stringify({ taskPublicId: taskPublicId || null, type, severity, title, description })
+      });
+      await onChanged();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to create incident"); }
+    finally { setBusy(""); }
+  }
+  async function updateIncident(incident: Incident, status: string) {
+    const resolutionNotes = ["resolved", "closed"].includes(status) ? window.prompt("Resolution notes", "") || "" : "";
+    setBusy(incident.id); setError("");
+    try {
+      await api(`/api/admin/incidents/${incident.id}`, { method: "PATCH", body: JSON.stringify({ status, resolutionNotes }) });
+      await onChanged();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to update incident"); }
+    finally { setBusy(""); }
+  }
+  return <>
+    <div className="page-title-row"><div><span className="eyebrow">Safeguarding operations</span><h1>Incident and complaint workflow</h1><p>Track failed visits, family complaints, evidence gaps, safeguarding concerns and payment disputes.</p></div><button className="button button-primary" disabled={busy === "create"} onClick={createIncident}><Plus size={17} /> New incident</button></div>
+    {error && <div className="alert alert-danger">{error}</div>}
+    <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Incident</th><th>Task / Agency</th><th>Severity</th><th>Status</th><th>Owner</th><th>Actions</th></tr></thead><tbody>{incidents.map((incident) => <tr key={incident.id}><td><strong>{incident.title}</strong><small>{incident.publicId} · {humanize(incident.type)} · {formatDate(incident.createdAt, true)}</small><p className="table-note">{incident.description}</p></td><td><strong>{incident.taskId || "Unlinked"}</strong><small>{incident.agencyName || "Platform"}</small></td><td><StatusBadge status={incident.severity}>{humanize(incident.severity)}</StatusBadge></td><td><StatusBadge status={incident.status}>{humanize(incident.status)}</StatusBadge>{incident.resolvedAt && <small>Resolved {formatDate(incident.resolvedAt, true)}</small>}</td><td>{incident.ownerName || "TaskBridge operations"}</td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === incident.id} onClick={() => updateIncident(incident, "investigating")}>Investigate</button><button className="button button-secondary button-small" disabled={busy === incident.id} onClick={() => updateIncident(incident, "escalated")}>Escalate</button><button className="button button-secondary button-small" disabled={busy === incident.id} onClick={() => updateIncident(incident, "resolved")}>Resolve</button></div></td></tr>)}</tbody></table></div>{!incidents.length && <EmptyState icon={<FileWarning />} title="No incidents recorded" detail="Operational exceptions and complaints will appear here." />}</section>
+  </>;
 }
 
 function IntegrationMonitor({ failures, providerStatuses, isSuperAdmin, onRefresh }: {
@@ -579,6 +673,28 @@ function ComplianceHub({ traders, filter, onFilter, user, onChanged }: { traders
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load compliance documents"); setDocuments([]); }
     finally { setDocumentsLoading(false); }
   }
+  async function openPassport(trader: Trader) {
+    setBusy(`passport-${trader.id}`); setError("");
+    try {
+      const result = await api<{ passport: {
+        displayName: string; email: string | null; mobile: string; status: string; hourlyRate: number;
+        serviceRadiusMiles: number; services: string[];
+        compliance: { dbsStatus: string; dbsExpiryDate: string | null; insuranceStatus: string; insuranceExpiryDate: string | null };
+        reliability: { score: number; totalAssignments: number; accepted: number; completed: number; declined: number; careApproved: number; complaints: number };
+      } }>(`/api/admin/traders/${trader.id}/passport`);
+      const passport = result.passport;
+      window.alert([
+        `${passport.displayName} compliance passport`,
+        `Reliability score: ${passport.reliability.score}/100`,
+        `Services: ${passport.services.join(", ") || "Awaiting registration"}`,
+        `DBS: ${humanize(passport.compliance.dbsStatus)}${passport.compliance.dbsExpiryDate ? ` until ${formatDate(passport.compliance.dbsExpiryDate)}` : ""}`,
+        `Insurance: ${humanize(passport.compliance.insuranceStatus)}${passport.compliance.insuranceExpiryDate ? ` until ${formatDate(passport.compliance.insuranceExpiryDate)}` : ""}`,
+        `Radius: ${passport.serviceRadiusMiles} miles · Rate: £${passport.hourlyRate}/hr`,
+        `Assignments: ${passport.reliability.totalAssignments}; completed ${passport.reliability.completed}; care-approved ${passport.reliability.careApproved}; complaints ${passport.reliability.complaints}`
+      ].join("\n"));
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load handyman passport"); }
+    finally { setBusy(""); }
+  }
   async function reviewDocument(document: ComplianceDocument, status: "approved" | "rejected") {
     if (!reviewingTrader) return;
     const reason = window.prompt(`Record the reason for ${status === "approved" ? "approval" : "rejection"}`);
@@ -629,7 +745,7 @@ function ComplianceHub({ traders, filter, onFilter, user, onChanged }: { traders
       {inviteResult && <div className={`invitation-result ${inviteResult.emailDeliveryStatus === "sent" ? "sent" : "attention"}`}><div><strong>{inviteResult.emailDeliveryStatus === "sent" ? "Invitation email sent" : "Invitation created; email delivery needs configuration"}</strong><span>Expires {formatDate(inviteResult.expiresAt, true)}</span></div><div className="invitation-link"><input readOnly value={inviteResult.invitationUrl} aria-label="Handyman invitation URL" /><button className="icon-button" onClick={copyInvitationLink} type="button" aria-label="Copy invitation link"><Copy size={18} /></button><a className="icon-button" href={inviteResult.invitationUrl} target="_blank" rel="noreferrer" aria-label="Open invitation"><ExternalLink size={18} /></a></div></div>}
     </section>}
     <nav className="task-filter-links" aria-label="Filter handyman compliance">{[["all", "All handymen"], ["approved", "DBS approved"], ["action-needed", "Action needed"]].map(([key, label]) => <button key={key} className={filter === key ? "active" : ""} onClick={() => onFilter(key)} aria-pressed={filter === key}>{label}<span>{traders.filter((trader) => key === "approved" ? trader.dbsStatus === "approved" : key === "action-needed" ? trader.dbsStatus !== "approved" : true).length}</span></button>)}</nav>
-    <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Handyman</th><th>Onboarding</th><th>Services</th><th>Enhanced DBS</th><th>Insurance</th><th>Quality</th><th>Action</th></tr></thead><tbody>{filteredTraders.map((trader) => <tr key={trader.id}><td><strong>{trader.displayName}</strong><small>{trader.email || trader.network || "Direct network"}</small></td><td><StatusBadge status={trader.onboardingStatus}>{humanize(trader.onboardingStatus)}</StatusBadge><small>{trader.emailDeliveryStatus ? `Email: ${humanize(trader.emailDeliveryStatus)}` : "Marketplace record"}</small></td><td><span className="service-summary" title={trader.services.join(", ")}>{trader.services.length ? `${trader.services.slice(0, 2).join(", ")}${trader.services.length > 2 ? ` +${trader.services.length - 2}` : ""}` : "Awaiting registration"}</span></td><td><StatusBadge status={trader.dbsStatus}>{humanize(trader.dbsStatus)}</StatusBadge><small>{trader.dbsExpiryDate ? `Expires ${formatDate(trader.dbsExpiryDate)}` : "No active expiry"}</small></td><td><StatusBadge status={trader.insuranceStatus}>{humanize(trader.insuranceStatus)}</StatusBadge><small>{trader.insuranceExpiryDate ? `Expires ${formatDate(trader.insuranceExpiryDate)}` : "No active expiry"}</small></td><td><span className="rating"><Star size={15} /> {trader.qualityScore}</span></td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={documentsLoading && reviewingTrader?.id === trader.id} onClick={() => openDocuments(trader)}><FileCheck2 size={15} /> Review documents</button><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start check</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td></tr>)}</tbody></table></div>{!filteredTraders.length && <EmptyState icon={<BadgeCheck />} title="No handymen in this view" detail="Choose another compliance filter to review the registry." />}</section>
+    <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Handyman</th><th>Onboarding</th><th>Services</th><th>Enhanced DBS</th><th>Insurance</th><th>Quality</th><th>Action</th></tr></thead><tbody>{filteredTraders.map((trader) => <tr key={trader.id}><td><strong>{trader.displayName}</strong><small>{trader.email || trader.network || "Direct network"}</small></td><td><StatusBadge status={trader.onboardingStatus}>{humanize(trader.onboardingStatus)}</StatusBadge><small>{trader.emailDeliveryStatus ? `Email: ${humanize(trader.emailDeliveryStatus)}` : "Marketplace record"}</small></td><td><span className="service-summary" title={trader.services.join(", ")}>{trader.services.length ? `${trader.services.slice(0, 2).join(", ")}${trader.services.length > 2 ? ` +${trader.services.length - 2}` : ""}` : "Awaiting registration"}</span></td><td><StatusBadge status={trader.dbsStatus}>{humanize(trader.dbsStatus)}</StatusBadge><small>{trader.dbsExpiryDate ? `Expires ${formatDate(trader.dbsExpiryDate)}` : "No active expiry"}</small></td><td><StatusBadge status={trader.insuranceStatus}>{humanize(trader.insuranceStatus)}</StatusBadge><small>{trader.insuranceExpiryDate ? `Expires ${formatDate(trader.insuranceExpiryDate)}` : "No active expiry"}</small></td><td><span className="rating"><Star size={15} /> {trader.qualityScore}</span></td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === `passport-${trader.id}`} onClick={() => openPassport(trader)}>Passport</button><button className="button button-secondary button-small" disabled={documentsLoading && reviewingTrader?.id === trader.id} onClick={() => openDocuments(trader)}><FileCheck2 size={15} /> Review documents</button><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start check</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td></tr>)}</tbody></table></div>{!filteredTraders.length && <EmptyState icon={<BadgeCheck />} title="No handymen in this view" detail="Choose another compliance filter to review the registry." />}</section>
     {reviewingTrader && <ComplianceDocumentReview trader={reviewingTrader} documents={documents} loading={documentsLoading} busy={busy} onClose={() => { setReviewingTrader(null); setDocuments([]); }} onReview={reviewDocument} />}
   </>;
 }

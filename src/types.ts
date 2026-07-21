@@ -38,6 +38,7 @@ export interface CoordinatorTask {
   vulnerableAdult: boolean;
   ringFenceRequired: boolean;
   carerOnSite: boolean;
+  safeguardingRisk?: { score: number; band: string; factors: string[] };
   preferredWindow: { start: string | null; end: string | null };
   payment: TaskPayment;
   createdAt: string;
@@ -60,6 +61,7 @@ export interface AdminTask {
   summary: string;
   vulnerableAdult: boolean;
   ringFenceRequired: boolean;
+  safeguardingRisk?: { score: number; band: string; factors: string[] };
   payment: TaskPayment;
   assignedHandyman: string | null;
   createdAt: string;

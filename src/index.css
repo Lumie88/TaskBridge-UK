@@ -1538,3 +1538,37 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 .issued-api-key p { margin: 4px 0 9px; font-size: .72rem; }
 .issued-api-key > div { display: grid; grid-template-columns: 1fr 36px; gap: 6px; }
 .issued-api-key input { min-width: 0; background: white; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .69rem; }
+
+.family-page { min-height: 100vh; padding: 32px 18px; display: grid; place-items: center; background: #f3f7f6; }
+.family-card { width: min(100%, 620px); padding: 34px; background: white; border: 1px solid #dbe7e4; border-radius: 10px; box-shadow: 0 24px 70px rgba(7, 43, 50, .12); }
+.family-card h1 { margin: 18px 0 16px; font-size: clamp(1.7rem, 4vw, 2.45rem); letter-spacing: 0; }
+.family-summary { margin: 18px 0; padding: 16px; display: grid; grid-template-columns: 44px 1fr; gap: 13px; background: #f8fbfb; border: 1px solid #dfebe8; border-radius: 8px; }
+.family-summary > span { width: 44px; height: 44px; display: grid; place-items: center; color: #0d6370; background: #e2f4f0; border-radius: 8px; }
+.family-summary strong { color: #0f1f2f; }
+.family-summary p { margin: 5px 0; color: #53686c; line-height: 1.55; }
+.family-summary small { color: #6f8387; }
+.payment-amount { margin: 18px 0; padding: 17px; display: flex; justify-content: space-between; gap: 14px; align-items: center; color: #0e2538; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; }
+.payment-amount small { color: #9a5a19; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; }
+.payment-amount strong { font-size: 1.45rem; }
+.family-note, .family-completion-note { color: #667a7e; line-height: 1.65; }
+.family-success { padding: 26px 0 8px; text-align: center; }
+.family-success svg { color: #0f9f6e; }
+.family-status-strip { padding: 12px 14px; display: flex; justify-content: space-between; gap: 14px; background: #ecfeff; border: 1px solid #a5f3fc; border-radius: 8px; }
+.family-status-strip span { font-weight: 850; color: #155e75; }
+.family-status-strip small { color: #55767d; }
+.family-evidence-grid { margin-top: 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.family-evidence { margin: 0; padding: 12px; border: 1px solid #dfe9e7; border-radius: 8px; background: #fbfdfd; }
+.family-evidence strong { display: block; margin-bottom: 9px; }
+.family-evidence img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 6px; border: 1px solid #dbe7e4; }
+.family-evidence p { min-height: 150px; margin: 0; display: grid; place-items: center; color: #74878b; background: #f2f6f5; border-radius: 6px; text-align: center; }
+.risk-score-card { margin: 12px 0; padding: 14px; display: grid; gap: 7px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; }
+.risk-score-card strong { color: #7c2d12; }
+.risk-score-card p { margin: 0; color: #865f34; font-size: .76rem; line-height: 1.55; }
+.analytics-export-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.table-note { max-width: 520px; margin: 6px 0 0; color: #64777a; font-size: .72rem; line-height: 1.45; }
+
+@media (max-width: 640px) {
+  .family-card { padding: 24px 18px; }
+  .family-summary, .family-evidence-grid { grid-template-columns: 1fr; }
+  .payment-amount, .family-status-strip { align-items: flex-start; flex-direction: column; }
+}

@@ -8,6 +8,7 @@ import { databaseReady, withRequestDbContext } from "./db.js";
 import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
 import { coordinatorRouter } from "./routes/coordinator.js";
+import { familyRouter } from "./routes/family.js";
 import { handymanOnboardingRouter } from "./routes/handyman-onboarding.js";
 import { visitRouter } from "./routes/visit.js";
 import { webhookRouter } from "./routes/webhooks.js";
@@ -75,6 +76,7 @@ export function createApp() {
   app.use("/api/auth", authRouter);
   app.use("/api/coordinator", coordinatorRouter);
   app.use("/api/admin", adminRouter);
+  app.use("/api/family", familyRouter);
   app.use("/api/handyman-onboarding", handymanOnboardingRouter);
   app.use("/api/visit", visitRouter);
   app.use("/api/webhooks", webhookRouter);
