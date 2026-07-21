@@ -1431,20 +1431,36 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 .analytics-locked h1 { margin: 0 0 8px; }
 .analytics-locked p { margin: 0; color: #607477; }
 .rota-planner-page { display: block; }
-.rota-premium-hero { margin-bottom: 18px; padding: 22px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); gap: 22px; align-items: end; color: white; background: linear-gradient(135deg, #07111f 0%, #103244 58%, #0f766e 100%); border-color: rgba(255,255,255,.08); }
+.rota-premium-hero { margin-bottom: 18px; padding: 22px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 320px); gap: 22px; align-items: center; color: white; background: linear-gradient(135deg, #07111f 0%, #103244 58%, #0f766e 100%); border-color: rgba(255,255,255,.08); }
 .rota-premium-hero h2 { margin: 7px 0 8px; color: white; font-size: clamp(1.35rem, 2.5vw, 1.95rem); letter-spacing: 0; }
 .rota-premium-hero p { margin: 0; color: #d6ecf0; line-height: 1.62; }
-.rota-premium-hero label { color: white; }
-.rota-premium-hero input { margin-top: 8px; background: rgba(255,255,255,.96); }
+.rota-owner-value { padding: 18px; display: grid; gap: 6px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.16); border-radius: 8px; }
+.rota-owner-value strong { font-size: 2.25rem; line-height: 1; color: white; }
+.rota-owner-value span { color: #d6f4ee; font-weight: 850; }
+.rota-owner-value small { color: #bad6dc; line-height: 1.5; }
+.rota-premium-controls { margin-bottom: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; align-items: end; }
+.rota-continuity-panel { grid-column: 1 / -1; }
 .rota-planner-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
 .rota-input-list { display: grid; gap: 12px; }
 .rota-input-list article { padding: 14px; display: grid; gap: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
 .rota-plan-results { margin-top: 20px; display: grid; gap: 18px; }
+.rota-value-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.rota-value-grid article { padding: 18px; background: white; border: 1px solid #dfe7e5; border-radius: 8px; box-shadow: 0 12px 30px rgba(7,43,50,.05); }
+.rota-value-grid strong { display: block; color: #0f172a; font-size: 1.55rem; }
+.rota-value-grid span { display: block; margin-top: 4px; color: #0d6370; font-weight: 850; font-size: .78rem; }
+.rota-value-grid p { margin: 9px 0 0; color: #64777a; line-height: 1.5; font-size: .74rem; }
+.rota-recommendations { display: grid; gap: 10px; }
+.rota-recommendations p { margin: 0; padding: 12px 14px; display: flex; gap: 9px; align-items: flex-start; color: #243d43; background: #f8fbfb; border: 1px solid #e0e9e7; border-radius: 8px; line-height: 1.5; }
+.rota-recommendations svg { flex: 0 0 auto; margin-top: 2px; color: #e11d48; }
 .rota-schedule-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .rota-schedule-card { padding: 16px; border: 1px solid #dfe7e5; border-radius: 8px; background: white; }
 .rota-schedule-card header { margin-bottom: 12px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .rota-schedule-card h3 { margin: 0; font-size: .98rem; }
 .rota-schedule-card header p { margin: 4px 0 0; color: #64777a; font-size: .72rem; }
+.rota-efficiency-strip { margin-bottom: 8px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.rota-efficiency-strip span { padding: 8px; color: #164e63; background: #ecfeff; border-radius: 7px; font-size: .66rem; font-weight: 850; text-align: center; }
+.rota-schedule-warnings { margin-bottom: 8px; display: grid; gap: 6px; }
+.rota-schedule-warnings small { padding: 8px 10px; color: #9f1239; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 7px; font-size: .68rem; font-weight: 750; }
 .rota-call-row { padding: 12px 0; display: grid; grid-template-columns: 52px 1fr; gap: 12px; border-top: 1px solid #edf2f7; }
 .rota-call-row > span { height: 32px; display: grid; place-items: center; color: #0f766e; background: #ccfbf1; border-radius: 7px; font-size: .72rem; font-weight: 900; }
 .rota-call-row strong { color: #0f172a; font-size: .82rem; }
@@ -1463,7 +1479,7 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .analytics-focus-panel, .analytics-owner-value { grid-template-columns: 1fr; align-items: stretch; }
   .premium-score-ring { width: 132px; }
   .analytics-insight-grid, .analytics-decision-grid, .analytics-milestone-board > div:last-child { grid-template-columns: 1fr; }
-  .rota-premium-hero, .rota-planner-grid, .rota-schedule-list { grid-template-columns: 1fr; }
+  .rota-premium-hero, .rota-premium-controls, .rota-planner-grid, .rota-schedule-list, .rota-value-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 780px) {
@@ -1472,6 +1488,7 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .premium-score-ring { width: 118px; }
   .analytics-export-actions .button { width: 100%; justify-content: center; }
   .analytics-owner-value-grid { grid-template-columns: 1fr; }
+  .rota-efficiency-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .board-toolbar { grid-template-columns: 1fr; }
   .analytics-action-list, .analytics-profile-card dl { grid-template-columns: 1fr; }
   .metric-trend-list { grid-template-columns: 1fr; }
@@ -1485,6 +1502,9 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 @media (max-width: 480px) {
   .analytics-metrics { grid-template-columns: 1fr; }
   .analytics-premium-hero, .analytics-owner-value, .analytics-focus-panel { padding: 16px; }
+  .rota-premium-hero, .rota-premium-controls { padding: 16px; }
+  .rota-owner-value strong { font-size: 1.8rem; }
+  .rota-efficiency-strip { grid-template-columns: 1fr; }
   .analytics-summary-card, .analytics-owner-value-grid article, .analytics-milestone-board article { grid-template-columns: 1fr; }
   .analytics-summary-card > span, .analytics-owner-value-grid article span, .analytics-milestone-board article span { grid-row: auto; }
   .analytics-card > header, .analytics-filter-strip { align-items: flex-start; flex-direction: column; }

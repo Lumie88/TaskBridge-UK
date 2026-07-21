@@ -133,6 +133,9 @@ const analyticsUploadSchema = z.object({
 });
 const rotaPlanSchema = z.object({
   branchPostcode: z.string().trim().min(3).max(12).optional().default(""),
+  optimisationGoal: z.enum(["balanced", "minimise_travel", "protect_continuity", "risk_first"]).optional().default("balanced"),
+  targetUtilisationPercent: z.number().int().min(50).max(95).optional().default(82),
+  maxTravelMinutesBetweenCalls: z.number().int().min(5).max(120).optional().default(35),
   caregivers: z.array(z.object({
     name: z.string().trim().min(2).max(120),
     startPostcode: z.string().trim().min(3).max(12).optional().default(""),
@@ -147,7 +150,11 @@ const rotaPlanSchema = z.object({
     durationMinutes: z.number().int().min(5).max(240),
     priority: z.enum(["routine", "medium", "high"]).default("routine"),
     requiredSkill: z.string().trim().max(120).optional().default("")
-  })).min(1).max(80)
+  })).min(1).max(80),
+  continuity: z.array(z.object({
+    serviceUserId: z.string().uuid(),
+    preferredCaregiverName: z.string().trim().min(2).max(120)
+  })).optional().default([])
 });
 
 export const coordinatorRouter = Router();
@@ -1042,6 +1049,7 @@ async function rotaPlannerEnabled(agencyId: string) {
 }
 
 function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<string, ServiceUserRow & { latitude: string | null; longitude: string | null }>) {
+  const continuityLookup = new Map(input.continuity.map((item) => [item.serviceUserId, item.preferredCaregiverName.trim().toLowerCase()]));
   const caregivers = input.caregivers.map((caregiver, index) => ({
     id: `caregiver-${index + 1}`,
     name: caregiver.name,
@@ -1069,17 +1077,24 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
         durationMinutes: call.durationMinutes,
         priority: call.priority,
         requiredSkill: call.requiredSkill.toLowerCase().trim(),
-        riskLevel: serviceUser.risk_level
+        riskLevel: serviceUser.risk_level,
+        preferredCaregiverName: continuityLookup.get(serviceUser.id) || ""
       };
     })
-    .sort((left, right) => left.earliest - right.earliest || priorityWeight(right.priority) - priorityWeight(left.priority));
+    .sort((left, right) => {
+      if (input.optimisationGoal === "risk_first") return priorityWeight(right.priority) - priorityWeight(left.priority) || left.earliest - right.earliest;
+      return left.earliest - right.earliest || priorityWeight(right.priority) - priorityWeight(left.priority);
+    });
 
   const schedules = caregivers.map((caregiver) => ({
     caregiverId: caregiver.id,
     caregiverName: caregiver.name,
     available: `${timeFromMinutes(caregiver.availableFrom)}-${timeFromMinutes(caregiver.availableTo)}`,
     calls: [] as Array<Record<string, unknown>>,
+    assignedMinutes: 0,
     travelMinutes: 0,
+    workingMinutes: Math.max(0, caregiver.availableTo - caregiver.availableFrom),
+    riskLoad: 0,
     warnings: [] as string[],
     currentTime: caregiver.availableFrom,
     currentLocation: caregiver.location
@@ -1094,23 +1109,43 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
     const candidates = schedules
       .map((schedule) => {
         const caregiver = caregivers.find((item) => item.id === schedule.caregiverId)!;
-        const skillPenalty = call.requiredSkill && !caregiver.skills.includes(call.requiredSkill) ? 999 : 0;
+        const skillBlocked = Boolean(call.requiredSkill && !caregiver.skills.includes(call.requiredSkill));
         const travel = travelMinutes(schedule.currentLocation, call.location);
         const arrival = Math.max(call.earliest, schedule.currentTime + travel);
         const finish = arrival + call.durationMinutes;
         const lateBy = Math.max(0, arrival - call.latest);
         const overtime = Math.max(0, finish - caregiver.availableTo);
-        return { schedule, travel, arrival, finish, lateBy, overtime, score: travel + lateBy * 4 + overtime * 3 + skillPenalty };
+        const waitMinutes = Math.max(0, arrival - (schedule.currentTime + travel));
+        const projectedBusyMinutes = schedule.assignedMinutes + schedule.travelMinutes + call.durationMinutes + travel;
+        const projectedUtilisation = schedule.workingMinutes ? Math.round((projectedBusyMinutes / schedule.workingMinutes) * 100) : 100;
+        const overUtilisation = Math.max(0, projectedUtilisation - input.targetUtilisationPercent);
+        const longTravel = Math.max(0, travel - input.maxTravelMinutesBetweenCalls);
+        const continuityMatched = Boolean(call.preferredCaregiverName && caregiver.name.toLowerCase() === call.preferredCaregiverName);
+        const continuityMissed = Boolean(call.preferredCaregiverName && !continuityMatched);
+        const riskReward = call.riskLevel !== "standard" || call.priority === "high" ? 5 + priorityWeight(call.priority) : 0;
+        let score = travel + waitMinutes / 4 + lateBy * 8 + overtime * 10 + overUtilisation * 1.3 + longTravel * 2;
+        if (skillBlocked) score += 999;
+        if (input.optimisationGoal === "minimise_travel") score += travel * 1.2 + longTravel * 3;
+        if (input.optimisationGoal === "protect_continuity") score += continuityMissed ? 28 : continuityMatched ? -18 : 0;
+        if (input.optimisationGoal === "risk_first") score -= riskReward * 2;
+        if (input.optimisationGoal === "balanced") score += continuityMissed ? 9 : continuityMatched ? -7 : 0;
+        return { schedule, travel, arrival, finish, lateBy, overtime, waitMinutes, projectedUtilisation, longTravel, continuityMatched, continuityMissed, score };
       })
       .sort((left, right) => left.score - right.score);
     const best = candidates[0];
-    if (!best || best.score >= 999) {
-      unassigned.push({ serviceUserName: call.serviceUserName, reference: call.reference, reason: "No caregiver has the required skill" });
+    if (!best || best.score >= 999 || best.lateBy > 0 || best.overtime > 0) {
+      const reason = !best || best.score >= 999
+        ? "No caregiver has the required skill"
+        : best.lateBy > 0
+          ? "No caregiver can arrive inside the requested visit window"
+          : "No caregiver can complete the call inside availability";
+      unassigned.push({ serviceUserName: call.serviceUserName, reference: call.reference, reason, priority: call.priority, riskLevel: call.riskLevel });
       continue;
     }
     const warnings = [
-      best.lateBy ? `Late risk: ${best.lateBy} minutes after preferred window` : "",
-      best.overtime ? `Overtime risk: ${best.overtime} minutes beyond availability` : "",
+      best.longTravel ? `Long travel segment: ${best.travel} minutes` : "",
+      best.projectedUtilisation > input.targetUtilisationPercent ? `Route above target utilisation: ${best.projectedUtilisation}%` : "",
+      best.continuityMissed ? `Continuity preference not met: ${call.preferredCaregiverName}` : "",
       call.riskLevel !== "standard" && call.priority === "routine" ? "Vulnerable or high-risk service user marked routine" : ""
     ].filter(Boolean);
     best.schedule.calls.push({
@@ -1121,36 +1156,99 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
       arrive: timeFromMinutes(best.arrival),
       leave: timeFromMinutes(best.finish),
       travelMinutes: best.travel,
+      waitMinutes: best.waitMinutes,
       durationMinutes: call.durationMinutes,
       priority: call.priority,
       riskLevel: call.riskLevel,
+      continuityMatched: best.continuityMatched,
+      continuityCaregiver: call.preferredCaregiverName,
       warnings
     });
     best.schedule.travelMinutes += best.travel;
+    best.schedule.assignedMinutes += call.durationMinutes;
+    if (call.riskLevel !== "standard" || call.priority === "high") best.schedule.riskLoad += 1;
     best.schedule.currentTime = best.finish;
     best.schedule.currentLocation = call.location;
     best.schedule.warnings.push(...warnings);
   }
 
   const estimatedTravelMinutes = schedules.reduce((total, schedule) => total + schedule.travelMinutes, 0);
+  const assignedCalls = schedules.reduce((total, schedule) => total + schedule.calls.length, 0);
+  const totalCareMinutes = schedules.reduce((total, schedule) => total + schedule.assignedMinutes, 0);
+  const estimatedMinutesSaved = Math.max(0, manualTravelBaseline - estimatedTravelMinutes);
+  const averageUtilisationPercent = schedules.length
+    ? Math.round(schedules.reduce((total, schedule) => total + ((schedule.assignedMinutes + schedule.travelMinutes) / Math.max(1, schedule.workingMinutes)) * 100, 0) / schedules.length)
+    : 0;
+  const idleMinutes = schedules.reduce((total, schedule) => total + Math.max(0, schedule.workingMinutes - schedule.assignedMinutes - schedule.travelMinutes), 0);
+  const longTravelAlerts = schedules.reduce((total, schedule) => total + schedule.calls.filter((call) => Number(call.travelMinutes) > input.maxTravelMinutesBetweenCalls).length, 0);
+  const continuityMatches = schedules.reduce((total, schedule) => total + schedule.calls.filter((call) => Boolean(call.continuityMatched)).length, 0);
+  const routeEfficiencyScore = assignedCalls
+    ? clamp(Math.round(100 - (estimatedTravelMinutes / Math.max(1, estimatedTravelMinutes + totalCareMinutes)) * 100 - unassigned.length * 8 - longTravelAlerts * 3), 0, 100)
+    : 0;
+  const careHoursRecovered = Number((estimatedMinutesSaved / 60).toFixed(1));
+  const estimatedCostSavingPounds = Math.round(careHoursRecovered * 18);
+  const recommendations = buildRotaRecommendations({
+    unassignedCount: unassigned.length,
+    longTravelAlerts,
+    averageUtilisationPercent,
+    targetUtilisationPercent: input.targetUtilisationPercent,
+    continuityRequests: continuityLookup.size,
+    continuityMatches,
+    estimatedMinutesSaved,
+    routeEfficiencyScore
+  });
   return {
     enabled: true,
     summary: {
       caregivers: schedules.length,
       calls: calls.length,
-      assignedCalls: schedules.reduce((total, schedule) => total + schedule.calls.length, 0),
+      assignedCalls,
       unassignedCalls: unassigned.length,
       estimatedTravelMinutes,
-      estimatedMinutesSaved: Math.max(0, manualTravelBaseline - estimatedTravelMinutes),
-      riskWarnings: schedules.reduce((total, schedule) => total + schedule.warnings.length, 0) + unassigned.length
+      estimatedMinutesSaved,
+      riskWarnings: schedules.reduce((total, schedule) => total + schedule.warnings.length, 0) + unassigned.length,
+      totalCareMinutes,
+      idleMinutes,
+      averageUtilisationPercent,
+      routeEfficiencyScore,
+      continuityMatches,
+      longTravelAlerts,
+      estimatedCostSavingPounds,
+      careHoursRecovered,
+      optimisationGoal: input.optimisationGoal,
+      ownerValue: `${careHoursRecovered} care hours recovered and about £${estimatedCostSavingPounds} travel cost avoided in this planning run.`
     },
     schedules: schedules.map(({ currentTime: _currentTime, currentLocation: _currentLocation, ...schedule }) => ({
       ...schedule,
+      utilisationPercent: schedule.workingMinutes ? Math.round(((schedule.assignedMinutes + schedule.travelMinutes) / schedule.workingMinutes) * 100) : 0,
+      idleMinutes: Math.max(0, schedule.workingMinutes - schedule.assignedMinutes - schedule.travelMinutes),
+      routeEfficiencyScore: schedule.calls.length ? clamp(Math.round(100 - (schedule.travelMinutes / Math.max(1, schedule.travelMinutes + schedule.assignedMinutes)) * 100 - schedule.warnings.length * 4), 0, 100) : 0,
       warnings: Array.from(new Set(schedule.warnings))
     })),
     unassigned,
-    method: "Low-budget nearest-next-call optimisation using postcode proximity, time windows, skills and risk flags. Coordinator approval is required before use."
+    recommendations,
+    method: "Premium rota optimisation using postcode proximity, care windows, skills, utilisation targets, continuity preferences and risk weighting. Coordinator approval is required before publishing the rota."
   };
+}
+
+function buildRotaRecommendations(input: {
+  unassignedCount: number;
+  longTravelAlerts: number;
+  averageUtilisationPercent: number;
+  targetUtilisationPercent: number;
+  continuityRequests: number;
+  continuityMatches: number;
+  estimatedMinutesSaved: number;
+  routeEfficiencyScore: number;
+}) {
+  const recommendations: string[] = [];
+  if (input.unassignedCount) recommendations.push(`${input.unassignedCount} call${input.unassignedCount === 1 ? "" : "s"} need a wider time window, extra capacity or a different required skill.`);
+  if (input.longTravelAlerts) recommendations.push(`Review ${input.longTravelAlerts} long travel segment${input.longTravelAlerts === 1 ? "" : "s"} before approving the rota.`);
+  if (input.averageUtilisationPercent > input.targetUtilisationPercent) recommendations.push("Average utilisation is above target, so keep contingency cover available for delays or urgent calls.");
+  if (input.continuityRequests && input.continuityMatches < input.continuityRequests) recommendations.push(`${input.continuityMatches}/${input.continuityRequests} continuity preference${input.continuityRequests === 1 ? "" : "s"} matched; consider changing the optimisation goal to continuity first.`);
+  if (input.estimatedMinutesSaved >= 30) recommendations.push("The route saves enough time to evidence a measurable reduction in non-care travel for the branch.");
+  if (input.routeEfficiencyScore >= 80) recommendations.push("This rota is strong enough for coordinator review and can support workforce planning evidence.");
+  return recommendations.length ? recommendations : ["The rota is balanced, inside capacity and ready for coordinator review."];
 }
 
 function minutesFromTime(value: string) {
@@ -1167,6 +1265,10 @@ function priorityWeight(priority: string) {
   if (priority === "high") return 3;
   if (priority === "medium") return 2;
   return 1;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function approximatePostcodeLocation(postcode: string) {

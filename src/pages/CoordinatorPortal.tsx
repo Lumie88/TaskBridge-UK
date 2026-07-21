@@ -574,6 +574,16 @@ interface RotaPlan {
     estimatedTravelMinutes: number;
     estimatedMinutesSaved: number;
     riskWarnings: number;
+    totalCareMinutes: number;
+    idleMinutes: number;
+    averageUtilisationPercent: number;
+    routeEfficiencyScore: number;
+    continuityMatches: number;
+    longTravelAlerts: number;
+    estimatedCostSavingPounds: number;
+    careHoursRecovered: number;
+    optimisationGoal: string;
+    ownerValue: string;
   };
   schedules: Array<{
     caregiverId: string;
@@ -587,24 +597,38 @@ interface RotaPlan {
       arrive: string;
       leave: string;
       travelMinutes: number;
+      waitMinutes: number;
       durationMinutes: number;
       priority: string;
       riskLevel: string;
+      continuityMatched: boolean;
+      continuityCaregiver: string;
       warnings: string[];
     }>;
+    assignedMinutes: number;
     travelMinutes: number;
+    workingMinutes: number;
+    idleMinutes: number;
+    utilisationPercent: number;
+    routeEfficiencyScore: number;
+    riskLoad: number;
     warnings: string[];
   }>;
   unassigned: Array<{ serviceUserName: string; reference: string; reason: string }>;
+  recommendations: string[];
   method: string;
 }
 
 function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] }) {
   const [branchPostcode, setBranchPostcode] = useState(serviceUsers[0]?.postcode || "");
+  const [optimisationGoal, setOptimisationGoal] = useState("balanced");
+  const [targetUtilisationPercent, setTargetUtilisationPercent] = useState(82);
+  const [maxTravelMinutesBetweenCalls, setMaxTravelMinutesBetweenCalls] = useState(35);
   const [caregivers, setCaregivers] = useState([{ name: "Morning carer", startPostcode: serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "14:00", skills: "personal care, medication" }]);
   const [calls, setCalls] = useState([
     { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "11:00", durationMinutes: 30, priority: "medium", requiredSkill: "personal care" }
   ]);
+  const [continuity, setContinuity] = useState<Array<{ serviceUserId: string; preferredCaregiverName: string }>>([]);
   const [plan, setPlan] = useState<RotaPlan | null>(null);
   const [loading, setLoading] = useState(false);
   const [locked, setLocked] = useState(false);
@@ -616,7 +640,15 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
     try {
       const result = await api<RotaPlan>("/api/coordinator/rota-planner/plan", {
         method: "POST",
-        body: JSON.stringify({ branchPostcode, caregivers, calls: calls.filter((call) => call.serviceUserId) })
+        body: JSON.stringify({
+          branchPostcode,
+          optimisationGoal,
+          targetUtilisationPercent,
+          maxTravelMinutesBetweenCalls,
+          caregivers,
+          calls: calls.filter((call) => call.serviceUserId),
+          continuity: continuity.filter((item) => item.serviceUserId && item.preferredCaregiverName.trim())
+        })
       });
       setPlan(result);
     } catch (caught) {
@@ -636,6 +668,10 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
     setCalls((current) => current.map((call, itemIndex) => itemIndex === index ? { ...call, [key]: value } : call));
   }
 
+  function updateContinuity(index: number, key: keyof typeof continuity[number], value: string) {
+    setContinuity((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item));
+  }
+
   if (locked) return <section className="panel analytics-locked">
     <span><Navigation size={30} /></span>
     <h1>Premium AI rota planner is locked for this agency</h1>
@@ -646,8 +682,18 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
     <div className="page-title-row"><div><span className="eyebrow">Premium rota intelligence</span><h1>AI rota planner</h1><p>Arrange calls by proximity, time windows and care risk to reduce travel time before the coordinator approves the rota.</p></div><button className="button button-primary" disabled={loading || !serviceUsers.length} type="submit">{loading ? <><LoaderCircle className="spin" size={17} /> Planning...</> : <><Sparkles size={17} /> Generate route plan</>}</button></div>
     {error && !locked && <div className="alert alert-danger">{error}</div>}
     <section className="panel rota-premium-hero">
-      <div><span className="eyebrow">Low-budget optimisation</span><h2>Nearest-call planning without expensive live map APIs.</h2><p>The MVP uses service-user postcodes, carer availability, visit windows and skills to produce a practical route proposal. Live traffic can be added later with Google Maps, Mapbox or HERE.</p></div>
+      <div><span className="eyebrow">Workforce value cockpit</span><h2>Plan safer visits while proving travel, capacity and continuity gains.</h2><p>TaskBridge turns the day list into a coordinator-ready rota with route efficiency, care hours recovered, long-travel alerts and continuity checks before the rota is approved.</p></div>
+      <div className="rota-owner-value">
+        <strong>{plan ? `${plan.summary.routeEfficiencyScore}%` : "Ready"}</strong>
+        <span>{plan ? "Route efficiency" : "Premium planner"}</span>
+        <small>{plan?.summary.ownerValue || "Generate a plan to see the care-owner value in pounds, hours and risk controls."}</small>
+      </div>
+    </section>
+    <section className="panel rota-premium-controls">
       <label>Branch postcode<input value={branchPostcode} onChange={(event) => setBranchPostcode(event.target.value.toUpperCase())} placeholder="PE2 6XU" /></label>
+      <label>Optimisation goal<select value={optimisationGoal} onChange={(event) => setOptimisationGoal(event.target.value)}><option value="balanced">Balanced rota</option><option value="minimise_travel">Minimise travel</option><option value="protect_continuity">Protect continuity</option><option value="risk_first">High-risk first</option></select></label>
+      <label>Target utilisation %<input type="number" min={50} max={95} value={targetUtilisationPercent} onChange={(event) => setTargetUtilisationPercent(Number(event.target.value))} /></label>
+      <label>Max travel segment<input type="number" min={5} max={120} value={maxTravelMinutesBetweenCalls} onChange={(event) => setMaxTravelMinutesBetweenCalls(Number(event.target.value))} /></label>
     </section>
     <div className="rota-planner-grid">
       <section className="panel">
@@ -668,15 +714,29 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
           <label>Required skill<input value={call.requiredSkill} onChange={(event) => updateCall(index, "requiredSkill", event.target.value)} placeholder="personal care" /></label>
         </article>)}</div>
       </section>
+      <section className="panel rota-continuity-panel">
+        <div className="panel-heading"><div><h2>Continuity of care</h2><p>Optional preferences for people who benefit from a familiar caregiver.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setContinuity((current) => [...current, { serviceUserId: serviceUsers[0]?.id || "", preferredCaregiverName: caregivers[0]?.name || "" }])}><Plus size={15} /> Add</button></div>
+        <div className="rota-input-list">{continuity.length ? continuity.map((item, index) => <article key={index}>
+          <label>Service user<select value={item.serviceUserId} onChange={(event) => updateContinuity(index, "serviceUserId", event.target.value)}><option value="">Select service user</option>{serviceUsers.map((serviceUser) => <option key={serviceUser.id} value={serviceUser.id}>{serviceUser.name} / {serviceUser.reference}</option>)}</select></label>
+          <label>Preferred caregiver<select value={item.preferredCaregiverName} onChange={(event) => updateContinuity(index, "preferredCaregiverName", event.target.value)}><option value="">Select caregiver</option>{caregivers.map((caregiver, caregiverIndex) => <option key={`${caregiver.name}-${caregiverIndex}`} value={caregiver.name}>{caregiver.name}</option>)}</select></label>
+        </article>) : <p className="muted-copy">Add continuity preferences where familiarity reduces anxiety, refusal risk or safeguarding concern.</p>}</div>
+      </section>
     </div>
     {plan && <section className="rota-plan-results">
       <div className="metric-grid coordinator-metrics">
-        <div className="metric"><span><Navigation /></span><div><strong>{plan.summary.estimatedTravelMinutes}</strong><small>Travel minutes</small></div></div>
-        <div className="metric metric-green"><span><TrendingUp /></span><div><strong>{plan.summary.estimatedMinutesSaved}</strong><small>Minutes saved</small></div></div>
+        <div className="metric"><span><Navigation /></span><div><strong>{plan.summary.routeEfficiencyScore}%</strong><small>Route efficiency</small></div></div>
+        <div className="metric metric-green"><span><TrendingUp /></span><div><strong>£{plan.summary.estimatedCostSavingPounds}</strong><small>Estimated saving</small></div></div>
         <div className="metric metric-amber"><span><Clock3 /></span><div><strong>{plan.summary.assignedCalls}/{plan.summary.calls}</strong><small>Calls assigned</small></div></div>
-        <div className="metric metric-blue"><span><ShieldAlert /></span><div><strong>{plan.summary.riskWarnings}</strong><small>Risk warnings</small></div></div>
+        <div className="metric metric-blue"><span><ShieldAlert /></span><div><strong>{plan.summary.careHoursRecovered}</strong><small>Care hours recovered</small></div></div>
       </div>
-      <section className="panel"><div className="panel-heading"><div><h2>Suggested rota</h2><p>{plan.method}</p></div></div><div className="rota-schedule-list">{plan.schedules.map((schedule) => <article key={schedule.caregiverId} className="rota-schedule-card"><header><div><h3>{schedule.caregiverName}</h3><p>{schedule.available} / {schedule.travelMinutes} travel minutes</p></div><StatusBadge status={schedule.warnings.length ? "pending" : "approved"}>{schedule.warnings.length ? "Review" : "Ready"}</StatusBadge></header>{schedule.calls.map((call, index) => <div key={`${call.reference}-${index}`} className="rota-call-row"><span>{call.arrive}</span><div><strong>{call.serviceUserName}</strong><p>{call.postcode} / {call.window} / {call.durationMinutes} mins / {humanize(call.priority)}</p>{call.warnings.length > 0 && <small>{call.warnings.join(" · ")}</small>}</div></div>)}{!schedule.calls.length && <p className="muted-copy">No calls assigned to this caregiver.</p>}</article>)}</div>{plan.unassigned.length > 0 && <div className="rota-unassigned">{plan.unassigned.map((call) => <p key={call.reference}><strong>{call.serviceUserName}</strong>: {call.reason}</p>)}</div>}</section>
+      <section className="rota-value-grid">
+        <article><strong>{plan.summary.averageUtilisationPercent}%</strong><span>Average utilisation</span><p>Target {targetUtilisationPercent}% so managers can protect contingency time.</p></article>
+        <article><strong>{plan.summary.estimatedTravelMinutes}</strong><span>Travel minutes</span><p>{plan.summary.estimatedMinutesSaved} minutes saved against manual sequencing.</p></article>
+        <article><strong>{plan.summary.continuityMatches}</strong><span>Continuity matches</span><p>Matched preferred caregiver requests where capacity allowed.</p></article>
+        <article><strong>{plan.summary.longTravelAlerts}</strong><span>Long travel alerts</span><p>Segments above {maxTravelMinutesBetweenCalls} minutes are flagged before approval.</p></article>
+      </section>
+      <section className="panel rota-recommendations"><div className="panel-heading"><div><h2>Manager recommendations</h2><p>{plan.method}</p></div><StatusBadge status={plan.summary.riskWarnings || plan.summary.unassignedCalls ? "pending" : "approved"}>{plan.summary.riskWarnings || plan.summary.unassignedCalls ? "Needs review" : "Ready"}</StatusBadge></div>{plan.recommendations.map((recommendation) => <p key={recommendation}><Sparkles size={15} /> {recommendation}</p>)}</section>
+      <section className="panel"><div className="panel-heading"><div><h2>Suggested rota</h2><p>Review each caregiver route, utilisation and safeguarding warnings before confirming.</p></div></div><div className="rota-schedule-list">{plan.schedules.map((schedule) => <article key={schedule.caregiverId} className="rota-schedule-card"><header><div><h3>{schedule.caregiverName}</h3><p>{schedule.available} / {schedule.travelMinutes} travel / {schedule.assignedMinutes} care minutes</p></div><StatusBadge status={schedule.warnings.length ? "pending" : "approved"}>{schedule.warnings.length ? "Review" : "Ready"}</StatusBadge></header><div className="rota-efficiency-strip"><span>{schedule.utilisationPercent}% utilisation</span><span>{schedule.routeEfficiencyScore}% efficient</span><span>{schedule.idleMinutes} mins contingency</span><span>{schedule.riskLoad} risk calls</span></div>{schedule.warnings.length > 0 && <div className="rota-schedule-warnings">{schedule.warnings.map((warning) => <small key={warning}>{warning}</small>)}</div>}{schedule.calls.map((call, index) => <div key={`${call.reference}-${index}`} className="rota-call-row"><span>{call.arrive}</span><div><strong>{call.serviceUserName}</strong><p>{call.postcode} / {call.window} / {call.durationMinutes} mins / {humanize(call.priority)} / leaves {call.leave}</p><p>{call.travelMinutes} mins travel{call.waitMinutes ? ` / ${call.waitMinutes} mins waiting` : ""}{call.continuityMatched ? " / continuity matched" : ""}</p>{call.warnings.length > 0 && <small>{call.warnings.join(" · ")}</small>}</div></div>)}{!schedule.calls.length && <p className="muted-copy">No calls assigned to this caregiver.</p>}</article>)}</div>{plan.unassigned.length > 0 && <div className="rota-unassigned">{plan.unassigned.map((call) => <p key={call.reference}><strong>{call.serviceUserName}</strong>: {call.reason}</p>)}</div>}</section>
     </section>}
   </form>;
 }
