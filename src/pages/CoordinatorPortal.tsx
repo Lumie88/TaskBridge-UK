@@ -745,6 +745,7 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
   const [analytics, setAnalytics] = useState<AnalyticsDashboard | null>(null);
   const [analyticsFilter, setAnalyticsFilter] = useState<AnalyticsFilter>("all");
   const [selectedAnalyticsServiceUserId, setSelectedAnalyticsServiceUserId] = useState("all");
+  const [dashboardView, setDashboardView] = useState("overview");
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
@@ -890,6 +891,17 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
     ];
     return { safeScore, evidenceReadiness, responsiveScore, milestones };
   }, [analyticsInsights.deterioratingMetrics.length, analyticsInsights.metricTypes.length, analyticsInsights.observationDensity, analyticsUploadCount, selectedSummary.deteriorating, selectedSummary.observations, selectedSummary.serviceUsersTracked]);
+  const dashboardViews = [
+    { id: "overview", label: "Overview", detail: "Live performance summary" },
+    { id: "safe", label: "Safe", detail: "Deterioration and risk" },
+    { id: "effective", label: "Effective", detail: "Outcome coverage" },
+    { id: "responsive", label: "Responsive", detail: "Actions needed" },
+    { id: "well-led", label: "Well-led", detail: "Audit readiness" }
+  ];
+  const activeMilestone = cqcIntelligence.milestones.find((milestone) => milestone.title.toLowerCase().replace("-", "") === dashboardView.replace("-", "")) || null;
+  const canvasSubtitle = activeMilestone
+    ? `${activeMilestone.title}: ${activeMilestone.detail}`
+    : "A live care-intelligence canvas for spotting deterioration, proving action and preparing evidence.";
 
   function selectAnalyticsServiceUser(value: string) {
     setSelectedAnalyticsServiceUserId(value);
@@ -977,74 +989,111 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
   if (loading && !analytics) return <Loading />;
   if (!analytics?.enabled) return <AnalyticsLocked />;
   return <>
-    <div className="page-title-row"><div><span className="eyebrow">Premium care intelligence</span><h1>CQC-ready analytics dashboard</h1><p>Turn service-user observations into deterioration insight, outcome evidence, audit milestones and leadership-ready CQC reporting.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Premium unlocked</span></div>
+    <div className="page-title-row analytics-title-row"><div><span className="eyebrow">Premium care intelligence</span><h1>CQC-ready analytics dashboard</h1><p>Turn service-user observations into deterioration insight, outcome evidence, audit milestones and leadership-ready CQC reporting.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Premium unlocked</span></div>
     {error && <div className="alert alert-danger">{error}<button onClick={loadAnalytics}><RefreshCw size={16} /> Retry</button></div>}
-    <section className="panel analytics-premium-hero">
-      <div>
-        <span className="eyebrow">CQC evidence cockpit</span>
-        <h2>Spot risk earlier and show the evidence when inspectors ask.</h2>
-        <p>TaskBridge links uploaded observations to CQC-style domains, highlights milestone gaps and gives coordinators a clean audit pack for supervision, provider meetings and quality reviews.</p>
-      </div>
-      <div className="premium-score-ring" aria-label={`Evidence readiness ${cqcIntelligence.evidenceReadiness}%`}>
-        <strong>{cqcIntelligence.evidenceReadiness}%</strong>
-        <span>Evidence readiness</span>
-      </div>
-      <div className="analytics-export-actions">
-        <button className="button button-primary" type="button" onClick={downloadCqcPack}><FileText size={17} /> Export analytics pack</button>
-        <a className="button button-secondary" href="/api/coordinator/cqc/evidence-pack.csv"><FileText size={17} /> Export task evidence</a>
-      </div>
-    </section>
-    <section className="panel analytics-focus-panel">
-      <label>Focus analytics by service user
-        <select value={selectedAnalyticsServiceUserId} onChange={(event) => selectAnalyticsServiceUser(event.target.value)}>
-          <option value="all">All service users</option>
-          {analytics.serviceUsers.map((serviceUser) => <option key={serviceUser.serviceUserId} value={serviceUser.serviceUserId}>{serviceUser.name} / {serviceUser.reference}</option>)}
-        </select>
-      </label>
-      <p>{analyticsScopeCopy}</p>
-    </section>
-    <div className="metric-grid coordinator-metrics analytics-metrics">
-      <AnalyticsMetric icon={<UsersRound />} label="Service users tracked" value={selectedSummary.serviceUsersTracked} tone="blue" filter="all" active={analyticsFilter === "all"} onSelect={setAnalyticsFilter} />
-      <AnalyticsMetric icon={<TrendingDown />} label="Showing deterioration" value={selectedSummary.deteriorating} tone="amber" filter="deteriorating" active={analyticsFilter === "deteriorating"} onSelect={setAnalyticsFilter} />
-      <AnalyticsMetric icon={<TrendingUp />} label="Improving outcomes" value={selectedSummary.improving} tone="green" filter="improving" active={analyticsFilter === "improving"} onSelect={setAnalyticsFilter} />
-      <AnalyticsMetric icon={<Activity />} label="Health observations" value={selectedSummary.observations} tone="navy" filter="observations" active={analyticsFilter === "observations"} onSelect={setAnalyticsFilter} />
-    </div>
-    <section className="analytics-insight-grid">
-      <article className="panel analytics-summary-card">
-        <span><Activity size={20} /></span>
-        <div><strong>{analyticsInsights.observationDensity}</strong><small>Avg observations per tracked service user</small></div>
-      </article>
-      <article className="panel analytics-summary-card">
-        <span><BarChart3 size={20} /></span>
-        <div><strong>{analyticsInsights.metricTypes.length}</strong><small>Metric type{analyticsInsights.metricTypes.length === 1 ? "" : "s"} being monitored</small></div>
-      </article>
-      <article className="panel analytics-summary-card">
-        <span><Clock3 size={20} /></span>
-        <div><strong>{analyticsInsights.latestServiceUser ? formatDate(analyticsInsights.latestServiceUser.latestObservationDate) : "No data"}</strong><small>Latest imported observation date</small></div>
-      </article>
-    </section>
-    <section className="panel analytics-owner-value">
-      <div>
-        <span className="eyebrow">For care owners</span>
-        <h2>Turn care records into quality oversight, risk control and evidence.</h2>
-        <p>Owners can see where outcomes are improving, where deterioration needs management attention, and what evidence is ready for inspections, family conversations and contract reviews.</p>
-      </div>
-      <div className="analytics-owner-value-grid">
-        <article><span><ShieldCheck size={18} /></span><strong>CQC readiness</strong><p>Keep an exportable trail of observations, actions and evidence without searching through separate notes.</p></article>
-        <article><span><TrendingDown size={18} /></span><strong>Earlier risk detection</strong><p>Spot deterioration patterns before they become missed-care, safeguarding or complaint issues.</p></article>
-        <article><span><BarChart3 size={18} /></span><strong>Business visibility</strong><p>Compare outcomes by service user and show commissioners or families that risks are being acted on.</p></article>
-        <article><span><FileText size={18} /></span><strong>Audit confidence</strong><p>Download practical evidence packs for supervision, provider meetings and internal governance.</p></article>
-      </div>
-    </section>
-    <section className="analytics-cqc-grid">
-      {cqcIntelligence.milestones.map((milestone) => <article key={milestone.title} className={`panel cqc-milestone cqc-${milestone.status}`}>
+    <section className="panel analytics-workspace">
+      <div className="analytics-toolbar">
         <div>
-          <span>{milestone.status === "ready" ? <CheckCircle2 size={19} /> : milestone.status === "action_needed" ? <ShieldAlert size={19} /> : <CalendarDays size={19} />}</span>
-          <strong>{milestone.title}</strong>
+          <span className="eyebrow">Care intelligence studio</span>
+          <h2>Spot risk earlier and show the evidence when inspectors ask.</h2>
+          <p>{canvasSubtitle}</p>
         </div>
-        <p>{milestone.detail}</p>
-        <footer><b>{milestone.score}%</b><small>{humanize(milestone.status)}</small></footer>
-      </article>)}
+        <div className="analytics-export-actions">
+          <button className="button button-primary" type="button" onClick={downloadCqcPack}><FileText size={17} /> Export analytics pack</button>
+          <a className="button button-secondary" href="/api/coordinator/cqc/evidence-pack.csv"><FileText size={17} /> Export task evidence</a>
+        </div>
+      </div>
+
+      <div className="analytics-dashboard-tabs" role="tablist" aria-label="CQC dashboard views">
+        {dashboardViews.map((view) => <button key={view.id} type="button" role="tab" aria-selected={dashboardView === view.id} className={dashboardView === view.id ? "active" : ""} onClick={() => setDashboardView(view.id)}><strong>{view.label}</strong><span>{view.detail}</span></button>)}
+      </div>
+
+      <div className="analytics-command-strip">
+        <label>Focus service user
+          <select value={selectedAnalyticsServiceUserId} onChange={(event) => selectAnalyticsServiceUser(event.target.value)}>
+            <option value="all">All service users</option>
+            {analytics.serviceUsers.map((serviceUser) => <option key={serviceUser.serviceUserId} value={serviceUser.serviceUserId}>{serviceUser.name} / {serviceUser.reference}</option>)}
+          </select>
+        </label>
+        <span>{analyticsScopeCopy}</span>
+        <button className="button button-secondary button-small" type="button" onClick={loadAnalytics}><RefreshCw size={15} /> Refresh</button>
+      </div>
+
+      <div className="analytics-canvas-grid">
+        <div className="analytics-main-canvas">
+          <div className="analytics-kpi-board">
+            <AnalyticsMetric icon={<UsersRound />} label="Service users tracked" value={selectedSummary.serviceUsersTracked} tone="blue" filter="all" active={analyticsFilter === "all"} onSelect={setAnalyticsFilter} />
+            <AnalyticsMetric icon={<TrendingDown />} label="Showing deterioration" value={selectedSummary.deteriorating} tone="amber" filter="deteriorating" active={analyticsFilter === "deteriorating"} onSelect={setAnalyticsFilter} />
+            <AnalyticsMetric icon={<TrendingUp />} label="Improving outcomes" value={selectedSummary.improving} tone="green" filter="improving" active={analyticsFilter === "improving"} onSelect={setAnalyticsFilter} />
+            <AnalyticsMetric icon={<Activity />} label="Health observations" value={selectedSummary.observations} tone="navy" filter="observations" active={analyticsFilter === "observations"} onSelect={setAnalyticsFilter} />
+          </div>
+
+          <div className="analytics-visual-grid">
+            <article className="analytics-tile analytics-readiness-tile">
+              <header><div><span className="eyebrow">Evidence readiness</span><h3>{cqcIntelligence.evidenceReadiness}% ready</h3></div><ShieldCheck size={22} /></header>
+              <div className="analytics-readiness-bar"><i style={{ width: `${cqcIntelligence.evidenceReadiness}%` }} /></div>
+              <p>Based on observation density, upload activity and CQC-style evidence coverage for {selectedAnalyticsName}.</p>
+            </article>
+            <article className="analytics-tile">
+              <header><div><span className="eyebrow">Outcome mix</span><h3>Trend distribution</h3></div><BarChart3 size={22} /></header>
+              <div className="analytics-distribution">
+                <span style={{ height: `${Math.max(10, selectedSummary.deteriorating * 28)}px` }}><b>{selectedSummary.deteriorating}</b><small>Deteriorating</small></span>
+                <span style={{ height: `${Math.max(10, selectedSummary.stable * 28)}px` }}><b>{selectedSummary.stable}</b><small>Stable</small></span>
+                <span style={{ height: `${Math.max(10, selectedSummary.improving * 28)}px` }}><b>{selectedSummary.improving}</b><small>Improving</small></span>
+              </div>
+            </article>
+            <article className="analytics-tile">
+              <header><div><span className="eyebrow">Coverage</span><h3>Observation depth</h3></div><Activity size={22} /></header>
+              <div className="analytics-depth-number"><strong>{analyticsInsights.observationDensity}</strong><span>avg readings per service user</span></div>
+              <p>{analyticsInsights.metricTypes.length} monitored outcome area{analyticsInsights.metricTypes.length === 1 ? "" : "s"} in the selected scope.</p>
+            </article>
+          </div>
+
+          <section className="analytics-cqc-grid">
+            {cqcIntelligence.milestones.map((milestone) => <article key={milestone.title} className={`panel cqc-milestone cqc-${milestone.status}`}>
+              <div>
+                <span>{milestone.status === "ready" ? <CheckCircle2 size={19} /> : milestone.status === "action_needed" ? <ShieldAlert size={19} /> : <CalendarDays size={19} />}</span>
+                <strong>{milestone.title}</strong>
+              </div>
+              <p>{milestone.detail}</p>
+              <footer><b>{milestone.score}%</b><small>{humanize(milestone.status)}</small></footer>
+            </article>)}
+          </section>
+        </div>
+
+        <aside className="analytics-right-rail">
+          <section className="analytics-owner-card">
+            <span className="eyebrow">For care owners</span>
+            <h3>Quality oversight without hunting through care notes.</h3>
+            <p>Owners can see who is deteriorating, which outcomes are improving and what evidence is ready for inspection, family conversations and contract reviews.</p>
+          </section>
+          <section className="analytics-action-panel">
+            <div className="panel-heading"><div><h2>Action queue</h2><p>Suggested next steps from this view.</p></div></div>
+            <div className="analytics-action-list">
+              {coordinatorActions.map((action) => <article key={`${action.title}-${action.detail}`} className={`analytics-action analytics-action-${action.tone}`}>
+                <strong>{action.title}</strong>
+                <p>{action.detail}</p>
+              </article>)}
+            </div>
+          </section>
+          <section className="analytics-profile-panel">
+            <div className="panel-heading"><div><h2>{selectedServiceUserProfile ? "Selected service user" : "Metric coverage"}</h2><p>{selectedServiceUserProfile ? "Focused view for one person." : "Current dataset coverage."}</p></div></div>
+            {selectedServiceUserProfile ? <div className="analytics-profile-card">
+              <h3>{selectedServiceUserProfile.name}</h3>
+              <p>{selectedServiceUserProfile.reference}</p>
+              <dl>
+                <div><dt>Overall trend</dt><dd>{humanize(selectedServiceUserProfile.overallTrend)}</dd></div>
+                <div><dt>Latest observation</dt><dd>{formatDate(selectedServiceUserProfile.latestObservationDate)}</dd></div>
+                <div><dt>Metrics</dt><dd>{selectedServiceUserProfile.metrics.length}</dd></div>
+                <div><dt>Rows</dt><dd>{selectedServiceUserProfile.metrics.reduce((total, metric) => total + metric.points.length, 0)}</dd></div>
+              </dl>
+            </div> : <div className="analytics-metric-cloud">
+              {analyticsInsights.metricTypes.map((metricType) => <span key={metricType}>{humanize(metricType)}</span>)}
+              {!analyticsInsights.metricTypes.length && <p className="muted-copy">No metric types imported yet.</p>}
+            </div>}
+          </section>
+        </aside>
+      </div>
     </section>
     <section className="panel analytics-milestone-board">
       <div className="panel-heading"><div><h2>Quality milestones</h2><p>Evidence prompts care leaders can use in supervision, governance meetings and CQC preparation.</p></div></div>
@@ -1054,33 +1103,6 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
         <article><span><CheckCircle2 size={18} /></span><strong>Outcome confirmation</strong><p>Record where interventions reduce falls risk, improve mobility or support independence.</p></article>
       </div>
     </section>
-    <div className="analytics-decision-grid">
-      <section className="panel analytics-action-panel">
-        <div className="panel-heading"><div><h2>Coordinator action prompts</h2><p>Suggested next steps from the selected analytics scope.</p></div></div>
-        <div className="analytics-action-list">
-          {coordinatorActions.map((action) => <article key={`${action.title}-${action.detail}`} className={`analytics-action analytics-action-${action.tone}`}>
-            <strong>{action.title}</strong>
-            <p>{action.detail}</p>
-          </article>)}
-        </div>
-      </section>
-      <section className="panel analytics-profile-panel">
-        <div className="panel-heading"><div><h2>{selectedServiceUserProfile ? "Selected service-user profile" : "Analytics coverage"}</h2><p>{selectedServiceUserProfile ? "Focused view for one service user." : "Current coverage across all selected service users."}</p></div></div>
-        {selectedServiceUserProfile ? <div className="analytics-profile-card">
-          <h3>{selectedServiceUserProfile.name}</h3>
-          <p>{selectedServiceUserProfile.reference}</p>
-          <dl>
-            <div><dt>Overall trend</dt><dd>{humanize(selectedServiceUserProfile.overallTrend)}</dd></div>
-            <div><dt>Latest observation</dt><dd>{formatDate(selectedServiceUserProfile.latestObservationDate)}</dd></div>
-            <div><dt>Metrics</dt><dd>{selectedServiceUserProfile.metrics.length}</dd></div>
-            <div><dt>Rows</dt><dd>{selectedServiceUserProfile.metrics.reduce((total, metric) => total + metric.points.length, 0)}</dd></div>
-          </dl>
-        </div> : <div className="analytics-metric-cloud">
-          {analyticsInsights.metricTypes.map((metricType) => <span key={metricType}>{humanize(metricType)}</span>)}
-          {!analyticsInsights.metricTypes.length && <p className="muted-copy">No metric types imported yet.</p>}
-        </div>}
-      </section>
-    </div>
     <div className="analytics-layout">
       <section className="panel analytics-panel">
         <div className="panel-heading"><div><h2>{analyticsFilterLabels[analyticsFilter]}</h2><p>{analyticsPanelCopy}</p></div></div>
