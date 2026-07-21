@@ -1,0 +1,63 @@
+{
+  "expo": {
+    "name": "TaskBridge Handyman",
+    "slug": "taskbridge-handyman",
+    "scheme": "taskbridge",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.growingfig.taskbridge.handyman",
+      "infoPlist": {
+        "NSCameraUsageDescription": "TaskBridge needs camera access so handymen can capture before-and-after visit evidence.",
+        "NSLocationWhenInUseUsageDescription": "TaskBridge uses location during check-in to confirm that the handyman is at the assigned visit address.",
+        "NSPhotoLibraryUsageDescription": "TaskBridge can attach selected visit evidence photos when camera capture is not available."
+      },
+      "associatedDomains": [
+        "applinks:growingfig.com",
+        "applinks:www.growingfig.com"
+      ]
+    },
+    "android": {
+      "package": "com.growingfig.taskbridge.handyman",
+      "permissions": [
+        "CAMERA",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "www.growingfig.com",
+              "pathPrefix": "/visit"
+            },
+            {
+              "scheme": "https",
+              "host": "growingfig.com",
+              "pathPrefix": "/visit"
+            },
+            {
+              "scheme": "taskbridge",
+              "host": "visit"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "extra": {
+      "apiBaseUrl": "https://www.growingfig.com"
+    }
+  }
+}

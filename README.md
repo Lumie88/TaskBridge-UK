@@ -86,3 +86,20 @@ npm run build
 ```
 
 Database migrations are checksum-protected in `database/migrations`. Do not edit an applied migration; add a new numbered migration instead.
+
+## Handyman Android/iOS app
+
+The optional native handyman app lives in `apps/handyman-mobile`. It is an Expo app that reuses the same secure visit-token APIs as the web visit link, including accept/decline, geofenced check-in, before/after evidence upload, and checkout.
+
+```bash
+cd apps/handyman-mobile
+npm install
+npm run start
+```
+
+Android/iOS builds use EAS:
+
+```bash
+npm run build:android
+npm run build:ios
+```
