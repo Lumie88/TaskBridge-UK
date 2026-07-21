@@ -963,6 +963,19 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
         <div><strong>{analyticsInsights.latestServiceUser ? formatDate(analyticsInsights.latestServiceUser.latestObservationDate) : "No data"}</strong><small>Latest imported observation date</small></div>
       </article>
     </section>
+    <section className="panel analytics-owner-value">
+      <div>
+        <span className="eyebrow">For care owners</span>
+        <h2>Turn care records into quality oversight, risk control and evidence.</h2>
+        <p>Owners can see where outcomes are improving, where deterioration needs management attention, and what evidence is ready for inspections, family conversations and contract reviews.</p>
+      </div>
+      <div className="analytics-owner-value-grid">
+        <article><span><ShieldCheck size={18} /></span><strong>CQC readiness</strong><p>Keep an exportable trail of observations, actions and evidence without searching through separate notes.</p></article>
+        <article><span><TrendingDown size={18} /></span><strong>Earlier risk detection</strong><p>Spot deterioration patterns before they become missed-care, safeguarding or complaint issues.</p></article>
+        <article><span><BarChart3 size={18} /></span><strong>Business visibility</strong><p>Compare outcomes by service user and show commissioners or families that risks are being acted on.</p></article>
+        <article><span><FileText size={18} /></span><strong>Audit confidence</strong><p>Download practical evidence packs for supervision, provider meetings and internal governance.</p></article>
+      </div>
+    </section>
     <section className="analytics-cqc-grid">
       {cqcIntelligence.milestones.map((milestone) => <article key={milestone.title} className={`panel cqc-milestone cqc-${milestone.status}`}>
         <div>
