@@ -107,17 +107,18 @@ export function MarketingHome() {
         <section className="studio-hero">
           <div className="site-width studio-hero-grid">
             <div className="studio-hero-copy">
-              <span className="studio-trust-pill"><ShieldCheck size={16} /> Safeguarded care coordination</span>
-              <h1>Safer homes for vulnerable people, <span>coordinated through your care team.</span></h1>
+              <span className="studio-trust-pill"><ShieldCheck size={16} /> Care-led home safety platform</span>
+              <h1>A safer home starts with one care note. <span>TaskBridge turns it into safe action.</span></h1>
               <blockquote>"Making home safer for our vulnerable"</blockquote>
-              <p>TaskBridge by Growing Fig helps care teams turn everyday home-safety concerns into approved, trackable practical support while keeping resident identity and contact details protected.</p>
+              <p>TaskBridge by Growing Fig gives care teams a trusted way to act on practical home risks: approve the task, match a vetted operative, protect service-user details and return evidence to the care record.</p>
               <div className="studio-assurance" aria-label="Service assurances">
+                <span><BadgeCheck size={19} /> Preventable hazards actioned sooner</span>
                 <span><BadgeCheck size={19} /> Enhanced DBS controls for eligible visits</span>
-                <span><BadgeCheck size={19} /> UK GDPR-conscious data handling</span>
+                <span><BadgeCheck size={19} /> Evidence returned to authorised care teams</span>
               </div>
               <div className="studio-care-note">
                 <span><HeartPulse size={18} /></span>
-                <p><strong>From a carer note to a safer home:</strong> a slippery path, loose rail or access concern becomes a reviewed, evidenced task that the care team can follow through.</p>
+                <p><strong>Care note:</strong> "Mrs Higgins' rear path is thick with moss after rain." <strong>TaskBridge output:</strong> approved path-clearing task, safeguarded visit controls and completion evidence.</p>
               </div>
               <div className="studio-hero-actions">
                 <button className="button studio-dark-button" onClick={() => setDemoOpen(true)}>Book a demo <ArrowRight size={17} /></button>
@@ -127,19 +128,19 @@ export function MarketingHome() {
             </div>
             <div className="studio-hero-visual">
               <div className="studio-image-frame"><img src={heroImage} alt="A verified handyman installing a safety rail in a bright bathroom" /></div>
-              <div className="studio-float-card verification-card"><span><BadgeCheck size={20} /></span><div><small>Verification match</small><strong>Enhanced DBS verified</strong><p>Operative status active &amp; validated</p></div></div>
-              <div className="studio-float-card privacy-card"><span><ShieldAlert size={20} /></span><div><small>Encrypted privacy</small><strong>Contact details secured</strong><p>Resident contact numbers fully shielded</p></div></div>
+              <div className="studio-float-card verification-card"><span><BadgeCheck size={20} /></span><div><small>Safeguarded match</small><strong>Verified home-safety operative</strong><p>DBS route, insurance and service fit checked</p></div></div>
+              <div className="studio-float-card privacy-card"><span><ShieldAlert size={20} /></span><div><small>Care record protected</small><strong>Identity details shielded</strong><p>Only approved visit context is shared</p></div></div>
             </div>
           </div>
         </section>
 
         <section className="studio-trust" id="integrations">
           <div className="site-width">
-            <div className="studio-section-title"><span>Engineered for complete peace of mind</span><h2>Four pillars of safe, trusted care support</h2></div>
+            <div className="studio-section-title"><span>Built around real homes and real risk</span><h2>The controls care teams need before sending someone to the door.</h2></div>
             <div className="studio-trust-grid">
               <StudioPillar icon={<Link2 />} tone="rose" title="Works with care systems" detail="Compatible with most leading care management applications, with simple routes for care notes and task updates." label="Integration ready" />
               <StudioPillar icon={<ShieldCheck />} tone="amber" title="Safeguarding-led matching" detail="Eligible visits are checked against DBS, identity, insurance and service suitability controls before dispatch." label="Safeguarding first" />
-              <StudioPillar icon={<Store />} tone="indigo" title="Private vetted networks" detail="Work is routed through controlled provider pools rather than public task feeds." label="Trusted trade panel" />
+              <StudioPillar icon={<Store />} tone="indigo" title="Vetted local help" detail="Work is routed to controlled trade pools and approved direct operatives rather than unmanaged public feeds." label="Trusted trade panel" />
               <StudioPillar icon={<LockKeyhole />} tone="green" title="Resident details protected" detail="Home access details and direct resident contacts remain shielded from operatives." label="GDPR & cyber secure" />
             </div>
           </div>
@@ -147,11 +148,11 @@ export function MarketingHome() {
 
         <section className="section site-width intro-grid">
           <div className="section-heading">
-            <span className="eyebrow">A clearer route from concern to completion</span>
-            <h2>Practical help, without adding another coordination burden.</h2>
+            <span className="eyebrow">From observation to outcome</span>
+            <h2>Make small home hazards visible, owned and followed through.</h2>
           </div>
           <div className="intro-copy">
-            <p>TaskBridge helps care teams act on everyday hazards before they become serious incidents. One note can contain several needs; each is identified, checked and followed through as its own task.</p>
+            <p>Slippery paths, loose rails, broken locks and unsafe access arrangements often appear first in routine care notes. TaskBridge turns those observations into controlled tasks with clear approval, assignment and evidence steps.</p>
             <a className="inline-link" href="/how-it-works">Explore the full process <ArrowRight size={17} /></a>
           </div>
         </section>
@@ -920,15 +921,15 @@ function GuidelinePage({ children }: { children: ReactNode }) {
 function StudioCallout({ onDemo }: { onDemo: () => void }) {
   return <section className="studio-callout-section">
     <div className="site-width studio-callout">
-      <span className="studio-callout-badge"><ShieldCheck size={14} /> Secure care coordination platform</span>
-      <h2>Ready to transform safe resident care?</h2>
-      <p>See how TaskBridge by Growing Fig connects with your care workflow to coordinate approved, vetted home-safety support.</p>
+      <span className="studio-callout-badge"><ShieldCheck size={14} /> Home-safety work, safely coordinated</span>
+      <h2>Give care teams a safer route from concern to completion.</h2>
+      <p>See how TaskBridge helps your organisation act on practical home risks, protect service-user details and return evidence that care managers can trust.</p>
       <div className="studio-callout-actions">
-        <button onClick={onDemo}>Book personal demonstration <ArrowRight size={18} /></button>
+        <button onClick={onDemo}>Book a practical walkthrough <ArrowRight size={18} /></button>
         <a href="/sign-in"><LogIn size={18} /> Care coordinator sign in</a>
       </div>
       <div className="studio-callout-trust">
-        <span><Star size={19} /> Designed around UK care-quality expectations</span>
+        <span><Star size={19} /> Designed around care-quality evidence</span>
         <span><Heart size={19} /> Enhanced DBS controls enforced</span>
         <span><LockKeyhole size={19} /> Resident identity data shielded</span>
       </div>
@@ -944,7 +945,7 @@ function Footer() {
           <span className="footer-brand-mark"><TaskBridgeMark size={27} /></span>
           <span><strong>Task<span>Bridge</span></strong><small>by Growing Fig</small></span>
         </a>
-        <p>Connecting home care managers and safeguarding coordinators with verified, Enhanced DBS-vetted home support professionals.</p>
+        <p>Helping care organisations turn home-safety concerns into approved, evidenced practical support while protecting vulnerable service users.</p>
         <blockquote>"Making home safer for our vulnerable"</blockquote>
       </section>
 

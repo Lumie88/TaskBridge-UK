@@ -20,10 +20,11 @@ import { api } from "./api";
 export function TaskBridgeMark({ size = 22 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-      <path d="M16 3.5 25 7v7.4c0 6.3-3.7 11.2-9 14.1-5.3-2.9-9-7.8-9-14.1V7l9-3.5Z" fill="none" stroke="currentColor" strokeWidth="2.35" strokeLinejoin="round" />
-      <path d="M10 18.2c2.1-3.1 9.9-3.1 12 0" fill="none" stroke="currentColor" strokeWidth="2.35" strokeLinecap="round" />
-      <path d="M11 21h10" fill="none" stroke="currentColor" strokeWidth="2.35" strokeLinecap="round" />
-      <path d="m13 13.8 2 2 4.4-5" fill="none" stroke="currentColor" strokeWidth="2.35" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M16 3.7 25 7.3v7.2c0 6.4-3.7 11.3-9 14-5.3-2.7-9-7.6-9-14V7.3l9-3.6Z" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinejoin="round" />
+      <path d="M9.7 19.1c2.5-3.7 10.1-3.7 12.6 0" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" />
+      <path d="M11.4 21.8h9.2" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" />
+      <path d="M15.7 15.5c.4-3.1 2.3-5.1 5.8-5.8-.6 3.6-2.5 5.4-5.8 5.8Z" fill="none" stroke="currentColor" strokeWidth="2.05" strokeLinejoin="round" />
+      <path d="M12.1 14.2c1.1.7 2.4 1.4 3.7 1.3" fill="none" stroke="currentColor" strokeWidth="2.05" strokeLinecap="round" />
     </svg>
   );
 }
