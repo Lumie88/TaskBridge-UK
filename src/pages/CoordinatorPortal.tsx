@@ -626,6 +626,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
   const [maxTravelMinutesBetweenCalls, setMaxTravelMinutesBetweenCalls] = useState(35);
   const [rosterView, setRosterView] = useState("day");
   const [rosterFilter, setRosterFilter] = useState("all");
+  const [activeRotaStep, setActiveRotaStep] = useState("caregivers");
   const [caregivers, setCaregivers] = useState([{ name: "Morning carer", startPostcode: serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "14:00", skills: "personal care, medication" }]);
   const [calls, setCalls] = useState([
     { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "11:00", durationMinutes: 30, priority: "medium", requiredSkill: "personal care" }
@@ -653,6 +654,8 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
         })
       });
       setPlan(result);
+      setActiveRotaStep("review");
+      window.setTimeout(() => document.getElementById("rota-review")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Unable to generate rota plan";
       setLocked(message.toLowerCase().includes("not unlocked"));
@@ -674,6 +677,18 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
     setContinuity((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item));
   }
 
+  function openRotaStep(step: string) {
+    setActiveRotaStep(step);
+    if (step === "review" && !plan) {
+      document.querySelector<HTMLFormElement>(".rota-planner-page")?.requestSubmit();
+      return;
+    }
+    const targetId = step === "caregivers" ? "rota-caregivers"
+      : step === "visits" ? "rota-visits"
+        : step === "rules" ? "rota-rules" : "rota-review";
+    document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   if (locked) return <section className="panel analytics-locked">
     <span><Navigation size={30} /></span>
     <h1>Premium AI rota planner is locked for this agency</h1>
@@ -681,10 +696,10 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
   </section>;
 
   const rotaSteps = [
-    { label: "Add caregivers", detail: `${caregivers.length} available today`, icon: UsersRound },
-    { label: "Select visits", detail: `${calls.filter((call) => call.serviceUserId).length} planned calls`, icon: CalendarDays },
-    { label: "Set rules", detail: humanize(optimisationGoal), icon: ShieldCheck },
-    { label: "Review rota", detail: plan ? `${plan.summary.routeEfficiencyScore}% efficient` : "Awaiting plan", icon: Navigation }
+    { key: "caregivers", label: "Add caregivers", detail: `${caregivers.length} available today`, icon: UsersRound },
+    { key: "visits", label: "Select visits", detail: `${calls.filter((call) => call.serviceUserId).length} planned calls`, icon: CalendarDays },
+    { key: "rules", label: "Set rules", detail: humanize(optimisationGoal), icon: ShieldCheck },
+    { key: "review", label: "Review rota", detail: plan ? `${plan.summary.routeEfficiencyScore}% efficient` : "Generate plan", icon: Navigation }
   ];
   const visibleCalls = calls.filter((call) => call.serviceUserId);
   const unallocatedPreview = plan?.unassigned.length
@@ -708,6 +723,16 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
       calls: [] as RotaPlan["schedules"][number]["calls"]
     }));
   const conflictCount = plan ? plan.summary.riskWarnings + plan.summary.unassignedCalls : 0;
+  const rosterTimeLabels = rosterView === "week"
+    ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Weekend"]
+    : rosterView === "runs"
+      ? ["Run 1", "Run 2", "Run 3", "Run 4", "Cover", "Review"]
+      : ["08:00", "10:00", "12:00", "14:00", "16:00", "18:00"];
+  const visibleBoardSchedules = boardSchedules.filter((schedule) => {
+    if (rosterFilter === "conflicts") return Boolean(schedule.warnings.length || schedule.riskLoad);
+    if (rosterFilter === "unallocated" && plan) return false;
+    return true;
+  });
 
   return <form className="rota-planner-page" onSubmit={generatePlan}>
     <section className="rota-planday-hero">
@@ -730,7 +755,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
     <section className="rota-how-strip" aria-label="Rota planning steps">
       {rotaSteps.map((step, index) => {
         const Icon = step.icon;
-        return <article key={step.label} className={plan && index === 3 ? "active" : ""}><span><Icon size={19} /></span><div><strong>{step.label}</strong><small>{step.detail}</small></div></article>;
+        return <button key={step.label} type="button" className={activeRotaStep === step.key || (plan && index === 3 && activeRotaStep === "review") ? "active" : ""} onClick={() => openRotaStep(step.key)} aria-pressed={activeRotaStep === step.key}><span><Icon size={19} /></span><div><strong>{step.label}</strong><small>{step.detail}</small></div></button>;
       })}
     </section>
     <section className="rota-roster-board">
@@ -756,12 +781,8 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
         </div>
       </div>
       <div className="rota-board-grid">
-        <div className="rota-time-header"><span>Carer</span><span>08:00</span><span>10:00</span><span>12:00</span><span>14:00</span><span>16:00</span><span>18:00</span></div>
-        {boardSchedules.map((schedule) => {
-          const hiddenByFilter = rosterFilter === "conflicts" && !schedule.warnings.length && !schedule.riskLoad
-            || rosterFilter === "unallocated" && plan;
-          if (hiddenByFilter) return null;
-          return <div className="rota-board-row" key={schedule.caregiverId}>
+        <div className="rota-time-header"><span>Carer</span>{rosterTimeLabels.map((label) => <span key={label}>{label}</span>)}</div>
+        {visibleBoardSchedules.map((schedule) => <div className="rota-board-row" key={schedule.caregiverId}>
             <div className="rota-carer-cell"><strong>{schedule.caregiverName}</strong><span>{schedule.available}</span><small>{schedule.utilisationPercent || 0}% utilised / {schedule.travelMinutes || 0} mins travel</small></div>
             <div className="rota-timeline-cell">
               {schedule.calls.length ? schedule.calls.map((call, index) => <article key={`${call.reference}-${index}`} className={`rota-visit-block urgency-${call.priority}`}>
@@ -770,21 +791,21 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
                 <small>{call.travelMinutes} mins travel{call.continuityMatched ? " / continuity" : ""}</small>
               </article>) : <span className="rota-empty-run">No visits assigned yet</span>}
             </div>
-          </div>;
-        })}
+          </div>)}
+        {!visibleBoardSchedules.length && <div className="rota-board-empty"><strong>No matching carer runs</strong><span>Clear the active board filter or generate a rota with conflicts to review.</span></div>}
       </div>
     </section>
     <div className="rota-planday-layout">
       <section className="rota-builder-panel">
         <div className="rota-section-heading"><span>01</span><div><h2>Build the day plan</h2><p>Use this workspace to capture staff availability, visit windows and safeguarding planning rules.</p></div></div>
-        <section className="rota-premium-controls">
+        <section className="rota-premium-controls" id="rota-rules">
           <label>Branch postcode<input value={branchPostcode} onChange={(event) => setBranchPostcode(event.target.value.toUpperCase())} placeholder="PE2 6XU" /></label>
           <label>Optimisation goal<select value={optimisationGoal} onChange={(event) => setOptimisationGoal(event.target.value)}><option value="balanced">Balanced rota</option><option value="minimise_travel">Minimise travel</option><option value="protect_continuity">Protect continuity</option><option value="risk_first">High-risk first</option></select></label>
           <label>Target utilisation %<input type="number" min={50} max={95} value={targetUtilisationPercent} onChange={(event) => setTargetUtilisationPercent(Number(event.target.value))} /></label>
           <label>Max travel segment<input type="number" min={5} max={120} value={maxTravelMinutesBetweenCalls} onChange={(event) => setMaxTravelMinutesBetweenCalls(Number(event.target.value))} /></label>
         </section>
         <div className="rota-planner-grid">
-          <section className="panel">
+          <section className="panel" id="rota-caregivers">
             <div className="panel-heading"><div><h2>Caregivers</h2><p>Add the carers available for this planning run.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setCaregivers((current) => [...current, { name: `Carer ${current.length + 1}`, startPostcode: branchPostcode, availableFrom: "08:00", availableTo: "18:00", skills: "" }])}><Plus size={15} /> Add</button></div>
             <div className="rota-input-list">{caregivers.map((caregiver, index) => <article key={index}>
               <label>Name<input value={caregiver.name} onChange={(event) => updateCaregiver(index, "name", event.target.value)} /></label>
@@ -793,7 +814,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
               <label>Skills<input value={caregiver.skills} onChange={(event) => updateCaregiver(index, "skills", event.target.value)} placeholder="personal care, medication" /></label>
             </article>)}</div>
           </section>
-          <section className="panel">
+          <section className="panel" id="rota-visits">
             <div className="panel-heading"><div><h2>Calls</h2><p>Select service users and preferred call windows.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setCalls((current) => [...current, { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "12:00", durationMinutes: 30, priority: "routine", requiredSkill: "" }])}><Plus size={15} /> Add</button></div>
             <div className="rota-input-list">{calls.map((call, index) => <article key={index}>
               <label>Service user<select value={call.serviceUserId} onChange={(event) => updateCall(index, "serviceUserId", event.target.value)}><option value="">Select service user</option>{serviceUsers.map((serviceUser) => <option key={serviceUser.id} value={serviceUser.id}>{serviceUser.name} / {serviceUser.postcode}</option>)}</select></label>
@@ -802,7 +823,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
               <label>Required skill<input value={call.requiredSkill} onChange={(event) => updateCall(index, "requiredSkill", event.target.value)} placeholder="personal care" /></label>
             </article>)}</div>
           </section>
-          <section className="panel rota-continuity-panel">
+          <section className="panel rota-continuity-panel" id="rota-continuity">
             <div className="panel-heading"><div><h2>Continuity of care</h2><p>Optional preferences for people who benefit from a familiar caregiver.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setContinuity((current) => [...current, { serviceUserId: serviceUsers[0]?.id || "", preferredCaregiverName: caregivers[0]?.name || "" }])}><Plus size={15} /> Add</button></div>
             <div className="rota-input-list">{continuity.length ? continuity.map((item, index) => <article key={index}>
               <label>Service user<select value={item.serviceUserId} onChange={(event) => updateContinuity(index, "serviceUserId", event.target.value)}><option value="">Select service user</option>{serviceUsers.map((serviceUser) => <option key={serviceUser.id} value={serviceUser.id}>{serviceUser.name} / {serviceUser.reference}</option>)}</select></label>
@@ -825,7 +846,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
         </div>
       </aside>
     </div>
-    {plan && <section className="rota-plan-results">
+    {plan && <section className="rota-plan-results" id="rota-review">
       <div className="metric-grid coordinator-metrics">
         <div className="metric"><span><Navigation /></span><div><strong>{plan.summary.routeEfficiencyScore}%</strong><small>Route efficiency</small></div></div>
         <div className="metric metric-green"><span><TrendingUp /></span><div><strong>£{plan.summary.estimatedCostSavingPounds}</strong><small>Estimated saving</small></div></div>

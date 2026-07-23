@@ -1483,11 +1483,14 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 .rota-hero-preview span { color: #d6f4ee; font-weight: 900; }
 .rota-hero-preview p { color: #bad6dc; font-size: .82rem; }
 .rota-how-strip { margin-bottom: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.rota-how-strip article { min-height: 88px; padding: 16px; display: grid; grid-template-columns: 42px 1fr; gap: 12px; align-items: center; background: white; border: 1px solid #dfe7e5; border-radius: 11px; box-shadow: 0 10px 26px rgba(7,43,50,.05); }
-.rota-how-strip article > span { width: 42px; height: 42px; display: grid; place-items: center; color: #0d6370; background: #e4f4f0; border-radius: 10px; }
-.rota-how-strip article strong { display: block; color: #0f172a; font-size: .86rem; }
-.rota-how-strip article small { color: #667a7e; font-size: .68rem; font-weight: 750; }
-.rota-how-strip article.active { border-color: #0d6370; box-shadow: inset 0 0 0 1px #0d6370, 0 16px 34px rgba(13,99,112,.1); }
+.rota-how-strip button { min-height: 88px; padding: 16px; display: grid; grid-template-columns: 42px 1fr; gap: 12px; align-items: center; background: white; border: 1px solid #dfe7e5; border-radius: 11px; box-shadow: 0 10px 26px rgba(7,43,50,.05); text-align: left; transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.rota-how-strip button:hover { transform: translateY(-2px); border-color: #0d6370; }
+.rota-how-strip button:focus-visible { outline: 3px solid rgba(13,99,112,.24); outline-offset: 2px; }
+.rota-how-strip button > span { width: 42px; height: 42px; display: grid; place-items: center; color: #0d6370; background: #e4f4f0; border-radius: 10px; }
+.rota-how-strip button strong { display: block; color: #0f172a; font-size: .86rem; }
+.rota-how-strip button small { color: #667a7e; font-size: .68rem; font-weight: 750; }
+.rota-how-strip button.active { border-color: #0d6370; box-shadow: inset 0 0 0 1px #0d6370, 0 16px 34px rgba(13,99,112,.1); }
+.rota-how-strip button.active > span { color: white; background: #0d6370; }
 .rota-roster-board { margin-bottom: 20px; padding: clamp(16px, 2.4vw, 22px); background: #ffffff; border: 1px solid #dfe9e7; border-radius: 13px; box-shadow: 0 16px 38px rgba(7,43,50,.06); }
 .rota-board-toolbar { margin-bottom: 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: end; }
 .rota-board-toolbar h2 { margin: 6px 0 6px; color: #0f172a; font-size: clamp(1.35rem, 2.6vw, 2rem); letter-spacing: 0; }
@@ -1529,6 +1532,8 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 .rota-visit-block span { display: block; margin-top: 4px; color: #243d43; font-size: .75rem; font-weight: 850; }
 .rota-visit-block small, .rota-empty-run { display: block; margin-top: 4px; color: #64777a; font-size: .66rem; line-height: 1.35; }
 .rota-empty-run { padding: 12px; background: rgba(255,255,255,.78); border: 1px dashed #cbd5e1; border-radius: 8px; }
+.rota-board-empty { min-width: 860px; padding: 24px; display: grid; gap: 5px; color: #64777a; background: #fbfdfd; text-align: center; }
+.rota-board-empty strong { color: #0f172a; }
 .rota-planday-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 20px; align-items: start; }
 .rota-builder-panel, .rota-live-preview { padding: 20px; background: #f8fbfb; border: 1px solid #dfe9e7; border-radius: 13px; }
 .rota-live-preview { position: sticky; top: 86px; display: grid; gap: 14px; }
@@ -1612,7 +1617,7 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .analytics-owner-value-grid { grid-template-columns: 1fr; }
   .rota-efficiency-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .rota-how-strip { display: flex; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x mandatory; }
-  .rota-how-strip article { min-width: 230px; scroll-snap-align: start; }
+  .rota-how-strip button { min-width: 230px; scroll-snap-align: start; }
   .rota-board-controls { width: fit-content; }
   .board-toolbar { grid-template-columns: 1fr; }
   .analytics-action-list, .analytics-profile-card dl { grid-template-columns: 1fr; }
