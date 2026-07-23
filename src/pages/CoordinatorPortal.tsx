@@ -624,6 +624,8 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
   const [optimisationGoal, setOptimisationGoal] = useState("balanced");
   const [targetUtilisationPercent, setTargetUtilisationPercent] = useState(82);
   const [maxTravelMinutesBetweenCalls, setMaxTravelMinutesBetweenCalls] = useState(35);
+  const [rosterView, setRosterView] = useState("day");
+  const [rosterFilter, setRosterFilter] = useState("all");
   const [caregivers, setCaregivers] = useState([{ name: "Morning carer", startPostcode: serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "14:00", skills: "personal care, medication" }]);
   const [calls, setCalls] = useState([
     { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "11:00", durationMinutes: 30, priority: "medium", requiredSkill: "personal care" }
@@ -684,6 +686,28 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
     { label: "Set rules", detail: humanize(optimisationGoal), icon: ShieldCheck },
     { label: "Review rota", detail: plan ? `${plan.summary.routeEfficiencyScore}% efficient` : "Awaiting plan", icon: Navigation }
   ];
+  const visibleCalls = calls.filter((call) => call.serviceUserId);
+  const unallocatedPreview = plan?.unassigned.length
+    ? plan.unassigned.map((call) => ({ name: call.serviceUserName, meta: call.reason, priority: "high" }))
+    : visibleCalls.map((call) => {
+      const serviceUser = serviceUsers.find((item) => item.id === call.serviceUserId);
+      return { name: serviceUser?.name || "Unselected service user", meta: `${call.earliest}-${call.latest} / ${call.durationMinutes} mins`, priority: call.priority };
+    });
+  const boardSchedules = plan?.schedules.length
+    ? plan.schedules
+    : caregivers.map((caregiver, index) => ({
+      caregiverId: `draft-${index}`,
+      caregiverName: caregiver.name,
+      available: `${caregiver.availableFrom}-${caregiver.availableTo}`,
+      travelMinutes: 0,
+      assignedMinutes: 0,
+      utilisationPercent: 0,
+      routeEfficiencyScore: 0,
+      riskLoad: 0,
+      warnings: [] as string[],
+      calls: [] as RotaPlan["schedules"][number]["calls"]
+    }));
+  const conflictCount = plan ? plan.summary.riskWarnings + plan.summary.unassignedCalls : 0;
 
   return <form className="rota-planner-page" onSubmit={generatePlan}>
     <section className="rota-planday-hero">
@@ -708,6 +732,47 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
         const Icon = step.icon;
         return <article key={step.label} className={plan && index === 3 ? "active" : ""}><span><Icon size={19} /></span><div><strong>{step.label}</strong><small>{step.detail}</small></div></article>;
       })}
+    </section>
+    <section className="rota-roster-board">
+      <div className="rota-board-toolbar">
+        <div><span className="eyebrow">Rostering dashboard</span><h2>See every visit, gap and carer run before approval.</h2><p>Built for homecare coordination: unallocated visits, continuity, travel, utilisation and safeguarding conflicts stay visible in one workspace.</p></div>
+        <div className="rota-board-controls" aria-label="Rota board controls">
+          <button type="button" className={rosterView === "day" ? "active" : ""} onClick={() => setRosterView("day")}>Day</button>
+          <button type="button" className={rosterView === "week" ? "active" : ""} onClick={() => setRosterView("week")}>Week</button>
+          <button type="button" className={rosterView === "runs" ? "active" : ""} onClick={() => setRosterView("runs")}>Runs</button>
+        </div>
+      </div>
+      <div className="rota-board-action-row">
+        <button type="submit" disabled={loading || !serviceUsers.length}><Sparkles size={16} /> Auto-assign safe rota</button>
+        <button type="button" onClick={() => setOptimisationGoal("protect_continuity")}><UsersRound size={16} /> Schedule by continuity</button>
+        <button type="button" onClick={() => setRosterFilter(rosterFilter === "conflicts" ? "all" : "conflicts")}><ShieldAlert size={16} /> {conflictCount} conflict{conflictCount === 1 ? "" : "s"}</button>
+        <button type="button" onClick={() => setRosterFilter(rosterFilter === "unallocated" ? "all" : "unallocated")}><Clock3 size={16} /> {unallocatedPreview.length} unallocated</button>
+      </div>
+      <div className="rota-unallocated-lane">
+        <header><strong>Unallocated visits</strong><span>{unallocatedPreview.length} visit{unallocatedPreview.length === 1 ? "" : "s"} needing allocation or review</span></header>
+        <div>
+          {unallocatedPreview.slice(0, 8).map((call, index) => <article key={`${call.name}-${index}`} className={`urgency-${call.priority}`}><strong>{call.name}</strong><small>{call.meta}</small></article>)}
+          {!unallocatedPreview.length && <article className="rota-empty-visit"><strong>No unallocated visits</strong><small>The generated plan covers all selected calls.</small></article>}
+        </div>
+      </div>
+      <div className="rota-board-grid">
+        <div className="rota-time-header"><span>Carer</span><span>08:00</span><span>10:00</span><span>12:00</span><span>14:00</span><span>16:00</span><span>18:00</span></div>
+        {boardSchedules.map((schedule) => {
+          const hiddenByFilter = rosterFilter === "conflicts" && !schedule.warnings.length && !schedule.riskLoad
+            || rosterFilter === "unallocated" && plan;
+          if (hiddenByFilter) return null;
+          return <div className="rota-board-row" key={schedule.caregiverId}>
+            <div className="rota-carer-cell"><strong>{schedule.caregiverName}</strong><span>{schedule.available}</span><small>{schedule.utilisationPercent || 0}% utilised / {schedule.travelMinutes || 0} mins travel</small></div>
+            <div className="rota-timeline-cell">
+              {schedule.calls.length ? schedule.calls.map((call, index) => <article key={`${call.reference}-${index}`} className={`rota-visit-block urgency-${call.priority}`}>
+                <strong>{call.arrive}-{call.leave}</strong>
+                <span>{call.serviceUserName}</span>
+                <small>{call.travelMinutes} mins travel{call.continuityMatched ? " / continuity" : ""}</small>
+              </article>) : <span className="rota-empty-run">No visits assigned yet</span>}
+            </div>
+          </div>;
+        })}
+      </div>
     </section>
     <div className="rota-planday-layout">
       <section className="rota-builder-panel">

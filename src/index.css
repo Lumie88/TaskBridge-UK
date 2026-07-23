@@ -1488,6 +1488,47 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 .rota-how-strip article strong { display: block; color: #0f172a; font-size: .86rem; }
 .rota-how-strip article small { color: #667a7e; font-size: .68rem; font-weight: 750; }
 .rota-how-strip article.active { border-color: #0d6370; box-shadow: inset 0 0 0 1px #0d6370, 0 16px 34px rgba(13,99,112,.1); }
+.rota-roster-board { margin-bottom: 20px; padding: clamp(16px, 2.4vw, 22px); background: #ffffff; border: 1px solid #dfe9e7; border-radius: 13px; box-shadow: 0 16px 38px rgba(7,43,50,.06); }
+.rota-board-toolbar { margin-bottom: 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: end; }
+.rota-board-toolbar h2 { margin: 6px 0 6px; color: #0f172a; font-size: clamp(1.35rem, 2.6vw, 2rem); letter-spacing: 0; }
+.rota-board-toolbar p { margin: 0; color: #64777a; line-height: 1.55; }
+.rota-board-controls { padding: 5px; display: inline-flex; gap: 5px; background: #eef5f4; border: 1px solid #d7e5e2; border-radius: 999px; }
+.rota-board-controls button { min-height: 34px; padding: 0 14px; color: #52656b; background: transparent; border: 0; border-radius: 999px; font-size: .74rem; font-weight: 850; }
+.rota-board-controls button.active { color: white; background: #0d6370; box-shadow: 0 8px 18px rgba(13,99,112,.18); }
+.rota-board-action-row { margin-bottom: 14px; display: flex; flex-wrap: wrap; gap: 9px; }
+.rota-board-action-row button { min-height: 38px; padding: 0 13px; display: inline-flex; align-items: center; gap: 7px; color: #0f3140; background: #f8fbfb; border: 1px solid #dfe7e5; border-radius: 8px; font-size: .75rem; font-weight: 850; }
+.rota-board-action-row button:first-child { color: white; background: #0d6370; border-color: #0d6370; }
+.rota-board-action-row button:disabled { opacity: .65; cursor: not-allowed; }
+.rota-unallocated-lane { margin-bottom: 16px; padding: 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; }
+.rota-unallocated-lane header { margin-bottom: 11px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; }
+.rota-unallocated-lane header strong { color: #0f172a; font-size: .85rem; }
+.rota-unallocated-lane header span { color: #64777a; font-size: .72rem; font-weight: 750; }
+.rota-unallocated-lane > div { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+.rota-unallocated-lane article { min-width: 190px; padding: 12px; background: white; border: 1px solid #e2e8f0; border-left: 4px solid #94a3b8; border-radius: 8px; }
+.rota-unallocated-lane article.urgency-high { border-left-color: #e11d48; }
+.rota-unallocated-lane article.urgency-medium { border-left-color: #f59e0b; }
+.rota-unallocated-lane article.urgency-routine, .rota-unallocated-lane article.urgency-low { border-left-color: #0d6370; }
+.rota-unallocated-lane article strong { display: block; color: #0f172a; font-size: .78rem; }
+.rota-unallocated-lane article small { display: block; margin-top: 4px; color: #64777a; font-size: .68rem; line-height: 1.4; }
+.rota-board-grid { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 10px; }
+.rota-time-header, .rota-board-row { min-width: 860px; display: grid; grid-template-columns: 190px repeat(6, minmax(95px, 1fr)); }
+.rota-time-header { color: #64748b; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; font-size: .68rem; font-weight: 900; text-transform: uppercase; }
+.rota-time-header span { padding: 11px 12px; border-right: 1px solid #e2e8f0; }
+.rota-time-header span:last-child { border-right: 0; }
+.rota-board-row { min-height: 112px; border-bottom: 1px solid #edf2f7; background: white; }
+.rota-board-row:last-child { border-bottom: 0; }
+.rota-carer-cell { padding: 13px; display: grid; align-content: center; gap: 3px; background: #fbfdfd; border-right: 1px solid #e2e8f0; }
+.rota-carer-cell strong { color: #0f172a; font-size: .82rem; }
+.rota-carer-cell span, .rota-carer-cell small { color: #64777a; font-size: .68rem; line-height: 1.35; }
+.rota-timeline-cell { grid-column: span 6; padding: 12px; display: flex; gap: 10px; align-items: center; background-image: linear-gradient(to right, #edf2f7 1px, transparent 1px); background-size: calc(100% / 6) 100%; }
+.rota-visit-block { min-width: 150px; max-width: 220px; padding: 11px; border: 1px solid #cbd5e1; border-top: 4px solid #64748b; border-radius: 9px; background: white; box-shadow: 0 10px 24px rgba(15,23,42,.08); }
+.rota-visit-block.urgency-high { border-top-color: #e11d48; }
+.rota-visit-block.urgency-medium { border-top-color: #f59e0b; }
+.rota-visit-block.urgency-routine, .rota-visit-block.urgency-low { border-top-color: #0d6370; }
+.rota-visit-block strong { color: #0f172a; font-size: .74rem; }
+.rota-visit-block span { display: block; margin-top: 4px; color: #243d43; font-size: .75rem; font-weight: 850; }
+.rota-visit-block small, .rota-empty-run { display: block; margin-top: 4px; color: #64777a; font-size: .66rem; line-height: 1.35; }
+.rota-empty-run { padding: 12px; background: rgba(255,255,255,.78); border: 1px dashed #cbd5e1; border-radius: 8px; }
 .rota-planday-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 20px; align-items: start; }
 .rota-builder-panel, .rota-live-preview { padding: 20px; background: #f8fbfb; border: 1px solid #dfe9e7; border-radius: 13px; }
 .rota-live-preview { position: sticky; top: 86px; display: grid; gap: 14px; }
@@ -1557,7 +1598,7 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .analytics-focus-panel, .analytics-owner-value { grid-template-columns: 1fr; align-items: stretch; }
   .premium-score-ring { width: 132px; }
   .analytics-insight-grid, .analytics-decision-grid, .analytics-milestone-board > div:last-child { grid-template-columns: 1fr; }
-  .rota-planday-hero, .rota-how-strip, .rota-planday-layout, .rota-premium-hero, .rota-premium-controls, .rota-planner-grid, .rota-schedule-list, .rota-value-grid { grid-template-columns: 1fr; }
+  .rota-planday-hero, .rota-how-strip, .rota-board-toolbar, .rota-planday-layout, .rota-premium-hero, .rota-premium-controls, .rota-planner-grid, .rota-schedule-list, .rota-value-grid { grid-template-columns: 1fr; }
   .rota-live-preview { position: static; }
 }
 
@@ -1572,6 +1613,7 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .rota-efficiency-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .rota-how-strip { display: flex; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x mandatory; }
   .rota-how-strip article { min-width: 230px; scroll-snap-align: start; }
+  .rota-board-controls { width: fit-content; }
   .board-toolbar { grid-template-columns: 1fr; }
   .analytics-action-list, .analytics-profile-card dl { grid-template-columns: 1fr; }
   .metric-trend-list { grid-template-columns: 1fr; }
@@ -1589,6 +1631,9 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .analytics-tile { min-height: 180px; padding: 15px; }
   .rota-planday-hero { padding: 22px; border-radius: 12px; }
   .rota-planday-hero h1 { font-size: 2.05rem; }
+  .rota-board-action-row button, .rota-board-controls { width: 100%; justify-content: center; }
+  .rota-board-controls button { flex: 1; }
+  .rota-unallocated-lane header { align-items: flex-start; flex-direction: column; }
   .rota-builder-panel, .rota-live-preview { padding: 15px; }
   .rota-premium-hero, .rota-premium-controls { padding: 16px; }
   .rota-owner-value strong { font-size: 1.8rem; }
