@@ -5,6 +5,7 @@ import express from "express";
 import { createApp } from "./server/app.js";
 import { config, isProduction, productionConfigErrors } from "./server/config.js";
 import { pool } from "./server/db.js";
+import { runDatabaseMigrations } from "./server/migrations.js";
 import { processRetryQueue } from "./server/retry-worker.js";
 
 const app = createApp();
@@ -16,6 +17,7 @@ if (isProduction) {
     console.error(`Missing required production configuration: ${missing.join(", ")}`);
     process.exit(1);
   }
+  await runDatabaseMigrations(pool);
   const clientRoot = path.join(root, "client");
   app.use(express.static(clientRoot, { maxAge: "1h", index: false }));
   app.get("*", (_req, res) => res.sendFile(path.join(clientRoot, "index.html")));
