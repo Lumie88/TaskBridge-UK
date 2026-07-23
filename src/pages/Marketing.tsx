@@ -555,6 +555,7 @@ export function JoinHandymanPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [selectedServices, setSelectedServices] = useState<string[]>(["Minor repairs"]);
+  const [dbsRoute, setDbsRoute] = useState<"already_enhanced" | "needs_application" | "basic_or_not_sure">("needs_application");
 
   function toggleService(service: string) {
     setSelectedServices((current) => current.includes(service) ? current.filter((item) => item !== service) : [...current, service]);
@@ -576,7 +577,8 @@ export function JoinHandymanPage() {
           phone: values.get("phone"),
           postcode: values.get("postcode"),
           services: selectedServices,
-          hasEnhancedDbs: values.get("hasEnhancedDbs") === "on",
+          dbsRoute,
+          hasEnhancedDbs: dbsRoute === "already_enhanced",
           hasPublicLiability: values.get("hasPublicLiability") === "on",
           message: values.get("message")
         })
@@ -612,7 +614,13 @@ export function JoinHandymanPage() {
               <div className="field-row"><label>Email<input name="email" type="email" required autoComplete="email" /></label><label>Mobile number<input name="phone" required autoComplete="tel" /></label></div>
               <label>Primary postcode<input name="postcode" required autoComplete="postal-code" /></label>
               <fieldset className="join-service-picker"><legend>Services you can offer</legend>{handymanServices.map((service) => <label key={service} className={selectedServices.includes(service) ? "selected" : ""}><input type="checkbox" checked={selectedServices.includes(service)} onChange={() => toggleService(service)} />{service}</label>)}</fieldset>
-              <div className="join-checks"><label><input name="hasEnhancedDbs" type="checkbox" /> I currently hold an Enhanced DBS certificate</label><label><input name="hasPublicLiability" type="checkbox" /> I have public liability insurance</label></div>
+              <fieldset className="join-dbs-route"><legend>Enhanced DBS position</legend>
+                <label><input type="radio" name="dbsRoute" checked={dbsRoute === "already_enhanced"} onChange={() => setDbsRoute("already_enhanced")} /> I already hold an Enhanced DBS certificate</label>
+                <label><input type="radio" name="dbsRoute" checked={dbsRoute === "needs_application"} onChange={() => setDbsRoute("needs_application")} /> I do not have one yet and want guidance to apply</label>
+                <label><input type="radio" name="dbsRoute" checked={dbsRoute === "basic_or_not_sure"} onChange={() => setDbsRoute("basic_or_not_sure")} /> I have Basic DBS, no DBS, or I am not sure</label>
+                <p>Enhanced DBS eligibility depends on the type of work. Vulnerable-adult tasks are blocked until TaskBridge verifies the certificate and Update Service status.</p>
+              </fieldset>
+              <div className="join-checks"><label><input name="hasPublicLiability" type="checkbox" /> I have public liability insurance</label></div>
               <label>Anything else we should know?<textarea name="message" rows={3} placeholder="Trade experience, regions covered, availability or relevant qualifications" /></label>
               {error && <p className="form-error">{error}</p>}
               <button className="button button-primary button-full" disabled={busy} type="submit">{busy ? "Sending..." : "Submit join request"} <ArrowRight size={17} /></button>
@@ -628,7 +636,7 @@ export function JoinHandymanPage() {
       <section className="site-width join-handyman-process">
         <div><strong>1</strong><h2>Apply</h2><p>Share your contact details, service coverage and trade categories.</p></div>
         <div><strong>2</strong><h2>Review</h2><p>TaskBridge checks suitability before sending the secure registration link.</p></div>
-        <div><strong>3</strong><h2>Verify</h2><p>Upload insurance and Enhanced DBS evidence for admin review.</p></div>
+        <div><strong>3</strong><h2>Verify</h2><p>Upload insurance, existing Enhanced DBS evidence, or follow the DBS application route if eligible.</p></div>
         <div><strong>4</strong><h2>Receive tasks</h2><p>Approved operatives receive tokenised task links for accepted work.</p></div>
       </section>
     </main>

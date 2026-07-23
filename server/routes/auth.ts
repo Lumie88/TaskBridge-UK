@@ -40,6 +40,7 @@ const handymanJoinRequestSchema = z.object({
   phone: z.string().trim().min(8).max(30),
   postcode: z.string().trim().min(4).max(12),
   services: z.array(z.string().trim().min(2).max(80)).min(1).max(12),
+  dbsRoute: z.enum(["already_enhanced", "needs_application", "basic_or_not_sure"]).optional(),
   hasEnhancedDbs: z.boolean().default(false),
   hasPublicLiability: z.boolean().default(false),
   message: z.string().trim().max(1200).optional().default("")
@@ -79,18 +80,25 @@ authRouter.post("/handyman-join-request", signInLimiter, asyncHandler(async (req
   const parsed = handymanJoinRequestSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: "Enter valid handyman application details" });
   const data = parsed.data;
+  const dbsRoute = data.dbsRoute || (data.hasEnhancedDbs ? "already_enhanced" : "basic_or_not_sure");
+  const dbsNotes = dbsRoute === "already_enhanced"
+    ? "Applicant says they already hold an Enhanced DBS certificate. Evidence still requires TaskBridge admin verification."
+    : dbsRoute === "needs_application"
+      ? "Applicant does not currently hold Enhanced DBS and wants routing to an eligible DBS umbrella application."
+      : "Applicant has Basic DBS, no DBS, or is unsure. Restrict to non-vulnerable or supervised work until reviewed.";
   const created = await query<{ id: string }>(
     `INSERT INTO tenant.handyman_join_requests
-      (full_name, business_name, email, phone, postcode, services, has_enhanced_dbs, has_public_liability, message, ip_address)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      (full_name, business_name, email, phone, postcode, services, has_enhanced_dbs, has_public_liability, message, ip_address, dbs_route, dbs_eligibility_notes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING id::text`,
-    [data.fullName, data.businessName || null, data.email.toLowerCase(), data.phone, data.postcode.toUpperCase(), data.services, data.hasEnhancedDbs, data.hasPublicLiability, data.message || null, req.ip]
+    [data.fullName, data.businessName || null, data.email.toLowerCase(), data.phone, data.postcode.toUpperCase(), data.services,
+      dbsRoute === "already_enhanced", data.hasPublicLiability, data.message || null, req.ip, dbsRoute, dbsNotes]
   );
   await query(
     `INSERT INTO integration.notification_deliveries
       (channel, purpose, recipient_reference, provider, provider_message_id, status, metadata)
      VALUES ('internal', 'handyman_join_request', $1, 'taskbridge', $2, 'queued', $3)`,
-    [data.email.toLowerCase(), created.rows[0].id, { services: data.services, postcode: data.postcode.toUpperCase() }]
+    [data.email.toLowerCase(), created.rows[0].id, { services: data.services, postcode: data.postcode.toUpperCase(), dbsRoute }]
   );
   res.status(201).json({ status: "received", requestId: created.rows[0].id });
 }));

@@ -641,18 +641,21 @@ adminRouter.get("/traders", async (_req, res) => {
   const result = await query<{
     id: string; display_name: string; email: string | null; network_name: string | null; hourly_rate: string;
     quality_score: string; status: string; dbs_status: string; dbs_expiry_date: string | null;
+    dbs_outcome: string | null; dbs_route: string | null; update_service_status: string | null;
     insurance_status: string; insurance_expiry_date: string | null; services: string[];
     onboarding_status: string | null; invitation_expires_at: string | null; email_delivery_status: string | null;
   }>(
     `SELECT t.id::text, t.display_name, t.email::text, n.name AS network_name, t.hourly_rate::text, t.quality_score::text,
             t.status::text, COALESCE(d.status::text, 'not_started') AS dbs_status, d.expiry_date::text AS dbs_expiry_date,
+            d.outcome AS dbs_outcome, d.verification_route AS dbs_route, d.update_service_status,
             COALESCE(i.status::text, 'unverified') AS insurance_status, i.expiry_date::text AS insurance_expiry_date,
             COALESCE(s.services, '{}') AS services, invite.status AS onboarding_status,
             invite.expires_at::text AS invitation_expires_at, invite.email_delivery_status
      FROM trader.traders t
      LEFT JOIN trader.networks n ON n.id = t.network_id
      LEFT JOIN LATERAL (
-       SELECT status, expiry_date FROM trader.dbs_verifications dv WHERE dv.trader_id = t.id ORDER BY dv.created_at DESC LIMIT 1
+       SELECT status, expiry_date, outcome, verification_route, update_service_status
+       FROM trader.dbs_verifications dv WHERE dv.trader_id = t.id ORDER BY dv.created_at DESC LIMIT 1
      ) d ON true
      LEFT JOIN LATERAL (
        SELECT status, expiry_date FROM trader.insurance_records ir WHERE ir.trader_id = t.id ORDER BY ir.created_at DESC LIMIT 1
@@ -677,6 +680,9 @@ adminRouter.get("/traders", async (_req, res) => {
     status: row.status,
     dbsStatus: row.dbs_status,
     dbsExpiryDate: row.dbs_expiry_date,
+    dbsOutcome: row.dbs_outcome,
+    dbsRoute: row.dbs_route,
+    updateServiceStatus: row.update_service_status,
     insuranceStatus: row.insurance_status,
     insuranceExpiryDate: row.insurance_expiry_date,
     onboardingStatus: row.onboarding_status || "not_invited",
@@ -1065,8 +1071,9 @@ adminRouter.post("/traders/:id/dbs-check", async (req, res) => {
   });
   await query(
     `INSERT INTO trader.dbs_verifications
-       (trader_id, provider_session_id, status, provider_name, provider_invitation_url, provider_payload, evidence_reference)
-     VALUES ($1, $2, $3, $4, $5, $6, $5)`,
+       (trader_id, provider_session_id, status, provider_name, provider_invitation_url, provider_payload,
+        evidence_reference, verification_route, enhanced_dbs_eligible, workforce_type)
+     VALUES ($1, $2, $3, $4, $5, $6, $5, 'umbrella_application_required', true, 'adult')`,
     [trader.rows[0].id, provider.providerSessionId, provider.status, provider.provider, provider.invitationUrl, provider.raw]
   );
   await audit(req, "admin.dbs.started", "trader", trader.rows[0].id, {
@@ -1087,8 +1094,10 @@ adminRouter.post("/traders/:id/dbs-review", requireRoles("taskbridge_super_admin
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid DBS review" });
   const result = await query<{ id: string }>(
     `INSERT INTO trader.dbs_verifications
-      (trader_id, status, outcome, expiry_date, evidence_reference, checked_at)
-     SELECT id, $2, $3, $4, $5, clock_timestamp() FROM trader.traders
+      (trader_id, status, outcome, expiry_date, evidence_reference, checked_at, verification_route, enhanced_dbs_eligible, workforce_type, update_service_status)
+     SELECT id, $2, $3, $4, $5, clock_timestamp(), 'manual_review', true, 'adult',
+            CASE WHEN $2 = 'approved' THEN 'active_confirmed' ELSE 'not_checked' END
+     FROM trader.traders
      WHERE id = $1 AND deleted_at IS NULL RETURNING id::text`,
     [req.params.id, parsed.data.status, parsed.data.reason, parsed.data.expiryDate || null, parsed.data.evidenceReference || null]
   );

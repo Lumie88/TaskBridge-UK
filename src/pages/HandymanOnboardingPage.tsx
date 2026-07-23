@@ -13,6 +13,7 @@ import { api, formatDate } from "../api";
 import { Brand } from "../components";
 
 type RequiredDocumentType = "identity" | "public_liability_insurance" | "enhanced_dbs";
+type DbsRoute = "already_enhanced" | "needs_application" | "basic_or_not_sure";
 
 interface InvitationData {
   handyman: { fullName: string; email: string };
@@ -42,6 +43,7 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
     public_liability_insurance: null,
     enhanced_dbs: null
   });
+  const [dbsRoute, setDbsRoute] = useState<DbsRoute>("already_enhanced");
   const [qualificationFile, setQualificationFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -80,8 +82,12 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    if (!files.identity || !files.public_liability_insurance || !files.enhanced_dbs) {
-      setError("Identity, insurance and Enhanced DBS documents are required");
+    if (!files.identity || !files.public_liability_insurance) {
+      setError("Identity and insurance documents are required");
+      return;
+    }
+    if (dbsRoute === "already_enhanced" && !files.enhanced_dbs) {
+      setError("Upload your Enhanced DBS certificate for admin verification, or choose the application route");
       return;
     }
     if (!services.length) {
@@ -95,13 +101,15 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
       const identity = await uploadDocument("identity", files.identity);
       setProgress("Uploading insurance evidence...");
       const insurance = await uploadDocument("public_liability_insurance", files.public_liability_insurance);
-      setProgress("Uploading Enhanced DBS evidence...");
-      const dbs = await uploadDocument("enhanced_dbs", files.enhanced_dbs);
       const documents: UploadedDocument[] = [
         identity,
-        { ...insurance, reference: String(values.get("insuranceReference")), expiryDate: String(values.get("insuranceExpiry")) },
-        { ...dbs, reference: String(values.get("dbsReference")), issueDate: String(values.get("dbsIssueDate")) }
+        { ...insurance, reference: String(values.get("insuranceReference")), expiryDate: String(values.get("insuranceExpiry")) }
       ];
+      if (dbsRoute === "already_enhanced" && files.enhanced_dbs) {
+        setProgress("Uploading Enhanced DBS evidence...");
+        const dbs = await uploadDocument("enhanced_dbs", files.enhanced_dbs);
+        documents.push({ ...dbs, reference: String(values.get("dbsReference")), issueDate: String(values.get("dbsIssueDate")) });
+      }
       if (qualificationFile) {
         setProgress("Uploading qualification evidence...");
         const qualification = await uploadDocument("qualification", qualificationFile);
@@ -126,8 +134,12 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
             expiryDate: values.get("insuranceExpiry")
           },
           dbs: {
-            certificateReference: values.get("dbsReference"),
-            issueDate: values.get("dbsIssueDate")
+            route: dbsRoute,
+            certificateReference: values.get("dbsReference") || "",
+            issueDate: values.get("dbsIssueDate") || null,
+            workforceType: values.get("dbsWorkforceType") || "unknown",
+            updateServiceConsent: values.get("updateServiceConsent") === "on",
+            applicationRequested: dbsRoute === "needs_application"
           },
           documents,
           safeguardingDeclaration: values.get("safeguardingDeclaration") === "on",
@@ -170,7 +182,18 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
                   <div className="onboarding-section-title"><span><FileCheck2 size={20} /></span><div><h2>Compliance evidence</h2><p>PDF, JPEG or PNG. Maximum 15 MB per document.</p></div></div>
                   <DocumentField label="Proof of identity" detail="Passport or driving licence" required onFile={(file) => setFiles((current) => ({ ...current, identity: file }))} />
                   <div className="document-block"><DocumentField label="Public liability insurance certificate" detail="Current insurance evidence" required onFile={(file) => setFiles((current) => ({ ...current, public_liability_insurance: file }))} /><div className="field-row"><label>Insurance provider<input required name="insuranceProvider" /></label><label>Policy reference<input required name="insuranceReference" /></label></div><label>Insurance expiry date<input required name="insuranceExpiry" type="date" /></label></div>
-                  <div className="document-block"><DocumentField label="Enhanced DBS certificate" detail="Certificate evidence for safeguarded work" required onFile={(file) => setFiles((current) => ({ ...current, enhanced_dbs: file }))} /><div className="field-row"><label>Certificate reference<input required name="dbsReference" /></label><label>Certificate issue date<input required name="dbsIssueDate" type="date" /></label></div></div>
+                  <div className="document-block">
+                    <fieldset><legend>Enhanced DBS route</legend><div className="service-choice-grid">
+                      <label className="service-choice"><input type="radio" name="dbsRouteChoice" checked={dbsRoute === "already_enhanced"} onChange={() => setDbsRoute("already_enhanced")} /><span>I already have an Enhanced DBS certificate</span></label>
+                      <label className="service-choice"><input type="radio" name="dbsRouteChoice" checked={dbsRoute === "needs_application"} onChange={() => setDbsRoute("needs_application")} /><span>I need TaskBridge to route me to a DBS umbrella application</span></label>
+                      <label className="service-choice"><input type="radio" name="dbsRouteChoice" checked={dbsRoute === "basic_or_not_sure"} onChange={() => setDbsRoute("basic_or_not_sure")} /><span>I only have Basic DBS, no DBS, or I am not sure</span></label>
+                    </div></fieldset>
+                    {dbsRoute === "already_enhanced" ? <>
+                      <DocumentField label="Enhanced DBS certificate" detail="Certificate evidence for safeguarded work" required onFile={(file) => setFiles((current) => ({ ...current, enhanced_dbs: file }))} />
+                      <div className="field-row"><label>Certificate reference<input required name="dbsReference" /></label><label>Certificate issue date<input required name="dbsIssueDate" type="date" /></label></div>
+                      <div className="field-row"><label>Workforce type<select name="dbsWorkforceType" defaultValue="adult"><option value="adult">Adult workforce</option><option value="child">Child workforce</option><option value="adult_and_child">Adult and child workforce</option><option value="unknown">Not sure</option></select></label><label className="toggle-row compact-toggle"><input name="updateServiceConsent" type="checkbox" /><span><strong>Update Service consent</strong><small>I consent to TaskBridge checking my DBS Update Service status.</small></span></label></div>
+                    </> : <div className="onboarding-advisory"><strong>{dbsRoute === "needs_application" ? "Application route requested" : "Limited access route"}</strong><p>{dbsRoute === "needs_application" ? "TaskBridge admin will review whether the proposed work is eligible for Enhanced DBS and route you to an approved umbrella process where appropriate. You cannot do unsupervised vulnerable-adult work until the certificate is verified." : "You may be considered only for non-vulnerable or supervised tasks. Vulnerable-adult work remains blocked until Enhanced DBS evidence is verified."}</p></div>}
+                  </div>
                   <div className="document-block optional-document"><DocumentField label="Trade qualification" detail="Optional role-specific certificate" onFile={setQualificationFile} /><div className="field-row"><label>Qualification title<input name="qualificationTitle" disabled={!qualificationFile} /></label><label>Expiry date<input name="qualificationExpiry" type="date" disabled={!qualificationFile} /></label></div></div>
                 </section>
 

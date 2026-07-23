@@ -61,13 +61,29 @@ const completionSchema = z.object({
     expiryDate: z.string().date()
   }),
   dbs: z.object({
-    certificateReference: z.string().trim().min(2).max(160),
-    issueDate: z.string().date()
+    route: z.enum(["already_enhanced", "needs_application", "basic_or_not_sure"]),
+    certificateReference: z.string().trim().max(160).optional().default(""),
+    issueDate: z.string().date().optional().nullable(),
+    workforceType: z.enum(["adult", "child", "adult_and_child", "unknown"]).default("unknown"),
+    updateServiceConsent: z.boolean().default(false),
+    applicationRequested: z.boolean().default(false)
   }),
-  documents: z.array(submittedDocumentSchema).min(3).max(8),
+  documents: z.array(submittedDocumentSchema).min(2).max(8),
   safeguardingDeclaration: z.literal(true),
   dataAccuracyConfirmation: z.literal(true),
   privacyNoticeAccepted: z.literal(true)
+}).superRefine((data, ctx) => {
+  if (data.dbs.route === "already_enhanced") {
+    if (!data.dbs.certificateReference || data.dbs.certificateReference.length < 2) {
+      ctx.addIssue({ code: "custom", path: ["dbs", "certificateReference"], message: "Enter the Enhanced DBS certificate reference" });
+    }
+    if (!data.dbs.issueDate) {
+      ctx.addIssue({ code: "custom", path: ["dbs", "issueDate"], message: "Enter the Enhanced DBS issue date" });
+    }
+    if (!data.documents.some((document) => document.documentType === "enhanced_dbs")) {
+      ctx.addIssue({ code: "custom", path: ["documents"], message: "Upload the Enhanced DBS certificate evidence" });
+    }
+  }
 });
 
 interface InvitationAccessRow {
@@ -122,14 +138,14 @@ handymanOnboardingRouter.post("/:token/complete", asyncHandler(async (req, res) 
   const parsed = completionSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid registration details" });
   const data = parsed.data;
-  const requiredTypes = ["identity", "public_liability_insurance", "enhanced_dbs"];
+  const requiredTypes = ["identity", "public_liability_insurance"];
   if (requiredTypes.some((type) => data.documents.filter((document) => document.documentType === type).length !== 1)) {
-    return res.status(422).json({ error: "Identity, insurance and Enhanced DBS documents are required" });
+    return res.status(422).json({ error: "Identity and insurance documents are required" });
   }
   if (new Date(`${data.insurance.expiryDate}T23:59:59Z`) <= new Date()) {
     return res.status(422).json({ error: "Public liability insurance must be current" });
   }
-  if (new Date(`${data.dbs.issueDate}T00:00:00Z`) > new Date()) {
+  if (data.dbs.issueDate && new Date(`${data.dbs.issueDate}T00:00:00Z`) > new Date()) {
     return res.status(422).json({ error: "Enhanced DBS issue date cannot be in the future" });
   }
   const access = await activeInvitation(req.params.token);
@@ -195,11 +211,29 @@ handymanOnboardingRouter.post("/:token/complete", asyncHandler(async (req, res) 
         );
       }
     }
+    const enhancedDbsDocumentId = documentIds.get("enhanced_dbs");
     await client.query(
-      `INSERT INTO trader.dbs_verifications (trader_id, status, outcome, evidence_reference)
-       VALUES ($1, 'pending', $2, $3)`,
-      [invitation.trader_id, `Self-submitted Enhanced DBS certificate issued ${data.dbs.issueDate}; pending TaskBridge verification`,
-        `onboarding-document:${documentIds.get("enhanced_dbs")}`]
+      `INSERT INTO trader.dbs_verifications
+        (trader_id, status, outcome, evidence_reference, provider_name, provider_payload,
+         verification_route, enhanced_dbs_eligible, workforce_type, update_service_consent, update_service_status)
+       VALUES ($1, 'pending', $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        invitation.trader_id,
+        dbsOutcome(data.dbs.route, data.dbs.issueDate || null, data.dbs.updateServiceConsent),
+        enhancedDbsDocumentId ? `onboarding-document:${enhancedDbsDocumentId}` : null,
+        data.dbs.route === "needs_application" ? "dbs_umbrella_route" : "manual",
+        {
+          certificateReferenceSupplied: Boolean(data.dbs.certificateReference),
+          applicationRequested: data.dbs.applicationRequested,
+          route: data.dbs.route
+        },
+        data.dbs.route === "already_enhanced" ? "self_submitted_certificate"
+          : data.dbs.route === "needs_application" ? "umbrella_application_required" : "basic_or_not_sure",
+        data.dbs.route !== "basic_or_not_sure",
+        data.dbs.workforceType,
+        data.dbs.updateServiceConsent,
+        data.dbs.updateServiceConsent ? "consented_pending_check" : "not_checked"
+      ]
     );
     const insuranceDocument = data.documents.find((document) => document.documentType === "public_liability_insurance")!;
     await client.query(
@@ -227,6 +261,16 @@ handymanOnboardingRouter.post("/:token/complete", asyncHandler(async (req, res) 
   await audit(req, "handyman.onboarding.submitted", "trader", result.traderId);
   res.status(201).json({ status: "submitted", message: "Registration submitted for TaskBridge compliance review" });
 }));
+
+function dbsOutcome(route: "already_enhanced" | "needs_application" | "basic_or_not_sure", issueDate: string | null, updateServiceConsent: boolean) {
+  if (route === "already_enhanced") {
+    return `Self-submitted Enhanced DBS certificate${issueDate ? ` issued ${issueDate}` : ""}; pending TaskBridge certificate and Update Service verification${updateServiceConsent ? "" : " (Update Service consent not supplied)"}`;
+  }
+  if (route === "needs_application") {
+    return "Enhanced DBS application route requested. Admin must route to an eligible DBS umbrella body before vulnerable-adult approval.";
+  }
+  return "Basic DBS, no DBS, or unclear DBS position declared. Restrict to non-vulnerable or supervised work until admin review.";
+}
 
 async function findInvitation(token: string) {
   const result = await query<InvitationAccessRow>(
