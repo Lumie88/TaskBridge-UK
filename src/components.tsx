@@ -20,11 +20,17 @@ import { api } from "./api";
 export function TaskBridgeMark({ size = 22 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-      <path d="M16 3.7 25 7.3v7.2c0 6.4-3.7 11.3-9 14-5.3-2.7-9-7.6-9-14V7.3l9-3.6Z" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinejoin="round" />
-      <path d="M9.7 19.1c2.5-3.7 10.1-3.7 12.6 0" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" />
-      <path d="M11.4 21.8h9.2" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" />
-      <path d="M15.7 15.5c.4-3.1 2.3-5.1 5.8-5.8-.6 3.6-2.5 5.4-5.8 5.8Z" fill="none" stroke="currentColor" strokeWidth="2.05" strokeLinejoin="round" />
-      <path d="M12.1 14.2c1.1.7 2.4 1.4 3.7 1.3" fill="none" stroke="currentColor" strokeWidth="2.05" strokeLinecap="round" />
+      <defs>
+        <linearGradient id="markCheck" x1="10" y1="21" x2="23" y2="12" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FF315F" />
+          <stop offset="1" stopColor="#FF8A2A" />
+        </linearGradient>
+      </defs>
+      <path d="M16 3.7c-3.3 3.7-8.6 7.6-8.6 14 0 6.1 3.9 10.6 8.6 10.6s8.6-4.5 8.6-10.6c0-6.4-5.3-10.3-8.6-14Z" fill="none" stroke="currentColor" strokeWidth="2.15" strokeLinejoin="round" />
+      <path d="M10.2 18.1c0-4.1 2.6-6.2 5.8-8.8 3.2 2.6 5.8 4.7 5.8 8.8 0 4.4-2.4 7.5-5.8 7.5s-5.8-3.1-5.8-7.5Z" fill="#CFEF8A" opacity=".74" />
+      <path d="M15.9 12.1v10.5M12.1 15.1c1.8 1.4 3 3.1 3.8 5.1M19.9 15.1c-1.8 1.4-3 3.1-3.8 5.1M11.8 19.4h8.4" fill="none" stroke="#0F8F73" strokeWidth="1.18" strokeLinecap="round" opacity=".62" />
+      <path d="m10.9 18.4 3.7 3.8 7.5-9.2" fill="none" stroke="white" strokeWidth="3.45" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="m10.9 18.4 3.7 3.8 7.5-9.2" fill="none" stroke="url(#markCheck)" strokeWidth="2.35" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
