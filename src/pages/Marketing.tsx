@@ -976,13 +976,12 @@ function Footer() {
     </div>
 
     <div className="site-width footer-bottom">
-      <div><p>(c) 2026 Growing Fig Technologies LTD. All rights reserved.</p><small>TaskBridge by Growing Fig is a HealthTech and care operations platform. Enhanced DBS validation supports vulnerable-adult safeguarding controls.</small></div>
+      <div><p>(c) 2026 Growing Fig Technologies LTD. All rights reserved.</p><small>TaskBridge by Growing Fig is a HealthTech and care operations platform. Enhanced DBS validation supports vulnerable-adult safeguarding controls.</small><small className="footer-company-number">Company number 17364252</small></div>
       <nav aria-label="Security and legal">
         <a href="/how-it-works#security">Security standards</a>
         <a href="/safeguarding-policy">Safeguarding policy</a>
         <a href="/gdpr-policy">GDPR policy</a>
         <a href="/cookie-policy">Cookie policy</a>
-        <span className="footer-company-number">Company number 17364252</span>
       </nav>
     </div>
   </footer>;

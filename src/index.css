@@ -335,6 +335,7 @@ p { line-height: 1.65; }
 .footer-bottom nav a:first-child { padding-left: 0; }
 .footer-bottom nav a:last-child { border-right: 0; }
 .footer-bottom nav a:hover { color: white; }
+.footer-company-number { margin-top: 7px; color: #6f8bb6; font-weight: 750; }
 
 .page-hero { padding: 48px 0 64px; background: #0f172a; border-bottom: 1px solid #1e293b; }
 .guideline-main > section:first-child { padding-top: 48px !important; }
