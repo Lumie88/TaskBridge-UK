@@ -19,6 +19,8 @@ if (isProduction) {
   }
   await runDatabaseMigrations(pool);
   const clientRoot = path.join(root, "client");
+  const publicRoot = path.join(process.cwd(), "web-public");
+  app.use(express.static(publicRoot, { maxAge: "1h", index: false }));
   app.use(express.static(clientRoot, { maxAge: "1h", index: false }));
   app.get("*", (_req, res) => res.sendFile(path.join(clientRoot, "index.html")));
 } else {
