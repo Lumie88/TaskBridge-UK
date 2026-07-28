@@ -17,6 +17,13 @@ const brandSvgAssets: Record<string, string> = {
 const app = createApp();
 const root = path.dirname(fileURLToPath(import.meta.url));
 
+for (const [route, svg] of Object.entries(brandSvgAssets)) {
+  app.get(route, (_req, res) => {
+    res.type("image/svg+xml").setHeader("Cache-Control", "public, max-age=3600");
+    res.send(svg);
+  });
+}
+
 if (isProduction) {
   const missing = productionConfigErrors();
   if (missing.length) {
@@ -26,12 +33,6 @@ if (isProduction) {
   await runDatabaseMigrations(pool);
   const clientRoot = path.join(root, "client");
   const publicRoot = path.join(process.cwd(), "web-public");
-  for (const [route, svg] of Object.entries(brandSvgAssets)) {
-    app.get(route, (_req, res) => {
-      res.type("image/svg+xml").setHeader("Cache-Control", "public, max-age=3600");
-      res.send(svg);
-    });
-  }
   app.use(express.static(publicRoot, { maxAge: "1h", index: false }));
   app.use(express.static(clientRoot, { maxAge: "1h", index: false }));
   app.get("*", (_req, res) => res.sendFile(path.join(clientRoot, "index.html")));
