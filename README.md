@@ -77,6 +77,51 @@ OBJECT_STORAGE_PUBLIC_BASE_URL=
 
 Use a private write policy and a controlled read/CDN URL. Upload links expire after five minutes and accept only JPEG, PNG, or WebP files up to 10 MB.
 
+## Production provider integrations
+
+### DDC DBS checks
+
+Set `DBS_PROVIDER_KIND=ddc` and add the DDC sandbox or production values supplied by Due Diligence Checking:
+
+```text
+DDC_API_BASE_URL=
+DDC_API_TOKEN=
+DDC_APPLICATION_PATH=/api/applications
+DDC_ACCOUNT_CODE=
+DDC_LOCATION_CODE=
+DDC_BASIC_PACKAGE_CODE=basic_dbs
+DDC_ENHANCED_PACKAGE_CODE=enhanced_dbs
+DBS_PROVIDER_WEBHOOK_SECRET=
+```
+
+TaskBridge sends DBS application requests to the configured DDC path and accepts provider results at `/api/webhooks/ddc-callback`. Enhanced DBS must still be used only where the role is legally eligible; ordinary handyman work should use the Basic DBS/supervised-visit route.
+
+### Twilio SMS
+
+Set:
+
+```text
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_FROM_NUMBER=
+TWILIO_STATUS_CALLBACK_URL=
+```
+
+TaskBridge uses Twilio Programmable Messaging to send secure visit links to handymen. If Twilio variables are not configured, SMS delivery records are marked `not_configured` instead of crashing the dispatch flow.
+
+### Zoho Mail
+
+Set `EMAIL_PROVIDER_KIND=zoho` and add:
+
+```text
+EMAIL_FROM_ADDRESS=TaskBridge Onboarding <integrations@growingfig.com>
+ZOHO_MAIL_API_BASE_URL=https://mail.zoho.com
+ZOHO_MAIL_ACCOUNT_ID=
+ZOHO_MAIL_OAUTH_TOKEN=
+```
+
+Zoho is used for demo receipts, care-agency staff invitations and handyman onboarding invitations.
+
 ## Verification
 
 ```bash

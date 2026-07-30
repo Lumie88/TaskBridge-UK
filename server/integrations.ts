@@ -84,6 +84,10 @@ function pickProviderSessionId(payload: JsonRecord) {
     "providerSessionId",
     "sessionId",
     "session_id",
+    "applicationId",
+    "application_id",
+    "applicantReference",
+    "applicant_reference",
     "id",
     "data.id",
     "data.session_id",
@@ -158,12 +162,48 @@ export function normalizeDbsProviderCallback(body: JsonRecord): NormalizedDbsCal
 function normalizeDbsSessionResponse(provider: string, payload: JsonRecord): DbsProviderSession {
   return {
     provider,
-    providerSessionId: pickProviderSessionId(payload),
+    providerSessionId: pickProviderSessionId(payload) || asString(readPath(payload, [
+      "applicationId",
+      "application_id",
+      "applicantReference",
+      "applicant_reference",
+      "data.applicationId",
+      "data.application_id",
+      "data.application.id",
+      "application.id",
+      "result.application_id"
+    ])),
     status: normaliseStatus(readPath(payload, ["status", "data.status", "session.status"])) === "unclear"
       ? "pending"
       : normaliseStatus(readPath(payload, ["status", "data.status", "session.status"])),
     invitationUrl: pickInvitationUrl(payload),
     raw: payload
+  };
+}
+
+function ddcApplicationPayload(input: StartDbsVerificationInput) {
+  const packageCode = input.checkType === "enhanced_dbs"
+    ? config.ddcEnhancedPackageCode
+    : config.ddcBasicPackageCode;
+  return {
+    applicantReference: `taskbridge-${input.handymanId}`,
+    accountCode: config.ddcAccountCode || undefined,
+    locationCode: config.ddcLocationCode || undefined,
+    packageCode,
+    checkType: input.checkType,
+    applicant: {
+      externalId: input.handymanId,
+      fullName: input.fullName,
+      email: input.email || undefined,
+      mobile: input.mobile || undefined
+    },
+    webhookUrl: input.callbackUrl,
+    callbackUrl: input.callbackUrl,
+    metadata: {
+      taskbridgeHandymanId: input.handymanId,
+      provider: "ddc",
+      requestedCheck: input.checkType
+    }
   };
 }
 
@@ -204,6 +244,19 @@ export async function startDbsVerification(input: StartDbsVerificationInput): Pr
     });
     const session = normalizeDbsSessionResponse("amiqus", response);
     if (!session.providerSessionId) throw new Error("Amiqus did not return a session identifier");
+    return session;
+  }
+
+  if (provider === "ddc") {
+    if (!config.ddcApiBaseUrl || !config.ddcApiToken) throw new Error("DDC API base URL and token are not configured");
+    const baseUrl = config.ddcApiBaseUrl.replace(/\/$/, "");
+    const path = config.ddcApplicationPath.startsWith("/") ? config.ddcApplicationPath : `/${config.ddcApplicationPath}`;
+    const response = await providerPost(`${baseUrl}${path}`, config.ddcApiToken, ddcApplicationPayload(input), {
+      authorization: `Bearer ${config.ddcApiToken}`,
+      "idempotency-key": `taskbridge-ddc-${input.handymanId}-${input.checkType}`
+    });
+    const session = normalizeDbsSessionResponse("ddc", response);
+    if (!session.providerSessionId) throw new Error("DDC did not return an application/session identifier");
     return session;
   }
 
@@ -264,7 +317,8 @@ export async function sendSecureVisitLink(payload: JsonRecord) {
       body: new URLSearchParams({
         From: config.twilioFromNumber,
         To: mobile,
-        Body: `TaskBridge visit assigned. Use this secure one-use link to check in, upload evidence and check out: ${visitUrl}`
+        Body: `TaskBridge visit assigned. Use this secure one-use link to check in, upload evidence and check out: ${visitUrl}`,
+        ...(config.twilioStatusCallbackUrl ? { StatusCallback: config.twilioStatusCallbackUrl } : {})
       }),
       signal: AbortSignal.timeout(15_000)
     });
@@ -286,44 +340,64 @@ function escapeHtml(value: string) {
   })[character]!);
 }
 
+function emailAddressFromHeader(value: string) {
+  const match = value.match(/<([^>]+)>/);
+  return (match?.[1] || value).trim();
+}
+
 export async function sendHandymanOnboardingInvite(input: {
   email: string;
   fullName: string;
   invitationUrl: string;
   expiresAt: string;
 }) {
-  if (!config.emailProviderApiKey || !config.emailFromAddress) {
-    return { status: "not_configured" as const, providerMessageId: null };
-  }
   const safeName = escapeHtml(input.fullName);
   const safeUrl = escapeHtml(input.invitationUrl);
   const expiry = new Intl.DateTimeFormat("en-GB", { dateStyle: "long", timeStyle: "short", timeZone: "Europe/London" })
     .format(new Date(input.expiresAt));
-  try {
-    const response = await fetch(config.emailProviderApiUrl, {
-      method: "POST",
-      headers: {
-        "authorization": `Bearer ${config.emailProviderApiKey}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        from: config.emailFromAddress,
-        to: [input.email],
-        subject: "Complete your TaskBridge handyman registration",
-        text: `Hello ${input.fullName},\n\nTaskBridge has invited you to complete secure handyman registration. Open this one-use link before ${expiry}:\n${input.invitationUrl}\n\nYou will need proof of identity, public liability insurance and any DBS evidence you already hold. Enhanced DBS is reviewed only where the role is legally eligible.`,
-        html: `<p>Hello ${safeName},</p><p>TaskBridge has invited you to complete secure handyman registration.</p><p><a href="${safeUrl}">Complete your registration</a></p><p>This one-use link expires on ${escapeHtml(expiry)}. You will need proof of identity, public liability insurance and any DBS evidence you already hold. Enhanced DBS is reviewed only where the role is legally eligible.</p>`
-      }),
-      signal: AbortSignal.timeout(15_000)
-    });
-    if (!response.ok) return { status: "failed" as const, providerMessageId: null };
-    const payload = await response.json().catch(() => ({})) as { id?: string };
-    return { status: "sent" as const, providerMessageId: payload.id || null };
-  } catch {
-    return { status: "failed" as const, providerMessageId: null };
-  }
+  return sendEmail({
+    to: input.email,
+    subject: "Complete your TaskBridge handyman registration",
+    text: `Hello ${input.fullName},\n\nTaskBridge has invited you to complete secure handyman registration. Open this one-use link before ${expiry}:\n${input.invitationUrl}\n\nYou will need proof of identity, public liability insurance and any DBS evidence you already hold. Enhanced DBS is reviewed only where the role is legally eligible.`,
+    html: `<p>Hello ${safeName},</p><p>TaskBridge has invited you to complete secure handyman registration.</p><p><a href="${safeUrl}">Complete your registration</a></p><p>This one-use link expires on ${escapeHtml(expiry)}. You will need proof of identity, public liability insurance and any DBS evidence you already hold. Enhanced DBS is reviewed only where the role is legally eligible.</p>`
+  });
 }
 
 async function sendEmail(input: { to: string; subject: string; text: string; html: string }) {
+  const provider = config.emailProviderKind.toLowerCase();
+  if (provider === "zoho") {
+    if (!config.zohoMailAccountId || !config.zohoMailOAuthToken || !config.emailFromAddress) {
+      return { status: "not_configured" as const, providerMessageId: null };
+    }
+    try {
+      const baseUrl = config.zohoMailApiBaseUrl.replace(/\/$/, "");
+      const response = await fetch(`${baseUrl}/api/accounts/${encodeURIComponent(config.zohoMailAccountId)}/messages`, {
+        method: "POST",
+        headers: {
+          "accept": "application/json",
+          "authorization": `Zoho-oauthtoken ${config.zohoMailOAuthToken}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          fromAddress: emailAddressFromHeader(config.emailFromAddress),
+          toAddress: input.to,
+          subject: input.subject,
+          content: input.html,
+          mailFormat: "html",
+          askReceipt: "no",
+          encoding: "UTF-8"
+        }),
+        signal: AbortSignal.timeout(15_000)
+      });
+      if (!response.ok) return { status: "failed" as const, providerMessageId: null };
+      const payload = await response.json().catch(() => ({})) as JsonRecord;
+      const providerMessageId = asString(readPath(payload, ["data.messageId", "data.message_id", "messageId", "message_id", "id"])) || null;
+      return { status: "sent" as const, providerMessageId };
+    } catch {
+      return { status: "failed" as const, providerMessageId: null };
+    }
+  }
+
   if (!config.emailProviderApiKey || !config.emailFromAddress) {
     return { status: "not_configured" as const, providerMessageId: null };
   }

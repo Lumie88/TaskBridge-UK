@@ -344,7 +344,7 @@ async function logCarePlatformFailure(
 
 async function handleDbsCallback(req: Request, res: Response) {
   if (!config.dbsWebhookSecret) return res.status(503).json({ error: "DBS webhook secret is not configured" });
-  const signature = req.get("x-taskbridge-signature") || req.get("x-amiqus-signature") || req.get("x-signature") || "";
+  const signature = req.get("x-taskbridge-signature") || req.get("x-ddc-signature") || req.get("x-amiqus-signature") || req.get("x-signature") || "";
   const expected = createHmac("sha256", config.dbsWebhookSecret).update(req.rawBody || Buffer.alloc(0)).digest("hex");
   const validSignature = signature.length === expected.length
     && timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
@@ -392,4 +392,5 @@ async function handleDbsCallback(req: Request, res: Response) {
 }
 
 webhookRouter.post("/dbs-callback", handleDbsCallback);
+webhookRouter.post("/ddc-callback", handleDbsCallback);
 webhookRouter.post("/amiqus-callback", handleDbsCallback);

@@ -34,3 +34,19 @@ test("normalises failed DBS provider callback into rejected status", () => {
   assert.equal(result?.evidenceReference, "case-456");
   assert.equal(result?.expiryDate, null);
 });
+
+test("normalises DDC application callback into an approved DBS result", () => {
+  const result = normalizeDbsProviderCallback({
+    event_type: "application.complete",
+    application_id: "ddc_app_789",
+    result: "clear",
+    certificate_reference: "DDC-CERT-789",
+    expiry_date: "2027-07-31"
+  });
+
+  assert.equal(result?.providerSessionId, "ddc_app_789");
+  assert.equal(result?.status, "approved");
+  assert.equal(result?.eventType, "application.complete");
+  assert.equal(result?.evidenceReference, "DDC-CERT-789");
+  assert.equal(result?.expiryDate, "2027-07-31");
+});

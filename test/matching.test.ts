@@ -16,6 +16,7 @@ const eligibleTrader: MatchableTrader = {
   services: ["Garden Path Clearing"],
   dbsStatus: "approved",
   dbsExpiryDate: "2030-01-01",
+  enhancedDbsEligible: true,
   insuranceStatus: "verified",
   insuranceExpiryDate: "2030-01-01",
   latitude: 51.52,
@@ -34,7 +35,7 @@ test("eligible vulnerable-adult work requires every safeguarding control", () =>
 test("a carer being present cannot make pending DBS eligible", () => {
   const result = evaluateTrader(task, { ...eligibleTrader, dbsStatus: "pending" }, new Date("2026-06-23T12:00:00Z"));
   assert.equal(result.eligible, false);
-  assert.match(result.reasons.join(" "), /Enhanced DBS/);
+  assert.match(result.reasons.join(" "), /Active DBS/);
 });
 
 test("expired insurance blocks all assignments", () => {
