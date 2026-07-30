@@ -9,7 +9,7 @@ TaskBridge turns care notes into approved home-safety tasks, applies safeguardin
 - Modern React/Vite public website, care coordinator portal, isolated admin portal, and mobile visit workflow.
 - PostgreSQL as the system of record with `auth`, `tenant`, `care`, `trader`, `ops`, `integration`, `audit`, and `billing` schemas.
 - Care-team approval before assignment; multi-task extraction from a single note.
-- Strict Enhanced DBS, insurance, service, distance, and availability checks.
+- Strict DBS route, insurance, service, supervision, distance, and availability checks.
 - Opaque database-backed sessions, role middleware, encrypted resident fields, hashed visit/API tokens, and audit logs.
 - Provider-neutral adapters for care applications, DBS verification, handyman networks, SMS, task planning, and S3-compatible photo storage.
 

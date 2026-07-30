@@ -158,7 +158,7 @@ function MarketingHome({ navigate }) {
             </div>
           </div>
           <div className="mt-14 grid max-w-4xl gap-3 sm:grid-cols-3">
-            <HeroFact value="DBS" label="Enhanced-check enforcement" />
+            <HeroFact value="DBS" label="Checked and supervised safeguards" />
             <HeroFact value="API" label="Care app and marketplace integrations" />
             <HeroFact value="SMS" label="Tokenized trader visit workflow" />
           </div>
@@ -167,7 +167,7 @@ function MarketingHome({ navigate }) {
       <section className="mx-auto max-w-7xl px-5 py-14">
         <div className="grid gap-8 lg:grid-cols-3">
           <Feature title="Care App Intake" body="Coordinators and field workers can submit hazards directly from the portal or partner webhook." />
-          <Feature title="DBS Lock" body="Tasks involving vulnerable adults are blocked unless a trader has active Enhanced DBS approval." />
+          <Feature title="DBS and supervision lock" body="Tasks involving vulnerable adults are blocked unless DBS, insurance and supervision requirements are satisfied." />
           <Feature title="Tokenized Visits" body="Contractors use SMS links, geofenced check-ins, and photo proof without receiving client contact details." />
         </div>
       </section>
@@ -220,7 +220,7 @@ function HowItWorksPage({ navigate }) {
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-safe">Visual workflow</p>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight">How TaskBridge protects vulnerable residents</h1>
           <p className="mt-4 text-lg leading-8 text-ink/65">
-            The process keeps care teams in control while TaskBridge handles safeguarding, Enhanced DBS checks, private marketplace routing, and proof of completion.
+            The process keeps care teams in control while TaskBridge handles safeguarding checks, DBS route review, private marketplace routing, and proof of completion.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
             <button onClick={() => navigate("demo")} className="rounded bg-ink px-5 py-3 font-semibold text-white">Book a Demo</button>
@@ -242,7 +242,7 @@ function AnimatedExplainer({ large = false }) {
     },
     {
       title: "TaskBridge applies the safeguard",
-      body: "If the resident is vulnerable, TaskBridge applies the digital ring-fence and requires Enhanced DBS approval.",
+      body: "If the service user is vulnerable, TaskBridge applies DBS, insurance and supervised-visit controls before assignment.",
       badge: "SafeGuard"
     },
     {
@@ -563,7 +563,7 @@ function Portal({ state, user, navigate, refresh, setNotice }) {
         await refresh();
       }} approveDbs={async (id) => {
         const result = await api.approveDbs(id, user.user.email);
-        setNotice(result.error || `${result.trader.name} is now Enhanced DBS approved`);
+        setNotice(result.error || `${result.trader.name} is now DBS approved`);
         await refresh();
       }} />}
       {activeView === "clients" && isAdmin && <AgencyOverview state={state} />}
@@ -765,7 +765,7 @@ function Compliance({ traders, runCheck, approveDbs }) {
   return (
     <section>
       <h2 className="text-2xl font-semibold">Trader Compliance Hub</h2>
-      <p className="mb-4 text-sm text-ink/60">Enhanced DBS controls are enforced before vulnerable-adult dispatch.</p>
+      <p className="mb-4 text-sm text-ink/60">DBS and supervision controls are enforced before vulnerable-adult dispatch.</p>
       <div className="overflow-x-auto rounded bg-white ring-1 ring-ink/10">
         <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="bg-ink text-white">
