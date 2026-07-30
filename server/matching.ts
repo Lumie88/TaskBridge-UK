@@ -1,6 +1,7 @@
 export interface MatchableTask {
   category: string;
   vulnerableAdult: boolean;
+  carerOnSite?: boolean;
   latitude: number;
   longitude: number;
   radiusMiles: number;
@@ -13,6 +14,7 @@ export interface MatchableTrader {
   services: string[];
   dbsStatus: string;
   dbsExpiryDate: string | null;
+  enhancedDbsEligible?: boolean;
   insuranceStatus: string;
   insuranceExpiryDate: string | null;
   latitude: number;
@@ -56,8 +58,12 @@ export function evaluateTrader(task: MatchableTask, trader: MatchableTrader, now
   if (trader.insuranceStatus !== "verified" || !dateIsActive(trader.insuranceExpiryDate, now)) {
     reasons.push("Verified insurance is missing or expired");
   }
-  if (task.vulnerableAdult && (trader.dbsStatus !== "approved" || !dateIsActive(trader.dbsExpiryDate, now))) {
-    reasons.push("Active Enhanced DBS approval is required");
+  if (task.vulnerableAdult) {
+    if (trader.dbsStatus !== "approved" || !dateIsActive(trader.dbsExpiryDate, now)) {
+      reasons.push("Active DBS approval is required for vulnerable-adult work");
+    } else if (!task.carerOnSite && !trader.enhancedDbsEligible) {
+      reasons.push("Unsupervised vulnerable-adult visits require verified Enhanced DBS eligibility");
+    }
   }
   if (task.requiresElectricalQualification && !trader.electricalQualificationActive) {
     reasons.push("Approved in-date electrical qualification is required");

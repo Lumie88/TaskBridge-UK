@@ -29,8 +29,8 @@ export const TRUST_CREDENTIALS: TrustCredential[] = [
     badgeText: "Unified Ingress"
   },
   {
-    title: "Enhanced DBS Vetted Handymen",
-    description: "All attending operatives hold clean, up-to-date Enhanced DBS disclosures, checked dynamically.",
+    title: "DBS-checked, insured operatives",
+    description: "Operatives are identity-checked, insured and DBS-reviewed, with supervised-visit controls for vulnerable-adult homes unless Enhanced DBS eligibility is verified.",
     badgeText: "safeguarding first"
   },
   {
@@ -68,7 +68,7 @@ export const SOLUTION_STEPS: SolutionStep[] = [
     number: 3,
     title: "Automated routing to verified traders",
     badge: "Secure Dispatch",
-    description: "TaskBridge broadcasts the sanitized safety task to local Enhanced DBS vetted handymen under strict service SLA.",
+    description: "TaskBridge routes the sanitised safety task to approved local operatives under DBS, insurance, supervision and service-fit controls.",
     caregiverAction: "Trader assigned: Skilled carpenter/handyman accepted path clearance and minor grab-rail installation.",
     middlewareAction: "The operative receives only the approved visit details; resident contact information remains protected.",
     evidenceCapture: "operative ID matched"

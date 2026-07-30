@@ -188,10 +188,11 @@ coordinatorRouter.get("/dashboard", async (req, res) => {
 
 coordinatorRouter.get("/billing/invoices", asyncHandler(async (req, res) => {
   const agencyId = req.auth!.agencyId!;
-  const invoices = await query<{
+  const [invoices, charges, uninvoiced] = await Promise.all([
+    query<{
     id: string; invoice_number: string; period_start: string; period_end: string;
     total_amount: string; currency: string; status: string; issued_at: string | null; paid_at: string | null; line_count: string;
-  }>(
+    }>(
     `SELECT i.id::text, i.invoice_number, i.period_start::text, i.period_end::text,
             i.total_amount::text, i.currency, i.status, i.issued_at::text, i.paid_at::text,
             count(tc.id)::text AS line_count
@@ -201,18 +202,65 @@ coordinatorRouter.get("/billing/invoices", asyncHandler(async (req, res) => {
      GROUP BY i.id
      ORDER BY i.created_at DESC LIMIT 100`,
     [agencyId]
-  );
-  const uninvoiced = await query<{ count: string; total: string }>(
-    `SELECT count(*)::text, COALESCE(sum(total_amount), 0)::text
-     FROM billing.task_charges
-     WHERE agency_id = $1 AND settlement_status = 'not_invoiced'`,
-    [agencyId]
-  );
+    ),
+    query<{
+      id: string; task_public_id: string; category: string; task_status: string; payment_route: string; payment_status: string;
+      handyman_name: string | null; handyman_amount: string; agency_coordination_fee: string; platform_fee: string;
+      total_amount: string; currency: string; status: string; settlement_status: string; settlement_reference: string | null;
+      settlement_due_at: string | null; settlement_notes: string | null; created_at: string;
+    }>(
+      `SELECT tc.id::text, t.public_id AS task_public_id, t.category, t.status::text AS task_status,
+              t.payment_route, t.payment_status, tr.display_name AS handyman_name,
+              tc.handyman_amount::text, tc.agency_coordination_fee::text, tc.platform_fee::text,
+              tc.total_amount::text, tc.currency, tc.status, tc.settlement_status,
+              tc.settlement_reference, tc.settlement_due_at::text, tc.settlement_notes, tc.created_at::text
+       FROM billing.task_charges tc
+       JOIN ops.tasks t ON t.id = tc.task_id
+       LEFT JOIN ops.assignments a ON a.id = tc.assignment_id
+       LEFT JOIN trader.traders tr ON tr.id = a.trader_id
+       WHERE tc.agency_id = $1
+       ORDER BY tc.created_at DESC LIMIT 200`,
+      [agencyId]
+    ),
+    query<{ count: string; total: string }>(
+      `SELECT count(*)::text, COALESCE(sum(total_amount), 0)::text
+       FROM billing.task_charges
+       WHERE agency_id = $1 AND settlement_status = 'not_invoiced'`,
+      [agencyId]
+    )
+  ]);
+  const chargeRows = charges.rows.map((row) => ({
+    id: row.id,
+    taskId: row.task_public_id,
+    category: row.category,
+    taskStatus: row.task_status,
+    paymentRoute: row.payment_route,
+    paymentStatus: row.payment_status,
+    handymanName: row.handyman_name,
+    handymanAmount: Number(row.handyman_amount),
+    agencyCoordinationFee: Number(row.agency_coordination_fee),
+    platformFee: Number(row.platform_fee),
+    totalAmount: Number(row.total_amount),
+    currency: row.currency,
+    status: row.status,
+    settlementStatus: row.settlement_status,
+    settlementReference: row.settlement_reference,
+    settlementDueAt: row.settlement_due_at,
+    settlementNotes: row.settlement_notes,
+    createdAt: row.created_at
+  }));
   res.json({
     pending: {
       count: Number(uninvoiced.rows[0]?.count || 0),
       totalAmount: Number(uninvoiced.rows[0]?.total || 0)
     },
+    summary: {
+      totalCharges: chargeRows.length,
+      invoicedAmount: chargeRows.filter((row) => row.settlementStatus === "invoiced" || row.settlementStatus === "agency_paid").reduce((sum, row) => sum + row.totalAmount, 0),
+      disputedAmount: chargeRows.filter((row) => row.settlementStatus === "disputed").reduce((sum, row) => sum + row.totalAmount, 0),
+      familyOrFundedAmount: chargeRows.filter((row) => row.paymentRoute !== "agency").reduce((sum, row) => sum + row.totalAmount, 0)
+    },
+    charges: chargeRows,
     invoices: invoices.rows.map((row) => ({
       id: row.id,
       invoiceNumber: row.invoice_number,
@@ -226,6 +274,41 @@ coordinatorRouter.get("/billing/invoices", asyncHandler(async (req, res) => {
       lineCount: Number(row.line_count)
     }))
   });
+}));
+
+coordinatorRouter.get("/billing/task-charges/export.csv", asyncHandler(async (req, res) => {
+  const agencyId = req.auth!.agencyId!;
+  const lines = await query<{
+    task_public_id: string; category: string; task_status: string; payment_route: string; payment_status: string;
+    created_at: string; handyman_name: string | null; handyman_amount: string; agency_coordination_fee: string;
+    platform_fee: string; total_amount: string; settlement_status: string; settlement_reference: string | null;
+  }>(
+    `SELECT t.public_id AS task_public_id, t.category, t.status::text AS task_status,
+            t.payment_route, t.payment_status, tc.created_at::text, tr.display_name AS handyman_name,
+            tc.handyman_amount::text, tc.agency_coordination_fee::text, tc.platform_fee::text,
+            tc.total_amount::text, tc.settlement_status, tc.settlement_reference
+     FROM billing.task_charges tc
+     JOIN ops.tasks t ON t.id = tc.task_id
+     LEFT JOIN ops.assignments a ON a.id = tc.assignment_id
+     LEFT JOIN trader.traders tr ON tr.id = a.trader_id
+     WHERE tc.agency_id = $1
+     ORDER BY tc.created_at DESC`,
+    [agencyId]
+  );
+  const rows = [
+    ["Task", "Category", "Task status", "Payment route", "Payment status", "Charge date", "Handyman", "Handyman amount", "Agency coordination fee", "Platform fee", "Total", "Settlement status", "Invoice reference"]
+  ];
+  for (const line of lines.rows) {
+    rows.push([
+      line.task_public_id, line.category, line.task_status, line.payment_route, line.payment_status, line.created_at,
+      line.handyman_name || "", line.handyman_amount, line.agency_coordination_fee, line.platform_fee,
+      line.total_amount, line.settlement_status, line.settlement_reference || ""
+    ]);
+  }
+  const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll("\"", "\"\"")}"`).join(",")).join("\n");
+  res.setHeader("content-type", "text/csv; charset=utf-8");
+  res.setHeader("content-disposition", "attachment; filename=\"taskbridge-agency-task-charges.csv\"");
+  res.send(csv);
 }));
 
 coordinatorRouter.get("/billing/invoices/:id/export.csv", asyncHandler(async (req, res) => {

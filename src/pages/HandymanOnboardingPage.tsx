@@ -43,7 +43,7 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
     public_liability_insurance: null,
     enhanced_dbs: null
   });
-  const [dbsRoute, setDbsRoute] = useState<DbsRoute>("already_enhanced");
+  const [dbsRoute, setDbsRoute] = useState<DbsRoute>("basic_or_not_sure");
   const [qualificationFile, setQualificationFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -87,7 +87,7 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
       return;
     }
     if (dbsRoute === "already_enhanced" && !files.enhanced_dbs) {
-      setError("Upload your Enhanced DBS certificate for admin verification, or choose the application route");
+      setError("Upload your DBS certificate evidence, or choose the correct DBS route");
       return;
     }
     if (!services.length) {
@@ -106,7 +106,7 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
         { ...insurance, reference: String(values.get("insuranceReference")), expiryDate: String(values.get("insuranceExpiry")) }
       ];
       if (dbsRoute === "already_enhanced" && files.enhanced_dbs) {
-        setProgress("Uploading Enhanced DBS evidence...");
+        setProgress("Uploading DBS evidence...");
         const dbs = await uploadDocument("enhanced_dbs", files.enhanced_dbs);
         documents.push({ ...dbs, reference: String(values.get("dbsReference")), issueDate: String(values.get("dbsIssueDate")) });
       }
@@ -183,23 +183,23 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
                   <DocumentField label="Proof of identity" detail="Passport or driving licence" required onFile={(file) => setFiles((current) => ({ ...current, identity: file }))} />
                   <div className="document-block"><DocumentField label="Public liability insurance certificate" detail="Current insurance evidence" required onFile={(file) => setFiles((current) => ({ ...current, public_liability_insurance: file }))} /><div className="field-row"><label>Insurance provider<input required name="insuranceProvider" /></label><label>Policy reference<input required name="insuranceReference" /></label></div><label>Insurance expiry date<input required name="insuranceExpiry" type="date" /></label></div>
                   <div className="document-block">
-                    <fieldset><legend>Enhanced DBS route</legend><div className="service-choice-grid">
-                      <label className="service-choice"><input type="radio" name="dbsRouteChoice" checked={dbsRoute === "already_enhanced"} onChange={() => setDbsRoute("already_enhanced")} /><span>I already have an Enhanced DBS certificate</span></label>
-                      <label className="service-choice"><input type="radio" name="dbsRouteChoice" checked={dbsRoute === "needs_application"} onChange={() => setDbsRoute("needs_application")} /><span>I need TaskBridge to route me to a DBS umbrella application</span></label>
+                    <fieldset><legend>DBS route</legend><div className="service-choice-grid">
+                      <label className="service-choice"><input type="radio" name="dbsRouteChoice" checked={dbsRoute === "already_enhanced"} onChange={() => setDbsRoute("already_enhanced")} /><span>I already have an Enhanced DBS certificate for an eligible role</span></label>
+                      <label className="service-choice"><input type="radio" name="dbsRouteChoice" checked={dbsRoute === "needs_application"} onChange={() => setDbsRoute("needs_application")} /><span>I need guidance on the correct DBS route</span></label>
                       <label className="service-choice"><input type="radio" name="dbsRouteChoice" checked={dbsRoute === "basic_or_not_sure"} onChange={() => setDbsRoute("basic_or_not_sure")} /><span>I only have Basic DBS, no DBS, or I am not sure</span></label>
                     </div></fieldset>
                     {dbsRoute === "already_enhanced" ? <>
-                      <DocumentField label="Enhanced DBS certificate" detail="Certificate evidence for safeguarded work" required onFile={(file) => setFiles((current) => ({ ...current, enhanced_dbs: file }))} />
+                      <DocumentField label="DBS certificate" detail="Enhanced DBS evidence for a legally eligible role" required onFile={(file) => setFiles((current) => ({ ...current, enhanced_dbs: file }))} />
                       <div className="field-row"><label>Certificate reference<input required name="dbsReference" /></label><label>Certificate issue date<input required name="dbsIssueDate" type="date" /></label></div>
                       <div className="field-row"><label>Workforce type<select name="dbsWorkforceType" defaultValue="adult"><option value="adult">Adult workforce</option><option value="child">Child workforce</option><option value="adult_and_child">Adult and child workforce</option><option value="unknown">Not sure</option></select></label><label className="toggle-row compact-toggle"><input name="updateServiceConsent" type="checkbox" /><span><strong>Update Service consent</strong><small>I consent to TaskBridge checking my DBS Update Service status.</small></span></label></div>
-                    </> : <div className="onboarding-advisory"><strong>{dbsRoute === "needs_application" ? "Application route requested" : "Limited access route"}</strong><p>{dbsRoute === "needs_application" ? "TaskBridge admin will review whether the proposed work is eligible for Enhanced DBS and route you to an approved umbrella process where appropriate. You cannot do unsupervised vulnerable-adult work until the certificate is verified." : "You may be considered only for non-vulnerable or supervised tasks. Vulnerable-adult work remains blocked until Enhanced DBS evidence is verified."}</p></div>}
+                    </> : <div className="onboarding-advisory"><strong>{dbsRoute === "needs_application" ? "DBS route review requested" : "Limited access route"}</strong><p>{dbsRoute === "needs_application" ? "TaskBridge admin will review whether your proposed work is eligible for Enhanced DBS. If it is not, you can still be considered for non-vulnerable or supervised tasks once Basic DBS, identity and insurance checks are approved." : "You may be considered only for non-vulnerable or supervised tasks once Basic DBS, identity and insurance checks are approved. Lone vulnerable-adult work remains blocked unless Enhanced DBS eligibility is verified."}</p></div>}
                   </div>
                   <div className="document-block optional-document"><DocumentField label="Trade qualification" detail="Optional role-specific certificate" onFile={setQualificationFile} /><div className="field-row"><label>Qualification title<input name="qualificationTitle" disabled={!qualificationFile} /></label><label>Expiry date<input name="qualificationExpiry" type="date" disabled={!qualificationFile} /></label></div></div>
                 </section>
 
                 <section className="onboarding-form-section declaration-section">
                   <div className="onboarding-section-title"><span><ShieldCheck size={20} /></span><div><h2>Declarations</h2><p>Submission starts review; it does not confirm approval.</p></div></div>
-                  <label className="toggle-row"><input required name="safeguardingDeclaration" type="checkbox" /><span><strong>Safeguarding declaration</strong><small>I understand that work involving vulnerable adults is subject to active Enhanced DBS, insurance and TaskBridge approval.</small></span></label>
+                  <label className="toggle-row"><input required name="safeguardingDeclaration" type="checkbox" /><span><strong>Safeguarding declaration</strong><small>I understand that vulnerable-adult work is subject to DBS status, insurance, supervision rules and TaskBridge approval.</small></span></label>
                   <label className="toggle-row"><input required name="dataAccuracyConfirmation" type="checkbox" /><span><strong>Information is accurate</strong><small>I confirm the information and documents supplied are current and genuine.</small></span></label>
                   <label className="toggle-row"><input required name="privacyNoticeAccepted" type="checkbox" /><span><strong>Privacy notice accepted</strong><small>I consent to TaskBridge processing this information for identity, safeguarding and work-suitability checks.</small></span></label>
                   {error && <p className="form-error" role="alert">{error}</p>}

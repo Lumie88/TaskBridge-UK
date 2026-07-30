@@ -9,7 +9,7 @@ export type StartDbsVerificationInput = {
   fullName: string;
   email?: string | null;
   mobile?: string | null;
-  checkType: "enhanced_dbs";
+  checkType: "basic_dbs" | "enhanced_dbs";
   callbackUrl: string;
 };
 
@@ -170,12 +170,12 @@ function normalizeDbsSessionResponse(provider: string, payload: JsonRecord): Dbs
 function amiqusSessionPayload(input: StartDbsVerificationInput) {
   const checks = [
     {
-      type: "enhanced_dbs",
+      type: input.checkType,
       ...(config.amiqusEnhancedDbsFlowId ? { workflow_id: config.amiqusEnhancedDbsFlowId } : {})
     }
   ];
   return {
-    type: "enhanced_dbs",
+    type: input.checkType,
     reference: `taskbridge-${input.handymanId}`,
     candidate: {
       external_id: input.handymanId,
@@ -310,8 +310,8 @@ export async function sendHandymanOnboardingInvite(input: {
         from: config.emailFromAddress,
         to: [input.email],
         subject: "Complete your TaskBridge handyman registration",
-        text: `Hello ${input.fullName},\n\nTaskBridge has invited you to complete secure handyman registration. Open this one-use link before ${expiry}:\n${input.invitationUrl}\n\nYou will need identity, public liability insurance and Enhanced DBS evidence.`,
-        html: `<p>Hello ${safeName},</p><p>TaskBridge has invited you to complete secure handyman registration.</p><p><a href="${safeUrl}">Complete your registration</a></p><p>This one-use link expires on ${escapeHtml(expiry)}. You will need identity, public liability insurance and Enhanced DBS evidence.</p>`
+        text: `Hello ${input.fullName},\n\nTaskBridge has invited you to complete secure handyman registration. Open this one-use link before ${expiry}:\n${input.invitationUrl}\n\nYou will need proof of identity, public liability insurance and any DBS evidence you already hold. Enhanced DBS is reviewed only where the role is legally eligible.`,
+        html: `<p>Hello ${safeName},</p><p>TaskBridge has invited you to complete secure handyman registration.</p><p><a href="${safeUrl}">Complete your registration</a></p><p>This one-use link expires on ${escapeHtml(expiry)}. You will need proof of identity, public liability insurance and any DBS evidence you already hold. Enhanced DBS is reviewed only where the role is legally eligible.</p>`
       }),
       signal: AbortSignal.timeout(15_000)
     });

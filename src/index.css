@@ -673,6 +673,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shado
 .admin-metrics .metric-link { width: 100%; color: inherit; text-align: left; }
 .metric-link:hover { transform: translateY(-2px); border-color: #c7d2fe; box-shadow: 0 10px 24px rgba(15,23,42,.08); }
 .metric-link:focus-visible { outline: 3px solid rgba(79,70,229,.2); outline-offset: 2px; }
+.billing-metric { width: 100%; color: inherit; text-align: left; cursor: pointer; }
+.billing-metric.active { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.12), 0 10px 24px rgba(15,23,42,.08); }
+.billing-metric.active .metric-arrow { color: #4338ca; transform: translateX(3px); }
 .metric-arrow { position: absolute; right: 19px; color: #94a3b8; transition: transform .18s ease, color .18s ease; }
 .metric-link:hover .metric-arrow { color: #4338ca; transform: translateX(3px); }
 .metric > span { width: 42px; height: 42px; border-radius: 7px; display: grid; place-items: center; color: var(--navy); background: #e7efed; }
@@ -834,6 +837,12 @@ th { color: #65777b; background: #f8faf9; font-size: .7rem; text-transform: uppe
 td { font-size: .8rem; }
 td strong, td small { display: block; }
 td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
+.billing-explainer { padding: 18px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.billing-explainer > div { min-height: 92px; padding: 16px; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; align-items: start; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
+.billing-explainer svg { color: var(--teal); }
+.billing-explainer strong, .billing-explainer small { display: block; }
+.billing-explainer strong { color: var(--ink); font-size: .86rem; }
+.billing-explainer small { margin-top: 4px; color: var(--muted); font-size: .72rem; line-height: 1.45; }
 .service-summary { color: #425a60; }
 .rating { display: inline-flex; align-items: center; gap: 5px; color: #805700; font-weight: 750; }
 .rating svg { fill: #e8b53e; color: #e8b53e; }
@@ -1023,6 +1032,7 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .lifecycle-gap a { justify-content: center; width: fit-content; }
   .metric-grid { grid-template-columns: 1fr 1fr; }
   .intake-layout, .assignment-layout, .resident-layout, .agency-onboarding-layout { grid-template-columns: 1fr; }
+  .billing-explainer { grid-template-columns: 1fr; }
   .invoice-create-grid { grid-template-columns: 1fr 1fr; }
   .invoice-create-grid .button { grid-column: 1 / -1; }
   .suggestion-panel, .candidate-panel, .resident-create-panel, .agency-create-panel { position: static; }

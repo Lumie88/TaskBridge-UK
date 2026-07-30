@@ -75,13 +75,13 @@ const completionSchema = z.object({
 }).superRefine((data, ctx) => {
   if (data.dbs.route === "already_enhanced") {
     if (!data.dbs.certificateReference || data.dbs.certificateReference.length < 2) {
-      ctx.addIssue({ code: "custom", path: ["dbs", "certificateReference"], message: "Enter the Enhanced DBS certificate reference" });
+      ctx.addIssue({ code: "custom", path: ["dbs", "certificateReference"], message: "Enter the DBS certificate reference" });
     }
     if (!data.dbs.issueDate) {
-      ctx.addIssue({ code: "custom", path: ["dbs", "issueDate"], message: "Enter the Enhanced DBS issue date" });
+      ctx.addIssue({ code: "custom", path: ["dbs", "issueDate"], message: "Enter the DBS issue date" });
     }
     if (!data.documents.some((document) => document.documentType === "enhanced_dbs")) {
-      ctx.addIssue({ code: "custom", path: ["documents"], message: "Upload the Enhanced DBS certificate evidence" });
+      ctx.addIssue({ code: "custom", path: ["documents"], message: "Upload the DBS certificate evidence" });
     }
   }
 });
@@ -116,7 +116,7 @@ handymanOnboardingRouter.get("/:token", asyncHandler(async (req, res) => {
     handyman: { fullName: access.display_name, email: access.email },
     expiresAt: access.expires_at,
     serviceOptions,
-    requiredDocuments: ["identity", "public_liability_insurance", "enhanced_dbs"]
+    requiredDocuments: ["identity", "public_liability_insurance"]
   });
 }));
 
@@ -146,7 +146,7 @@ handymanOnboardingRouter.post("/:token/complete", asyncHandler(async (req, res) 
     return res.status(422).json({ error: "Public liability insurance must be current" });
   }
   if (data.dbs.issueDate && new Date(`${data.dbs.issueDate}T00:00:00Z`) > new Date()) {
-    return res.status(422).json({ error: "Enhanced DBS issue date cannot be in the future" });
+    return res.status(422).json({ error: "DBS issue date cannot be in the future" });
   }
   const access = await activeInvitation(req.params.token);
   if (!("invitation" in access)) return res.status(access.status).json({ error: access.error });
@@ -229,7 +229,7 @@ handymanOnboardingRouter.post("/:token/complete", asyncHandler(async (req, res) 
         },
         data.dbs.route === "already_enhanced" ? "self_submitted_certificate"
           : data.dbs.route === "needs_application" ? "umbrella_application_required" : "basic_or_not_sure",
-        data.dbs.route !== "basic_or_not_sure",
+        data.dbs.route === "already_enhanced",
         data.dbs.workforceType,
         data.dbs.updateServiceConsent,
         data.dbs.updateServiceConsent ? "consented_pending_check" : "not_checked"
@@ -264,10 +264,10 @@ handymanOnboardingRouter.post("/:token/complete", asyncHandler(async (req, res) 
 
 function dbsOutcome(route: "already_enhanced" | "needs_application" | "basic_or_not_sure", issueDate: string | null, updateServiceConsent: boolean) {
   if (route === "already_enhanced") {
-    return `Self-submitted Enhanced DBS certificate${issueDate ? ` issued ${issueDate}` : ""}; pending TaskBridge certificate and Update Service verification${updateServiceConsent ? "" : " (Update Service consent not supplied)"}`;
+    return `Self-submitted Enhanced DBS certificate for claimed eligible role${issueDate ? ` issued ${issueDate}` : ""}; pending TaskBridge certificate and Update Service verification${updateServiceConsent ? "" : " (Update Service consent not supplied)"}`;
   }
   if (route === "needs_application") {
-    return "Enhanced DBS application route requested. Admin must route to an eligible DBS umbrella body before vulnerable-adult approval.";
+    return "DBS route review requested. Admin must confirm whether Enhanced DBS eligibility applies; otherwise restrict to Basic DBS plus non-vulnerable or supervised work.";
   }
   return "Basic DBS, no DBS, or unclear DBS position declared. Restrict to non-vulnerable or supervised work until admin review.";
 }

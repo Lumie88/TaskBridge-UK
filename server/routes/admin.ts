@@ -22,6 +22,7 @@ interface CandidateTaskRow {
   vulnerable_adult: boolean;
   status: string;
   summary: string;
+  carer_on_site: boolean;
   latitude: string | null;
   longitude: string | null;
   radius_miles: string;
@@ -39,6 +40,7 @@ interface CandidateTraderRow {
   services: string[];
   dbs_status: string;
   dbs_expiry_date: string | null;
+  enhanced_dbs_eligible: boolean;
   insurance_status: string;
   insurance_expiry_date: string | null;
   latitude: string;
@@ -511,7 +513,11 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
       category: candidates.task.category,
       taskSummary: candidates.task.summary,
       selectedTraderId: selected.trader.external_trader_id || selected.trader.id,
-      requiredSafeguards: candidates.task.vulnerable_adult ? ["enhanced_dbs", "verified_insurance"] : ["verified_insurance"],
+      requiredSafeguards: candidates.task.vulnerable_adult
+        ? candidates.task.carer_on_site
+          ? ["active_dbs", "verified_insurance", "supervised_visit"]
+          : ["enhanced_dbs_eligible", "verified_insurance"]
+        : ["verified_insurance"],
       visitUrl: `${config.appOrigin}${visitPath}`
     });
   } catch (error) {
@@ -957,10 +963,10 @@ adminRouter.post("/traders/:id/documents/:documentId/review", asyncHandler(async
     }
     const eligibility = await client.query<{ eligible: boolean }>(
       `SELECT
-         (SELECT count(*) = 3 FROM (
+         (SELECT count(*) = 2 FROM (
             SELECT DISTINCT ON (document_type) document_type, review_status
             FROM trader.onboarding_documents
-            WHERE trader_id = $1 AND document_type IN ('identity', 'public_liability_insurance', 'enhanced_dbs')
+            WHERE trader_id = $1 AND document_type IN ('identity', 'public_liability_insurance')
             ORDER BY document_type, created_at DESC
           ) required_docs WHERE review_status = 'approved')
          AND EXISTS (
@@ -1066,14 +1072,14 @@ adminRouter.post("/traders/:id/dbs-check", async (req, res) => {
     fullName: decryptField(trader.rows[0].encrypted_full_name),
     email: trader.rows[0].email,
     mobile: trader.rows[0].encrypted_mobile ? decryptField(trader.rows[0].encrypted_mobile) : null,
-    checkType: "enhanced_dbs",
+    checkType: "basic_dbs",
     callbackUrl: `${config.appOrigin}/api/webhooks/dbs-callback`
   });
   await query(
     `INSERT INTO trader.dbs_verifications
        (trader_id, provider_session_id, status, provider_name, provider_invitation_url, provider_payload,
         evidence_reference, verification_route, enhanced_dbs_eligible, workforce_type)
-     VALUES ($1, $2, $3, $4, $5, $6, $5, 'umbrella_application_required', true, 'adult')`,
+     VALUES ($1, $2, $3, $4, $5, $6, $5, 'basic_dbs_provider_application', false, 'unknown')`,
     [trader.rows[0].id, provider.providerSessionId, provider.status, provider.provider, provider.invitationUrl, provider.raw]
   );
   await audit(req, "admin.dbs.started", "trader", trader.rows[0].id, {
@@ -1095,7 +1101,7 @@ adminRouter.post("/traders/:id/dbs-review", requireRoles("taskbridge_super_admin
   const result = await query<{ id: string }>(
     `INSERT INTO trader.dbs_verifications
       (trader_id, status, outcome, expiry_date, evidence_reference, checked_at, verification_route, enhanced_dbs_eligible, workforce_type, update_service_status)
-     SELECT id, $2, $3, $4, $5, clock_timestamp(), 'manual_review', true, 'adult',
+     SELECT id, $2, $3, $4, $5, clock_timestamp(), 'manual_review', false, 'unknown',
             CASE WHEN $2 = 'approved' THEN 'active_confirmed' ELSE 'not_checked' END
      FROM trader.traders
      WHERE id = $1 AND deleted_at IS NULL RETURNING id::text`,
@@ -1850,7 +1856,7 @@ function paymentClearanceError(route: CandidateTaskRow["payment_route"], status:
 async function evaluateCandidates(publicTaskId: string) {
   const taskResult = await query<CandidateTaskRow>(
     `SELECT t.id::text, t.public_id, t.agency_id::text, t.category, t.vulnerable_adult,
-            t.status::text, t.summary, su.latitude::text, su.longitude::text,
+            t.status::text, t.summary, t.carer_on_site, su.latitude::text, su.longitude::text,
             settings.default_visit_radius_miles::text AS radius_miles,
             t.preferred_window_start::text, t.preferred_window_end::text,
             t.payment_route, t.payment_status
@@ -1869,6 +1875,7 @@ async function evaluateCandidates(publicTaskId: string) {
     `SELECT t.id::text, t.display_name, t.encrypted_mobile, t.status::text,
             COALESCE(services.services, '{}') AS services,
             COALESCE(dbs.status::text, 'not_started') AS dbs_status, dbs.expiry_date::text AS dbs_expiry_date,
+            COALESCE(dbs.enhanced_dbs_eligible, false) AS enhanced_dbs_eligible,
             COALESCE(ins.status::text, 'unverified') AS insurance_status, ins.expiry_date::text AS insurance_expiry_date,
             t.latitude::text, t.longitude::text, COALESCE(t.hourly_rate, 0)::text AS hourly_rate,
             t.quality_score::text, availability.available, n.name AS network_name, t.external_trader_id,
@@ -1885,7 +1892,7 @@ async function evaluateCandidates(publicTaskId: string) {
        WHERE s.trader_id = t.id AND s.active
      ) services ON true
      LEFT JOIN LATERAL (
-       SELECT status, expiry_date FROM trader.dbs_verifications d
+       SELECT status, expiry_date, enhanced_dbs_eligible FROM trader.dbs_verifications d
        WHERE d.trader_id = t.id ORDER BY d.created_at DESC LIMIT 1
      ) dbs ON true
      LEFT JOIN LATERAL (
@@ -1908,6 +1915,7 @@ async function evaluateCandidates(publicTaskId: string) {
   const matchTask: MatchableTask = {
     category: task.category,
     vulnerableAdult: task.vulnerable_adult,
+    carerOnSite: task.carer_on_site,
     latitude: Number(task.latitude),
     longitude: Number(task.longitude),
     radiusMiles: Number(task.radius_miles),
@@ -1920,6 +1928,7 @@ async function evaluateCandidates(publicTaskId: string) {
       services: trader.services || [],
       dbsStatus: trader.dbs_status,
       dbsExpiryDate: trader.dbs_expiry_date,
+      enhancedDbsEligible: trader.enhanced_dbs_eligible,
       insuranceStatus: trader.insurance_status,
       insuranceExpiryDate: trader.insurance_expiry_date,
       latitude: Number(trader.latitude),

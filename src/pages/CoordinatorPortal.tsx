@@ -103,6 +103,27 @@ interface AnalyticsDashboard {
 
 interface AgencyInvoiceDashboard {
   pending: { count: number; totalAmount: number };
+  summary: { totalCharges: number; invoicedAmount: number; disputedAmount: number; familyOrFundedAmount: number };
+  charges: Array<{
+    id: string;
+    taskId: string;
+    category: string;
+    taskStatus: string;
+    paymentRoute: PaymentRoute;
+    paymentStatus: string;
+    handymanName: string | null;
+    handymanAmount: number;
+    agencyCoordinationFee: number;
+    platformFee: number;
+    totalAmount: number;
+    currency: string;
+    status: string;
+    settlementStatus: string;
+    settlementReference: string | null;
+    settlementDueAt: string | null;
+    settlementNotes: string | null;
+    createdAt: string;
+  }>;
   invoices: Array<{
     id: string;
     invoiceNumber: string;
@@ -313,6 +334,7 @@ function AgencyInvoices() {
   const [billing, setBilling] = useState<AgencyInvoiceDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [chargeFilter, setChargeFilter] = useState<"awaiting" | "pending-value" | "invoiced" | "all">("awaiting");
 
   async function loadInvoices() {
     setLoading(true);
@@ -329,21 +351,48 @@ function AgencyInvoices() {
   useEffect(() => { void loadInvoices(); }, []);
 
   if (loading && !billing) return <Loading />;
+  const charges = billing?.charges || [];
+  const filteredCharges = charges.filter((charge) => {
+    if (chargeFilter === "all") return true;
+    if (chargeFilter === "awaiting" || chargeFilter === "pending-value") return charge.status === "pending_invoice";
+    if (chargeFilter === "invoiced") return charge.status === "invoiced" || charge.status === "paid";
+    return true;
+  });
+  const filterCopy = {
+    awaiting: "Charges waiting to be added to an agency invoice.",
+    "pending-value": "Uninvoiced task value still waiting for invoice batching.",
+    invoiced: "Charges already invoiced or marked as paid.",
+    all: "All task charges visible to this care agency."
+  }[chargeFilter];
   return <>
-    <div className="page-title-row"><div><span className="eyebrow">Agency finance</span><h1>Invoices and billing records</h1><p>Review TaskBridge task charges that have been included in care-agency invoice exports.</p></div><button className="button button-secondary" onClick={loadInvoices}><RefreshCw size={16} /> Refresh</button></div>
+    <div className="page-title-row"><div><span className="eyebrow">Agency finance</span><h1>Invoices and billing records</h1><p>Review live task charges, payment routes, settlement status and monthly invoice exports for your agency.</p></div><div className="row-actions"><a className="button button-secondary" href="/api/coordinator/billing/task-charges/export.csv"><FileText size={16} /> Export charges</a><button className="button button-secondary" onClick={loadInvoices}><RefreshCw size={16} /> Refresh</button></div></div>
     {error && <div className="alert alert-danger">{error}<button onClick={loadInvoices}><RefreshCw size={16} /> Retry</button></div>}
     <div className="metric-grid coordinator-metrics">
-      <div className="metric metric-blue"><span><FileText /></span><div><strong>{billing?.pending.count || 0}</strong><small>Charges awaiting invoice</small></div></div>
-      <div className="metric metric-amber"><span><Clock3 /></span><div><strong>GBP {(billing?.pending.totalAmount || 0).toFixed(2)}</strong><small>Pending uninvoiced value</small></div></div>
-      <div className="metric metric-green"><span><CheckCircle2 /></span><div><strong>{billing?.invoices.filter((invoice) => invoice.status === "paid").length || 0}</strong><small>Paid invoices</small></div></div>
-      <div className="metric metric-navy"><span><ClipboardList /></span><div><strong>{billing?.invoices.length || 0}</strong><small>Total invoice exports</small></div></div>
+      <BillingMetric icon={<FileText />} label="Charges awaiting invoice" value={billing?.pending.count || 0} active={chargeFilter === "awaiting"} tone="blue" onClick={() => setChargeFilter("awaiting")} />
+      <BillingMetric icon={<Clock3 />} label="Pending uninvoiced value" value={money(billing?.pending.totalAmount || 0)} active={chargeFilter === "pending-value"} tone="amber" onClick={() => setChargeFilter("pending-value")} />
+      <BillingMetric icon={<CheckCircle2 />} label="Invoiced or paid value" value={money(billing?.summary.invoicedAmount || 0)} active={chargeFilter === "invoiced"} tone="green" onClick={() => setChargeFilter("invoiced")} />
+      <BillingMetric icon={<ClipboardList />} label="Total task charges" value={billing?.summary.totalCharges || 0} active={chargeFilter === "all"} tone="navy" onClick={() => setChargeFilter("all")} />
     </div>
+    <section className="panel billing-explainer">
+      <div><Landmark size={20} /><span><strong>Agency invoice</strong><small>Included in monthly invoice exports after TaskBridge admin creates the invoice batch.</small></span></div>
+      <div><CreditCard size={20} /><span><strong>Family or funded route</strong><small>Shown here for visibility, but dispatch depends on payment or funding clearance.</small></span></div>
+      <div><ShieldCheck size={20} /><span><strong>Payout protection</strong><small>Handyman payout remains linked to care-team completion confirmation and dispute holds.</small></span></div>
+    </section>
+    <section className="panel table-panel">
+      <div className="panel-heading"><div><h2>Task charge ledger</h2><p>{filterCopy}</p></div><button className="button button-secondary button-small" onClick={() => setChargeFilter("all")}>Show all</button></div>
+      <div className="responsive-table"><table><thead><tr><th>Task</th><th>Payment route</th><th>Amounts</th><th>Settlement</th><th>Handyman</th></tr></thead><tbody>{filteredCharges.map((charge) => <tr key={charge.id}><td><strong>{charge.taskId}</strong><small>{charge.category} / {humanize(charge.taskStatus)} / {formatDate(charge.createdAt, true)}</small></td><td><strong>{paymentRouteLabel(charge.paymentRoute)}</strong><small>{humanize(charge.paymentStatus)}</small></td><td><strong>{money(charge.totalAmount, charge.currency)}</strong><small>Work {money(charge.handymanAmount, charge.currency)} / Coordination {money(charge.agencyCoordinationFee, charge.currency)} / Platform {money(charge.platformFee, charge.currency)}</small></td><td><StatusBadge status={charge.settlementStatus}>{humanize(charge.settlementStatus)}</StatusBadge>{charge.settlementReference && <small>{charge.settlementReference}</small>}{charge.settlementDueAt && <small>Due {formatDate(charge.settlementDueAt)}</small>}</td><td><strong>{charge.handymanName || "Not recorded"}</strong>{charge.settlementNotes && <small>{charge.settlementNotes}</small>}</td></tr>)}</tbody></table></div>
+      {!filteredCharges.length && <EmptyState icon={<FileText />} title="No matching task charges" detail="Choose a different billing summary card or wait for TaskBridge admin to dispatch approved work." />}
+    </section>
     <section className="panel table-panel">
       <div className="panel-heading"><div><h2>Agency invoice history</h2><p>CSV exports are generated by TaskBridge administration and made visible here for the agency workspace.</p></div></div>
-      <div className="responsive-table"><table><thead><tr><th>Invoice</th><th>Period</th><th>Lines</th><th>Total</th><th>Status</th><th>Export</th></tr></thead><tbody>{billing?.invoices.map((invoice) => <tr key={invoice.id}><td><strong>{invoice.invoiceNumber}</strong><small>{invoice.issuedAt ? `Issued ${formatDate(invoice.issuedAt, true)}` : "Draft"}</small></td><td><strong>{formatDate(invoice.periodStart)}</strong><small>to {formatDate(invoice.periodEnd)}</small></td><td>{invoice.lineCount}</td><td><strong>{invoice.currency} {invoice.totalAmount.toFixed(2)}</strong></td><td><StatusBadge status={invoice.status}>{humanize(invoice.status)}</StatusBadge>{invoice.paidAt && <small>Paid {formatDate(invoice.paidAt, true)}</small>}</td><td><a className="button button-secondary button-small" href={`/api/coordinator/billing/invoices/${invoice.id}/export.csv`}>CSV</a></td></tr>)}</tbody></table></div>
+      <div className="responsive-table"><table><thead><tr><th>Invoice</th><th>Period</th><th>Lines</th><th>Total</th><th>Status</th><th>Export</th></tr></thead><tbody>{billing?.invoices.map((invoice) => <tr key={invoice.id}><td><strong>{invoice.invoiceNumber}</strong><small>{invoice.issuedAt ? `Issued ${formatDate(invoice.issuedAt, true)}` : "Draft"}</small></td><td><strong>{formatDate(invoice.periodStart)}</strong><small>to {formatDate(invoice.periodEnd)}</small></td><td>{invoice.lineCount}</td><td><strong>{money(invoice.totalAmount, invoice.currency)}</strong></td><td><StatusBadge status={invoice.status}>{humanize(invoice.status)}</StatusBadge>{invoice.paidAt && <small>Paid {formatDate(invoice.paidAt, true)}</small>}</td><td><a className="button button-secondary button-small" href={`/api/coordinator/billing/invoices/${invoice.id}/export.csv`}>CSV</a></td></tr>)}</tbody></table></div>
       {!billing?.invoices.length && <EmptyState icon={<FileText />} title="No invoices yet" detail="TaskBridge admin invoice exports will appear here once created for your agency." />}
     </section>
   </>;
+}
+
+function BillingMetric({ icon, label, value, active, onClick, tone }: { icon: React.ReactNode; label: string; value: React.ReactNode; active: boolean; onClick: () => void; tone: string }) {
+  return <button type="button" className={`metric metric-link billing-metric metric-${tone}${active ? " active" : ""}`} onClick={onClick}><span>{icon}</span><div><strong>{value}</strong><small>{label}</small></div><ArrowRight className="metric-arrow" size={18} /></button>;
 }
 
 function ServiceUserDirectory({ serviceUsers, onChanged }: { serviceUsers: ServiceUser[]; onChanged: () => Promise<void> }) {
@@ -530,7 +579,7 @@ function TaskIntake({ serviceUsers, onCreated }: { serviceUsers: ServiceUser[]; 
       <form className="panel intake-form stack" onSubmit={plan}>
         <label>Service user<select required value={serviceUserId} onChange={(event) => { setServiceUserId(event.target.value); setSuggestions([]); }}><option value="" disabled>Select service user</option>{serviceUsers.map((item) => <option key={item.id} value={item.id}>{item.name} / {humanize(item.riskLevel)}</option>)}</select></label>
         <label>Care note<textarea required minLength={10} rows={9} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Paste the daily care note. Include every home hazard, preferred timing, keysafe information and whether a carer will be present." /><small className="field-hint">Multiple hazards are separated into individual tasks for your review.</small></label>
-        <label className="toggle-row"><input type="checkbox" checked={carerOnSite} onChange={(event) => setCarerOnSite(event.target.checked)} /><span><strong>Carer will be on site</strong><small>This supports visit coordination and never bypasses Enhanced DBS controls.</small></span></label>
+        <label className="toggle-row"><input type="checkbox" checked={carerOnSite} onChange={(event) => setCarerOnSite(event.target.checked)} /><span><strong>Carer will be on site</strong><small>This enables the supervised-visit route for vulnerable-adult work.</small></span></label>
         {error && <p className="form-error">{error}</p>}
         <button className="button button-primary" disabled={planning || !serviceUserId} type="submit">{planning ? <><LoaderCircle className="spin" size={18} /> Evaluating care note...</> : <><Sparkles size={18} /> Evaluate care note</>}</button>
       </form>
@@ -538,7 +587,7 @@ function TaskIntake({ serviceUsers, onCreated }: { serviceUsers: ServiceUser[]; 
     <aside className="suggestion-panel intake-review-panel">
       <div className="suggestion-heading"><span className="process-icon"><Sparkles /></span><div><h2>Structured safety review</h2><p>All fields remain under care-team control before approval.</p></div></div>
       {suggestions.length ? <>
-        {vulnerable && <div className="safeguard-note"><ShieldCheck size={20} /><div><strong>Safeguarding controls apply</strong><span>Enhanced DBS and verified insurance are mandatory for assignment.</span></div></div>}
+        {vulnerable && <div className="safeguard-note"><ShieldCheck size={20} /><div><strong>Safeguarding controls apply</strong><span>DBS, insurance and supervision rules are checked before assignment.</span></div></div>}
         {warnings.length > 0 && <div className="warning-list">{warnings.map((warning) => <p key={warning}><ShieldAlert size={16} /> {warning}</p>)}</div>}
         <section className="review-fields"><h3>Service-user and visit details</h3><div className="field-row"><label>Service-user name<input value={review.fullName} onChange={(event) => updateReview("fullName", event.target.value)} /></label><label>Postcode<input value={review.postcode} onChange={(event) => updateReview("postcode", event.target.value.toUpperCase())} /></label></div><label>Full street address<textarea rows={2} value={review.address} onChange={(event) => updateReview("address", event.target.value)} /></label><div className="field-row"><label>Town<input value={review.town} onChange={(event) => updateReview("town", event.target.value)} /></label><label>County<input value={review.county} onChange={(event) => updateReview("county", event.target.value)} /></label></div><div className="field-row"><label>Visit window start<input type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} /></label><label>Visit window end<input type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} /></label></div><label>Extracted keysafe information<div className="input-with-icon"><KeyRound size={16} /><input value={keysafeInfo} onChange={(event) => setKeysafeInfo(event.target.value)} placeholder="No keysafe code identified" /></div><small className="field-hint">Encrypted separately and visible only to authorised care users.</small></label></section>
         <section className="payment-route-panel">
@@ -1385,7 +1434,7 @@ function TaskDetailsDrawer({ task, detail, loading, onClose, onChanged }: { task
   const afterPhoto = task.completion?.afterPhotoUrl || detail?.evidence.find((item) => item.type === "after_photo")?.url || null;
   return <div className="drawer-backdrop" onMouseDown={onClose}><aside className="side-drawer task-detail-drawer" onMouseDown={(event) => event.stopPropagation()} aria-label={`Task details for ${task.id}`}><header><div><span className="eyebrow">{task.id}</span><h2>{task.category}</h2></div><button className="icon-button" onClick={onClose} aria-label="Close task details"><X size={20} /></button></header><div className="drawer-scroll">
     <div className="drawer-task-heading"><span className="resident-avatar">{task.resident.initials}</span><div><strong>{task.resident.displayName}</strong><p>{task.summary}</p></div><StatusBadge status={task.status}>{humanize(task.status)}</StatusBadge></div>
-    {task.ringFenceRequired && <div className="safeguard-note"><ShieldCheck size={20} /><div><strong>Ring-Fence Enforced</strong><span>Enhanced DBS and verified insurance controls apply.</span></div></div>}
+    {task.ringFenceRequired && <div className="safeguard-note"><ShieldCheck size={20} /><div><strong>Safeguarded Visit Controls</strong><span>DBS, insurance and supervision controls apply.</span></div></div>}
     {task.safeguardingRisk && <div className="risk-score-card"><strong>Safeguarding risk {task.safeguardingRisk.score}/100</strong><StatusBadge status={task.safeguardingRisk.band}>{humanize(task.safeguardingRisk.band)}</StatusBadge><p>{task.safeguardingRisk.factors.join(", ") || "Standard controls"}</p></div>}
     <section className="drawer-section payment-summary"><h3><CreditCard size={17} /> Payment route</h3><p><strong>{paymentRouteLabel(task.payment.route)}</strong><br />{humanize(task.payment.status)}</p>{task.payment.payerName && <span className="geo-tag">{task.payment.payerName}{task.payment.payerEmail ? ` / ${task.payment.payerEmail}` : ""}</span>}{task.payment.fundingReference && <span className="geo-tag">{task.payment.fundingReference}</span>}</section>
     {loading ? <Loading /> : detail && <>
@@ -1414,6 +1463,7 @@ function CommandPalette({ onClose, onChoose }: { onClose: () => void; onChoose: 
     { section: "service-users", label: "Manage service users", icon: <UsersRound size={18} /> },
     { section: "analytics", label: "Open care analytics", icon: <BarChart3 size={18} /> },
     { section: "rota-planner", label: "Open AI rota planner", icon: <Navigation size={18} /> },
+    { section: "billing", label: "Open invoices and billing", icon: <CreditCard size={18} /> },
     { section: "notifications", label: "Review notifications", icon: <BellRing size={18} /> }
   ].filter((item) => item.label.toLowerCase().includes(query.toLowerCase()));
   useEffect(() => {
@@ -1427,7 +1477,7 @@ function CommandPalette({ onClose, onChoose }: { onClose: () => void; onChoose: 
 function TaskRow({ task, onOpen }: { task: CoordinatorTask; onOpen: () => void }) {
   return <button className="task-row task-row-button" onClick={onOpen}>
     <span className="resident-avatar">{task.resident.initials}</span>
-    <div className="task-main"><div className="task-title-line"><h3>{task.category}</h3>{task.ringFenceRequired && <span className="ring-badge"><ShieldCheck size={14} /> Ring-Fence Enforced</span>}</div><p>{task.summary}</p><small>{task.id} / {task.resident.displayName} / {formatDate(task.createdAt, true)}</small></div>
+    <div className="task-main"><div className="task-title-line"><h3>{task.category}</h3>{task.ringFenceRequired && <span className="ring-badge"><ShieldCheck size={14} /> Safeguarded controls</span>}</div><p>{task.summary}</p><small>{task.id} / {task.resident.displayName} / {formatDate(task.createdAt, true)}</small></div>
     <div className="task-assignee">{task.assignedHandyman ? <><UserRoundCheck size={17} /><span><strong>{task.assignedHandyman.displayName}</strong><small>{task.assignedHandyman.network || "Verified network"}</small></span></> : <><Clock3 size={17} /><span><strong>Pending assignment</strong><small>TaskBridge is handling this</small></span></>}</div>
     <div className="task-status"><StatusBadge status={task.status}>{humanize(task.status)}</StatusBadge><span className={`urgency urgency-${task.urgency}`}>{task.urgency === "low" ? "Routine" : humanize(task.urgency)}</span></div>
   </button>;
@@ -1458,6 +1508,10 @@ function paymentRouteLabel(route: PaymentRoute) {
   if (route === "family_representative") return "Family or representative pays";
   if (route === "council_personal_budget") return "Council / personal budget / funded support";
   return "Agency pays";
+}
+
+function money(amount: number, currency = "GBP") {
+  return new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(amount);
 }
 
 function Loading() {

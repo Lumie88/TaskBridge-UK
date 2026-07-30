@@ -3,8 +3,8 @@ import { Camera, EyeOff, LockKeyhole, RefreshCw, ShieldCheck } from "lucide-reac
 const safeguards = [
   {
     icon: ShieldCheck,
-    title: "Enhanced DBS-vetted attendance",
-    detail: "Vulnerable-adult visits are released only to suitable operatives with active safeguarding checks and verified service fit."
+    title: "DBS and supervised attendance",
+    detail: "Vulnerable-adult visits are released only to suitable operatives with active DBS status, verified insurance, service fit and supervision controls where required."
   },
   {
     icon: EyeOff,

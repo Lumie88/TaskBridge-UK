@@ -111,7 +111,7 @@ export function extractKeysafeInfo(note: string) {
 export async function analyzeCareNote(note: string, vulnerable: boolean) {
   const suggestions = await createTaskPlan(note, vulnerable);
   const warnings: string[] = [];
-  if (vulnerable) warnings.push("Vulnerable-adult safeguarding controls and Enhanced DBS verification are mandatory.");
+  if (vulnerable) warnings.push("Vulnerable-adult safeguarding controls apply: DBS status, insurance and supervision route must be reviewed before assignment.");
   if (/alone|unaccompanied|no carer|without (?:a )?carer/i.test(note)) {
     warnings.push("The note may indicate an unaccompanied visit; TaskBridge administration must review the visit controls.");
   }

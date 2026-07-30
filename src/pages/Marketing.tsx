@@ -86,7 +86,7 @@ const faqs = [
   },
   {
     question: "How are vulnerable service users safeguarded?",
-    answer: "Care-team approval is required before assignment. Vulnerable-adult visits require an active Enhanced DBS check, verified insurance, service suitability and a secure visit record. Resident contact and access details remain protected."
+    answer: "Care-team approval is required before assignment. Vulnerable-adult visits require verified identity, insurance, DBS status, service suitability and secure visit records. Where Enhanced DBS is not legally applicable for a trade role, TaskBridge applies supervised-visit controls instead of allowing lone access."
   },
   {
     question: "How does the handyman receive and complete a task?",
@@ -113,7 +113,7 @@ export function MarketingHome() {
               <p>TaskBridge by Growing Fig gives care teams a trusted way to act on practical home risks: approve the task, match a vetted operative, protect service-user details and return evidence to the care record.</p>
               <div className="studio-assurance" aria-label="Service assurances">
                 <span><BadgeCheck size={19} /> Preventable hazards actioned sooner</span>
-                <span><BadgeCheck size={19} /> Enhanced DBS controls for eligible visits</span>
+                <span><BadgeCheck size={19} /> Lawful DBS and supervised-visit controls</span>
                 <span><BadgeCheck size={19} /> Evidence returned to authorised care teams</span>
               </div>
               <div className="studio-care-note">
@@ -139,7 +139,7 @@ export function MarketingHome() {
             <div className="studio-section-title"><span>Built around real homes and real risk</span><h2>The controls care teams need before sending someone to the door.</h2></div>
             <div className="studio-trust-grid">
               <StudioPillar icon={<Link2 />} tone="rose" title="Works with care systems" detail="Compatible with most leading care management applications, with simple routes for care notes and task updates." label="Integration ready" />
-              <StudioPillar icon={<ShieldCheck />} tone="amber" title="Safeguarding-led matching" detail="Eligible visits are checked against DBS, identity, insurance and service suitability controls before dispatch." label="Safeguarding first" />
+              <StudioPillar icon={<ShieldCheck />} tone="amber" title="Safeguarding-led matching" detail="Visits are checked against DBS status, identity, insurance, service suitability and supervision rules before dispatch." label="Safeguarding first" />
               <StudioPillar icon={<Store />} tone="indigo" title="Vetted local help" detail="Work is routed to controlled trade pools and approved direct operatives rather than unmanaged public feeds." label="Trusted trade panel" />
               <StudioPillar icon={<LockKeyhole />} tone="green" title="Resident details protected" detail="Home access details and direct resident contacts remain shielded from operatives." label="GDPR & cyber secure" />
             </div>
@@ -179,7 +179,7 @@ export function MarketingHome() {
             <div className="section-heading section-heading-centered">
               <span className="eyebrow">Safeguarding built into the journey</span>
               <h2>Every visit passes through the right controls.</h2>
-              <p>Care-team approval comes first. TaskBridge then handles suitability, verified cover, Enhanced DBS status and secure visit evidence.</p>
+              <p>Care-team approval comes first. TaskBridge then handles suitability, verified cover, DBS route, supervision rules and secure visit evidence.</p>
             </div>
             <div className="process-grid">
               <ProcessStep number="01" icon={<MessageSquareText />} title="Describe the concern" detail="A coordinator records the resident's practical home-safety need in plain language." />
@@ -290,7 +290,7 @@ function CoordinatorDemoVideo() {
 function DemoScreen({ type }: { type: string }) {
   if (type === "dashboard") return <div className="demo-dashboard">
     <div><strong>18</strong><span>Open tasks</span></div><div><strong>5</strong><span>Pending assignment</span></div><div><strong>9</strong><span>Completed</span></div>
-    <article><h4>Loose rail repair</h4><p>Ring-Fence enforced - Awaiting assignment</p></article>
+    <article><h4>Loose rail repair</h4><p>Safeguarded visit controls - Awaiting assignment</p></article>
   </div>;
   if (type === "create") return <div className="demo-create">
     <label>Service user<input readOnly value="Mary W. - vulnerable adult" /></label>
@@ -298,7 +298,7 @@ function DemoScreen({ type }: { type: string }) {
     <button>Evaluate care note</button>
   </div>;
   if (type === "review") return <div className="demo-review">
-    <article><BadgeCheck size={18} /><div><h4>Path clearing</h4><p>High urgency · Enhanced DBS required</p></div></article>
+    <article><BadgeCheck size={18} /><div><h4>Path clearing</h4><p>High urgency · Supervised visit required</p></div></article>
     <article><BadgeCheck size={18} /><div><h4>Minor repair</h4><p>Medium urgency · Carer window recorded</p></div></article>
     <button>Approve tasks for TaskBridge</button>
   </div>;
@@ -341,7 +341,7 @@ const apiEndpoints = [
     method: "POST",
     path: "/api/webhooks/dbs-callback",
     title: "DBS verification callback",
-    description: "Receives normalised DBS provider events. Amiqus-specific events can also be sent to /api/webhooks/amiqus-callback."
+    description: "Receives normalised DBS provider events from the configured provider or umbrella-body workflow."
   },
   {
     method: "GET",
@@ -447,10 +447,10 @@ const dbsCallback = `{
   "event": "session.completed",
   "data": {
     "session": {
-      "id": "amiqus_sess_123",
+      "id": "dbs_sess_123",
       "status": "completed",
       "outcome": "clear",
-      "report_url": "https://provider.example/reports/amiqus_sess_123"
+      "report_url": "https://provider.example/reports/dbs_sess_123"
     }
   }
 }`;
@@ -517,9 +517,9 @@ export function ApiDocumentation() {
 
           <section id="callbacks" className="api-doc-section">
             <h2>Callbacks and provider events</h2>
-            <p>TaskBridge can send completion data back to the parent care application once the care coordinator approves the completed visit. DBS providers can also post verification completion events into TaskBridge.</p>
+            <p>TaskBridge can send completion data back to the parent care application once the care coordinator approves the completed visit. DBS providers can also post verification completion events into TaskBridge where a lawful check route is in place.</p>
             <CodeBlock language="json" title="Outbound completion callback example" code={completionCallback} />
-            <CodeBlock language="json" title="Amiqus Enhanced DBS callback example" code={dbsCallback} />
+            <CodeBlock language="json" title="DBS provider callback example" code={dbsCallback} />
           </section>
 
           <section id="errors" className="api-doc-section">
@@ -603,7 +603,7 @@ export function JoinHandymanPage() {
             <h1>Join TaskBridge as a vetted handyman.</h1>
             <p>Work with care organisations to complete practical home-safety tasks for older and vulnerable service users. Every visit is structured, approved and evidenced through TaskBridge.</p>
             <div className="join-handyman-points">
-              <span><BadgeCheck size={18} /> Enhanced DBS-led safeguarding</span>
+              <span><BadgeCheck size={18} /> DBS-checked or supervised safeguards</span>
               <span><FileCheck2 size={18} /> Insurance and document review</span>
               <span><Camera size={18} /> Secure visit evidence workflow</span>
             </div>
@@ -615,11 +615,11 @@ export function JoinHandymanPage() {
               <div className="field-row"><label>Email<input name="email" type="email" required autoComplete="email" /></label><label>Mobile number<input name="phone" required autoComplete="tel" /></label></div>
               <label>Primary postcode<input name="postcode" required autoComplete="postal-code" /></label>
               <fieldset className="join-service-picker"><legend>Services you can offer</legend>{handymanServices.map((service) => <label key={service} className={selectedServices.includes(service) ? "selected" : ""}><input type="checkbox" checked={selectedServices.includes(service)} onChange={() => toggleService(service)} />{service}</label>)}</fieldset>
-              <fieldset className="join-dbs-route"><legend>Enhanced DBS position</legend>
-                <label><input type="radio" name="dbsRoute" checked={dbsRoute === "already_enhanced"} onChange={() => setDbsRoute("already_enhanced")} /> I already hold an Enhanced DBS certificate</label>
-                <label><input type="radio" name="dbsRoute" checked={dbsRoute === "needs_application"} onChange={() => setDbsRoute("needs_application")} /> I do not have one yet and want guidance to apply</label>
+              <fieldset className="join-dbs-route"><legend>DBS position</legend>
+                <label><input type="radio" name="dbsRoute" checked={dbsRoute === "already_enhanced"} onChange={() => setDbsRoute("already_enhanced")} /> I already hold an Enhanced DBS certificate for an eligible role</label>
+                <label><input type="radio" name="dbsRoute" checked={dbsRoute === "needs_application"} onChange={() => setDbsRoute("needs_application")} /> I need guidance on the correct DBS route</label>
                 <label><input type="radio" name="dbsRoute" checked={dbsRoute === "basic_or_not_sure"} onChange={() => setDbsRoute("basic_or_not_sure")} /> I have Basic DBS, no DBS, or I am not sure</label>
-                <p>Enhanced DBS eligibility depends on the type of work. Vulnerable-adult tasks are blocked until TaskBridge verifies the certificate and Update Service status.</p>
+                <p>Enhanced DBS eligibility depends on the role and activity. Most ordinary trade work uses Basic DBS plus insurance, identity checks and supervised-visit controls for vulnerable-adult homes.</p>
               </fieldset>
               <div className="join-checks"><label><input name="hasPublicLiability" type="checkbox" /> I have public liability insurance</label></div>
               <label>Anything else we should know?<textarea name="message" rows={3} placeholder="Trade experience, regions covered, availability or relevant qualifications" /></label>
@@ -637,7 +637,7 @@ export function JoinHandymanPage() {
       <section className="site-width join-handyman-process">
         <div><strong>1</strong><h2>Apply</h2><p>Share your contact details, service coverage and trade categories.</p></div>
         <div><strong>2</strong><h2>Review</h2><p>TaskBridge checks suitability before sending the secure registration link.</p></div>
-        <div><strong>3</strong><h2>Verify</h2><p>Upload insurance, existing Enhanced DBS evidence, or follow the DBS application route if eligible.</p></div>
+        <div><strong>3</strong><h2>Verify</h2><p>Upload insurance, DBS evidence if held, and any trade qualifications. Enhanced DBS is reviewed only where the role is eligible.</p></div>
         <div><strong>4</strong><h2>Receive tasks</h2><p>Approved operatives receive tokenised task links for accepted work.</p></div>
       </section>
     </main>
@@ -676,8 +676,8 @@ export function SafeguardingPolicy() {
         body: "Tasks must be reviewed and approved by the care organisation before TaskBridge releases them for assignment. AI-generated suggestions remain editable and must not replace professional judgement."
       },
       {
-        title: "Enhanced DBS and insurance controls",
-        body: "Vulnerable-adult work is assigned only to handymen who meet TaskBridge policy requirements, including active Enhanced DBS status where required, verified identity, verified insurance, service suitability and proximity checks."
+        title: "DBS, insurance and supervision controls",
+        body: "Vulnerable-adult work is assigned only to handymen who meet TaskBridge policy requirements, including verified identity, active DBS status, verified insurance, service suitability and proximity checks. Where Enhanced DBS is not legally applicable to ordinary trade work, supervised-visit rules are applied."
       },
       {
         title: "Operational response",
@@ -930,7 +930,7 @@ function StudioCallout({ onDemo }: { onDemo: () => void }) {
       </div>
       <div className="studio-callout-trust">
         <span><Star size={19} /> Designed around care-quality evidence</span>
-        <span><Heart size={19} /> Enhanced DBS controls enforced</span>
+        <span><Heart size={19} /> DBS and supervision controls enforced</span>
         <span><LockKeyhole size={19} /> Resident identity data shielded</span>
       </div>
     </div>
@@ -976,7 +976,7 @@ function Footer() {
     </div>
 
     <div className="site-width footer-bottom">
-      <div><p>(c) 2026 Growing Fig Technologies LTD. All rights reserved.</p><small>TaskBridge by Growing Fig is a HealthTech and care operations platform. Enhanced DBS validation supports vulnerable-adult safeguarding controls.</small><small className="footer-company-number">Company number 17364252</small></div>
+      <div><p>(c) 2026 Growing Fig Technologies LTD. All rights reserved.</p><small>TaskBridge by Growing Fig is a HealthTech and care operations platform. DBS, insurance and supervised-visit controls support vulnerable-adult safeguarding.</small><small className="footer-company-number">Company number 17364252</small></div>
       <nav aria-label="Security and legal">
         <a href="/how-it-works#security">Security standards</a>
         <a href="/safeguarding-policy">Safeguarding policy</a>

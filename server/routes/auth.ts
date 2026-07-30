@@ -82,9 +82,9 @@ authRouter.post("/handyman-join-request", signInLimiter, asyncHandler(async (req
   const data = parsed.data;
   const dbsRoute = data.dbsRoute || (data.hasEnhancedDbs ? "already_enhanced" : "basic_or_not_sure");
   const dbsNotes = dbsRoute === "already_enhanced"
-    ? "Applicant says they already hold an Enhanced DBS certificate. Evidence still requires TaskBridge admin verification."
+    ? "Applicant says they already hold an Enhanced DBS certificate for an eligible role. Evidence still requires TaskBridge admin verification."
     : dbsRoute === "needs_application"
-      ? "Applicant does not currently hold Enhanced DBS and wants routing to an eligible DBS umbrella application."
+      ? "Applicant needs guidance on the correct DBS route. Enhanced DBS should be pursued only where the proposed role is legally eligible."
       : "Applicant has Basic DBS, no DBS, or is unsure. Restrict to non-vulnerable or supervised work until reviewed.";
   const created = await query<{ id: string }>(
     `INSERT INTO tenant.handyman_join_requests

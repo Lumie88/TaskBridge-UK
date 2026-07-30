@@ -117,7 +117,7 @@ export function DemoModal({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
           <div className="studio-demo-benefits">
             <div><Users size={17} /><p>Designed for home care managers and operations coordinators.</p></div>
-            <div><ShieldAlert size={17} /><p>Enhanced DBS verification supports trusted vulnerable-adult visits.</p></div>
+            <div><ShieldAlert size={17} /><p>DBS, insurance and supervision controls support trusted vulnerable-adult visits.</p></div>
           </div>
           <blockquote>"Making home safer for our vulnerable"</blockquote>
         </aside>

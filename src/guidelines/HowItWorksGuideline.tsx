@@ -118,7 +118,7 @@ export default function HowItWorksGuideline() {
                 <span>TB</span>
                 <div>
                   <strong>Vetted handyman dispatched</strong>
-                  <p>Enhanced DBS status active and suitable for the task.</p>
+                  <p>DBS route, insurance and supervision controls suitable for the task.</p>
                 </div>
               </div>
             )}
@@ -131,7 +131,7 @@ export default function HowItWorksGuideline() {
         </div>
 
         <div className="lifecycle-assurance">
-          <div><ShieldCheck size={20} /><span>Enhanced DBS-vetted attendance for vulnerable-adult visits</span></div>
+          <div><ShieldCheck size={20} /><span>DBS-checked attendance with supervised-visit controls where required</span></div>
           <div><MapPin size={20} /><span>Geofenced check-in and checkout evidence</span></div>
           <div><Camera size={20} /><span>Before-and-after task photos for care-team review</span></div>
         </div>
