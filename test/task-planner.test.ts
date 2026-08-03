@@ -66,10 +66,13 @@ test("socket and bulb faults are not mistaken for seasonal or appliance work", (
   const note = "Got to Janet apartment, all fine, about leaving, notice the socket is blown out and one of the bulbs in the living area is also blown out. locked up and secured the key in the keysafe";
   const plan = deterministicTaskPlan(note, true);
   const categories = plan.map((item) => item.category);
+  const electrical = plan.find((item) => item.category === "Electrical safety checks");
 
   assert.ok(categories.includes("Electrical safety checks"));
   assert.ok(categories.every((item) => item !== "Seasonal safety checks"));
   assert.ok(categories.every((item) => item !== "Appliance safety checks"));
+  assert.match(electrical?.summary || "", /socket is blown out/i);
+  assert.match(electrical?.summary || "", /bulbs? in the living area/i);
 });
 
 test("ungrounded AI seasonal and appliance suggestions fall back to electrical work", () => {
@@ -81,6 +84,8 @@ test("ungrounded AI seasonal and appliance suggestions fall back to electrical w
   const categories = grounded.map((item) => item.category);
 
   assert.deepEqual(categories, ["Electrical safety checks"]);
+  assert.match(grounded[0].summary, /socket is blown out/i);
+  assert.match(grounded[0].summary, /bulbs? in the living area/i);
 });
 
 test("Age UK-style home safety notes map to practical check categories", () => {

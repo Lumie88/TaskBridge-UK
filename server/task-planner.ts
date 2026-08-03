@@ -11,6 +11,30 @@ const suggestionSchema = z.object({
 
 const plannerResponseSchema = z.object({ suggestions: z.array(suggestionSchema).min(1).max(12) });
 
+const plannerJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["suggestions"],
+  properties: {
+    suggestions: {
+      type: "array",
+      minItems: 1,
+      maxItems: 12,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["category", "summary", "urgency", "safeguardingApplies"],
+        properties: {
+          category: { type: "string", minLength: 2, maxLength: 120 },
+          summary: { type: "string", minLength: 5, maxLength: 500 },
+          urgency: { type: "string", enum: ["low", "medium", "high", "urgent"] },
+          safeguardingApplies: { type: "boolean" }
+        }
+      }
+    }
+  }
+};
+
 const categoryRules = [
   { category: "Lawn mowing", terms: ["lawn", "mow", "grass"] },
   { category: "Garden clearance", terms: ["garden", "bramble", "weed", "overgrown", "overgrowth"] },
@@ -65,11 +89,39 @@ function hasTerm(note: string, term: string) {
   return new RegExp(`\\b${escaped}${pluralSuffix}\\b`, "i").test(note);
 }
 
-function taskSummaryForCategory(category: string) {
+function taskSummaryForCategory(category: string, note = "") {
+  const detail = note ? explicitDetailForCategory(category, note) : "";
   if (category === "Key safe and lock safety") {
-    return "Check the reported key-safe, lock or door-access concern and make the access route safe. Do not include the access code in the task summary.";
+    return detail
+      ? `Check and make safe the reported key-safe/access issue: ${detail}. Do not include any access code in the task summary.`
+      : "Check the reported key-safe, lock or door-access concern and make the access route safe. Do not include the access code in the task summary.";
   }
+  if (category === "Electrical safety checks" && detail) {
+    return `Inspect and make safe the reported electrical issue: ${detail}.`;
+  }
+  if (detail) return `${category}: ${detail}. Review the reported condition and make the area safe.`;
   return `${category} required following a care-team home safety observation. Review the reported condition and make the area safe.`;
+}
+
+function explicitDetailForCategory(category: string, note: string) {
+  const taskNote = noteForTaskMatching(note);
+  const rule = categoryRules.find((item) => item.category === category);
+  const sentence = sentenceParts(taskNote).find((part) => rule?.terms.some((term) => hasTerm(part, term)));
+  return cleanTaskDetail(sentence || "");
+}
+
+function cleanTaskDetail(value: string) {
+  const cleaned = redactAccessInfo(value)
+    .replace(/\b(?:got|arrived|went)\s+to\b[^,.;]*(?:,|;|\.)?\s*/i, "")
+    .replace(/\ball\s+fine,?\s*/i, "")
+    .replace(/\babout\s+leaving,?\s*/i, "")
+    .replace(/\b(?:we\s+)?notice(?:d)?\s+(?:that\s+)?/i, "")
+    .replace(/\blocked\s+up\b.*$/i, "")
+    .replace(/\blocked\s+the\s+door\b.*$/i, "")
+    .replace(/\s+/g, " ")
+    .replace(/[.;,\s]+$/g, "")
+    .trim();
+  return cleaned.length > 220 ? `${cleaned.slice(0, 217).trim()}...` : cleaned;
 }
 
 export function deterministicTaskPlan(note: string, vulnerable: boolean): TaskSuggestion[] {
@@ -79,13 +131,18 @@ export function deterministicTaskPlan(note: string, vulnerable: boolean): TaskSu
   const selected = matches.length ? matches : [{ category: "Home safety inspection", terms: [] }];
   return selected.map((rule) => ({
     category: rule.category,
-    summary: taskSummaryForCategory(rule.category),
+    summary: taskSummaryForCategory(rule.category, note),
     urgency,
     safeguardingApplies: vulnerable
   }));
 }
 
 export async function createTaskPlan(note: string, vulnerable: boolean) {
+  if (config.openaiApiKey) {
+    const openai = await createOpenAiTaskPlan(note, vulnerable);
+    const processed = postProcessSuggestions(note, openai);
+    if (processed.length) return processed;
+  }
   if (config.googleGeminiApiKey) {
     const gemini = await createGeminiTaskPlan(note, vulnerable);
     const processed = postProcessSuggestions(note, gemini);
@@ -109,23 +166,66 @@ export async function createTaskPlan(note: string, vulnerable: boolean) {
   return postProcessSuggestions(note, plannerResponseSchema.parse(await response.json()).suggestions);
 }
 
-async function createGeminiTaskPlan(note: string, vulnerable: boolean) {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.googleGeminiModel)}:generateContent?key=${encodeURIComponent(config.googleGeminiApiKey)}`;
-  const prompt = [
+function taskPlannerPrompt(note: string, vulnerable: boolean) {
+  return [
     "You are TaskBridge's care-note safety task planner for UK homecare operations.",
-    "Return only valid JSON matching this exact shape:",
-    '{"suggestions":[{"category":"string","summary":"string","urgency":"low|medium|high|urgent","safeguardingApplies":true}]}',
+    "Return only JSON matching the requested schema.",
     "Rules:",
-    "- Split a note into separate practical home-safety tasks when it contains more than one issue.",
+    "- Create tasks only from explicit practical hazards or repairs in the care note.",
+    "- Do not infer a task from access actions such as locked the door, secured the key, got the key, or put the key in the keysafe.",
+    "- Do not infer seasonal risk from substrings inside other words; for example notice is not ice.",
+    "- Make every summary explicit: name the actual object and issue from the note, such as socket blown out or living-area bulb blown out.",
+    "- Split separate practical issues into separate tasks only when the note clearly describes separate hazards.",
     "- Keep summaries free of keysafe codes, entry codes, phone numbers, and unnecessary resident personal data.",
-    "- Treat keysafe codes, spare-key locations, and access instructions as encrypted access information, not as a work task.",
+    "- Treat keysafe codes, spare-key locations, and access instructions as coordinator-entered access information, not as a work task.",
     "- Create a Key safe and lock safety task only when the note says the keysafe, lock, door access, or thumbturn is broken, unsafe, stuck, damaged, or needs checking/repair.",
-    "- Use only practical low-risk home support categories unless the note clearly requires escalation.",
+    "- Use only the allowed categories.",
     "- Mark safeguardingApplies from the vulnerableAdult flag.",
     `Allowed categories: ${categoryRules.map((rule) => rule.category).join(", ")}.`,
     `vulnerableAdult: ${vulnerable}`,
     `Care note: ${note}`
   ].join("\n");
+}
+
+async function createOpenAiTaskPlan(note: string, vulnerable: boolean) {
+  const endpoint = `${config.openaiApiBaseUrl.replace(/\/$/, "")}/responses`;
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${config.openaiApiKey}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        model: config.openaiModel,
+        input: taskPlannerPrompt(note, vulnerable),
+        text: {
+          format: {
+            type: "json_schema",
+            name: "taskbridge_task_plan",
+            strict: true,
+            schema: plannerJsonSchema
+          }
+        }
+      }),
+      signal: AbortSignal.timeout(12_000)
+    });
+    if (!response.ok) return [];
+    const payload = await response.json() as {
+      output_text?: string;
+      output?: Array<{ content?: Array<{ text?: string; type?: string }> }>;
+    };
+    const text = payload.output_text || payload.output?.flatMap((item) => item.content || []).map((item) => item.text || "").join("").trim();
+    if (!text) return [];
+    return plannerResponseSchema.parse(JSON.parse(text)).suggestions;
+  } catch {
+    return [];
+  }
+}
+
+async function createGeminiTaskPlan(note: string, vulnerable: boolean) {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.googleGeminiModel)}:generateContent?key=${encodeURIComponent(config.googleGeminiApiKey)}`;
+  const prompt = taskPlannerPrompt(note, vulnerable);
   try {
     const response = await fetch(endpoint, {
       method: "POST",
@@ -154,7 +254,7 @@ export function postProcessSuggestions(note: string, suggestions: TaskSuggestion
     .filter((suggestion) => isGroundedSuggestion(note, suggestion, accessOnlyKeysafe))
     .map((suggestion) => ({
       ...suggestion,
-      summary: redactAccessInfo(suggestion.summary)
+      summary: explicitSummaryForSuggestion(note, suggestion)
     }));
   if (!redacted.length && keysafeWorkPattern.test(note)) {
     return [keysafeSafetySuggestion(note, suggestions[0]?.safeguardingApplies || false)];
@@ -170,6 +270,12 @@ function isGroundedSuggestion(note: string, suggestion: TaskSuggestion, accessOn
   if (/seasonal\s+safety/i.test(suggestion.category) && !categoryHasTerm("Seasonal safety checks", taskNote)) return false;
   if (/appliance\s+safety/i.test(suggestion.category) && !categoryHasTerm("Appliance safety checks", taskNote)) return false;
   return true;
+}
+
+function explicitSummaryForSuggestion(note: string, suggestion: TaskSuggestion) {
+  const groundedSummary = taskSummaryForCategory(suggestion.category, note);
+  if (!/care-team home safety observation/i.test(groundedSummary)) return groundedSummary;
+  return redactAccessInfo(suggestion.summary);
 }
 
 function categoryHasTerm(category: string, note: string) {
@@ -191,7 +297,7 @@ function mergeGroundedSuggestions(note: string, suggestions: TaskSuggestion[]) {
 function keysafeSafetySuggestion(note: string, vulnerable: boolean): TaskSuggestion {
   return {
     category: "Key safe and lock safety",
-    summary: taskSummaryForCategory("Key safe and lock safety"),
+    summary: taskSummaryForCategory("Key safe and lock safety", note),
     urgency: inferredUrgency(note),
     safeguardingApplies: vulnerable
   };
