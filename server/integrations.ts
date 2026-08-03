@@ -90,6 +90,8 @@ function pickProviderSessionId(payload: JsonRecord) {
     "applicant_reference",
     "id",
     "data.id",
+    "data.application.id",
+    "application.id",
     "data.session_id",
     "data.session.id",
     "session.id",
@@ -124,6 +126,9 @@ export function normalizeDbsProviderCallback(body: JsonRecord): NormalizedDbsCal
     "data.status",
     "data.outcome",
     "data.result",
+    "data.application.status",
+    "data.application.outcome",
+    "data.application.result",
     "data.session.status",
     "data.session.outcome",
     "session.status",
@@ -138,21 +143,34 @@ export function normalizeDbsProviderCallback(body: JsonRecord): NormalizedDbsCal
     "expires_at",
     "data.expiry_date",
     "data.expires_at",
+    "data.application.expiry_date",
+    "data.application.expires_at",
     "data.session.expiry_date",
     "session.expiry_date",
     "check.expiry_date"
   ])) || (status === "approved" ? defaultDbsExpiryDate() : null);
 
   const eventType = asString(readPath(body, ["event", "event_type", "type", "data.event", "data.type"])) || "dbs.callback";
-  const outcome = asString(readPath(body, ["outcome", "result", "message", "data.outcome", "data.result", "data.message", "session.outcome"])) || null;
+  const outcome = asString(readPath(body, [
+    "outcome",
+    "result",
+    "message",
+    "data.outcome",
+    "data.result",
+    "data.message",
+    "data.application.outcome",
+    "data.application.result",
+    "data.application.message",
+    "session.outcome"
+  ])) || null;
   const evidenceReference = asString(readPath(body, [
     "evidenceReference",
     "evidence_reference",
     "certificate_reference",
     "data.evidence_reference",
     "data.certificate_reference",
-    "data.session.report_url",
-    "session.report_url",
+    "data.application.evidence_reference",
+    "data.application.certificate_reference",
     "report_url"
   ])) || providerSessionId;
 
@@ -173,9 +191,9 @@ function normalizeDbsSessionResponse(provider: string, payload: JsonRecord): Dbs
       "application.id",
       "result.application_id"
     ])),
-    status: normaliseStatus(readPath(payload, ["status", "data.status", "session.status"])) === "unclear"
+    status: normaliseStatus(readPath(payload, ["status", "data.status", "data.application.status", "session.status"])) === "unclear"
       ? "pending"
-      : normaliseStatus(readPath(payload, ["status", "data.status", "session.status"])),
+      : normaliseStatus(readPath(payload, ["status", "data.status", "data.application.status", "session.status"])),
     invitationUrl: pickInvitationUrl(payload),
     raw: payload
   };
@@ -207,46 +225,8 @@ function ddcApplicationPayload(input: StartDbsVerificationInput) {
   };
 }
 
-function amiqusSessionPayload(input: StartDbsVerificationInput) {
-  const checks = [
-    {
-      type: input.checkType,
-      ...(config.amiqusEnhancedDbsFlowId ? { workflow_id: config.amiqusEnhancedDbsFlowId } : {})
-    }
-  ];
-  return {
-    type: input.checkType,
-    reference: `taskbridge-${input.handymanId}`,
-    candidate: {
-      external_id: input.handymanId,
-      name: input.fullName,
-      email: input.email || undefined,
-      mobile: input.mobile || undefined
-    },
-    checks,
-    callback_url: input.callbackUrl,
-    webhook_url: input.callbackUrl,
-    metadata: {
-      taskbridgeHandymanId: input.handymanId,
-      requestedCheck: input.checkType,
-      source: "taskbridge"
-    }
-  };
-}
-
 export async function startDbsVerification(input: StartDbsVerificationInput): Promise<DbsProviderSession> {
   const provider = config.dbsProviderKind.toLowerCase();
-  if (provider === "amiqus") {
-    if (!config.amiqusApiKey) throw new Error("Amiqus API key is not configured");
-    const baseUrl = config.amiqusApiUrl.replace(/\/$/, "");
-    const response = await providerPost(`${baseUrl}/v1/sessions`, config.amiqusApiKey, amiqusSessionPayload(input), {
-      "idempotency-key": `taskbridge-dbs-${input.handymanId}-${Date.now()}`
-    });
-    const session = normalizeDbsSessionResponse("amiqus", response);
-    if (!session.providerSessionId) throw new Error("Amiqus did not return a session identifier");
-    return session;
-  }
-
   if (provider === "ddc") {
     if (!config.ddcApiBaseUrl || !config.ddcApiToken) throw new Error("DDC API base URL and token are not configured");
     const baseUrl = config.ddcApiBaseUrl.replace(/\/$/, "");
@@ -330,6 +310,93 @@ export async function sendSecureVisitLink(payload: JsonRecord) {
   return providerPost(config.smsProviderApiUrl, config.smsProviderApiKey, payload);
 }
 
+export async function sendHandymanOnboardingSms(input: {
+  mobile: string | null | undefined;
+  fullName: string;
+  invitationUrl: string;
+  expiresAt: string;
+}) {
+  const mobile = String(input.mobile || "").trim();
+  if (!mobile) return { status: "not_configured" as const, provider: "none", providerMessageId: null };
+  const expiry = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/London" })
+    .format(new Date(input.expiresAt));
+  const body = `TaskBridge: You are invited to complete your handyman onboarding. Use this secure link before ${expiry}: ${input.invitationUrl}`;
+  if (config.twilioAccountSid && config.twilioAuthToken && config.twilioFromNumber) {
+    try {
+      const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${config.twilioAccountSid}/Messages.json`, {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${Buffer.from(`${config.twilioAccountSid}:${config.twilioAuthToken}`).toString("base64")}`,
+          "content-type": "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({
+          From: config.twilioFromNumber,
+          To: mobile,
+          Body: body,
+          ...(config.twilioStatusCallbackUrl ? { StatusCallback: config.twilioStatusCallbackUrl } : {})
+        }),
+        signal: AbortSignal.timeout(15_000)
+      });
+      if (!response.ok) return { status: "failed" as const, provider: "twilio", providerMessageId: null };
+      const result = await response.json() as { sid?: string; status?: string };
+      return { status: result.status || "queued", provider: "twilio", providerMessageId: result.sid || null };
+    } catch {
+      return { status: "failed" as const, provider: "twilio", providerMessageId: null };
+    }
+  }
+  if (!config.smsProviderApiUrl) return { status: "not_configured" as const, provider: "none", providerMessageId: null };
+  return providerPost(config.smsProviderApiUrl, config.smsProviderApiKey, { ...input, mobile, body });
+}
+
+export function familyPaymentSmsBody(input: {
+  payerName?: string | null;
+  taskPublicId: string;
+  amount: number;
+  currency: string;
+  paymentUrl: string;
+}) {
+  const greeting = input.payerName?.trim() ? `Hello ${input.payerName.trim()}, ` : "";
+  return `${greeting}TaskBridge payment request for approved home-safety work ${input.taskPublicId}: ${input.currency.toUpperCase()} ${input.amount.toFixed(2)}. Pay securely by card: ${input.paymentUrl}`;
+}
+
+export async function sendFamilyPaymentSms(input: {
+  mobile: string | null | undefined;
+  payerName?: string | null;
+  taskPublicId: string;
+  amount: number;
+  currency: string;
+  paymentUrl: string;
+}) {
+  const mobile = String(input.mobile || "").trim();
+  if (!mobile) return { status: "not_configured" as const, provider: "none", providerMessageId: null };
+  const body = familyPaymentSmsBody(input);
+  if (config.twilioAccountSid && config.twilioAuthToken && config.twilioFromNumber) {
+    try {
+      const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${config.twilioAccountSid}/Messages.json`, {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${Buffer.from(`${config.twilioAccountSid}:${config.twilioAuthToken}`).toString("base64")}`,
+          "content-type": "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({
+          From: config.twilioFromNumber,
+          To: mobile,
+          Body: body,
+          ...(config.twilioStatusCallbackUrl ? { StatusCallback: config.twilioStatusCallbackUrl } : {})
+        }),
+        signal: AbortSignal.timeout(15_000)
+      });
+      if (!response.ok) return { status: "failed" as const, provider: "twilio", providerMessageId: null };
+      const result = await response.json() as { sid?: string; status?: string };
+      return { status: result.status || "queued", provider: "twilio", providerMessageId: result.sid || null };
+    } catch {
+      return { status: "failed" as const, provider: "twilio", providerMessageId: null };
+    }
+  }
+  if (!config.smsProviderApiUrl) return { status: "not_configured" as const, provider: "none", providerMessageId: null };
+  return providerPost(config.smsProviderApiUrl, config.smsProviderApiKey, { ...input, mobile, body });
+}
+
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;",
@@ -345,6 +412,37 @@ function emailAddressFromHeader(value: string) {
   return (match?.[1] || value).trim();
 }
 
+let cachedZohoAccessToken: { token: string; expiresAt: number } | null = null;
+
+async function getZohoAccessToken() {
+  if (cachedZohoAccessToken && cachedZohoAccessToken.expiresAt > Date.now() + 60_000) {
+    return cachedZohoAccessToken.token;
+  }
+  if (config.zohoRefreshToken && config.zohoClientId && config.zohoClientSecret) {
+    const baseUrl = config.zohoAccountsBaseUrl.replace(/\/$/, "");
+    const response = await fetch(`${baseUrl}/oauth/v2/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        refresh_token: config.zohoRefreshToken,
+        grant_type: "refresh_token",
+        client_id: config.zohoClientId,
+        client_secret: config.zohoClientSecret
+      }),
+      signal: AbortSignal.timeout(15_000)
+    });
+    if (!response.ok) throw new Error(`Zoho token refresh failed with status ${response.status}`);
+    const payload = await response.json() as { access_token?: string; expires_in?: number };
+    if (!payload.access_token) throw new Error("Zoho token refresh did not return an access token");
+    cachedZohoAccessToken = {
+      token: payload.access_token,
+      expiresAt: Date.now() + Math.max(Number(payload.expires_in || 3600) - 120, 60) * 1000
+    };
+    return cachedZohoAccessToken.token;
+  }
+  return config.zohoMailOAuthToken;
+}
+
 export async function sendHandymanOnboardingInvite(input: {
   email: string;
   fullName: string;
@@ -357,25 +455,27 @@ export async function sendHandymanOnboardingInvite(input: {
     .format(new Date(input.expiresAt));
   return sendEmail({
     to: input.email,
-    subject: "Complete your TaskBridge handyman registration",
-    text: `Hello ${input.fullName},\n\nTaskBridge has invited you to complete secure handyman registration. Open this one-use link before ${expiry}:\n${input.invitationUrl}\n\nYou will need proof of identity, public liability insurance and any DBS evidence you already hold. Enhanced DBS is reviewed only where the role is legally eligible.`,
-    html: `<p>Hello ${safeName},</p><p>TaskBridge has invited you to complete secure handyman registration.</p><p><a href="${safeUrl}">Complete your registration</a></p><p>This one-use link expires on ${escapeHtml(expiry)}. You will need proof of identity, public liability insurance and any DBS evidence you already hold. Enhanced DBS is reviewed only where the role is legally eligible.</p>`
+    subject: "Your TaskBridge handyman onboarding invite",
+    text: `Hello ${input.fullName},\n\nThank you for your interest in joining TaskBridge.\n\nWe have reviewed your application and would like you to complete the next stage of handyman onboarding. Use this secure one-use link before ${expiry}:\n${input.invitationUrl}\n\nWhat you will need:\n- Proof of identity\n- Public liability insurance details\n- Any DBS evidence you already hold\n- Trade or business details where relevant\n\nEnhanced DBS evidence is reviewed only where the role is legally eligible.\n\nTaskBridge Support`,
+    html: `<div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827"><p>Hello ${safeName},</p><p>Thank you for your interest in joining <strong>TaskBridge</strong>.</p><p>We have reviewed your application and would like you to complete the next stage of handyman onboarding.</p><p><a href="${safeUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:6px;font-weight:700">Complete handyman onboarding</a></p><p>This secure one-use link expires on <strong>${escapeHtml(expiry)}</strong>.</p><p>Please have these ready:</p><ul><li>Proof of identity</li><li>Public liability insurance details</li><li>Any DBS evidence you already hold</li><li>Trade or business details where relevant</li></ul><p>Enhanced DBS evidence is reviewed only where the role is legally eligible.</p><p>TaskBridge Support</p></div>`
   });
 }
 
 async function sendEmail(input: { to: string; subject: string; text: string; html: string }) {
   const provider = config.emailProviderKind.toLowerCase();
   if (provider === "zoho") {
-    if (!config.zohoMailAccountId || !config.zohoMailOAuthToken || !config.emailFromAddress) {
+    if (!config.zohoMailAccountId || !config.emailFromAddress ||
+        (!config.zohoMailOAuthToken && (!config.zohoRefreshToken || !config.zohoClientId || !config.zohoClientSecret))) {
       return { status: "not_configured" as const, providerMessageId: null };
     }
     try {
+      const accessToken = await getZohoAccessToken();
       const baseUrl = config.zohoMailApiBaseUrl.replace(/\/$/, "");
       const response = await fetch(`${baseUrl}/api/accounts/${encodeURIComponent(config.zohoMailAccountId)}/messages`, {
         method: "POST",
         headers: {
           "accept": "application/json",
-          "authorization": `Zoho-oauthtoken ${config.zohoMailOAuthToken}`,
+          "authorization": `Zoho-oauthtoken ${accessToken}`,
           "content-type": "application/json"
         },
         body: JSON.stringify({

@@ -2,8 +2,10 @@ import { Router } from "express";
 import { z } from "zod";
 import { audit } from "../audit.js";
 import { asyncHandler } from "../async-handler.js";
+import { config } from "../config.js";
 import { query, withTransaction } from "../db.js";
 import { decryptField, hashToken } from "../security.js";
+import { createStripeCheckoutSession, retrieveStripeCheckoutSession, stripeConfigured } from "../stripe.js";
 
 const confirmPaymentSchema = z.object({
   payerName: z.string().trim().min(2).max(160),
@@ -17,11 +19,11 @@ familyRouter.get("/payments/:token", asyncHandler(async (req, res) => {
   const result = await query<{
     id: string; task_public_id: string; agency_name: string; encrypted_name: string;
     category: string; summary: string; amount: string; currency: string; status: string;
-    payer_email: string; payer_name: string | null; expires_at: string;
+    payer_email: string; payer_name: string | null; expires_at: string; provider: string;
   }>(
     `SELECT s.id::text, t.public_id AS task_public_id, ag.name AS agency_name,
             su.encrypted_name, t.category, t.summary, s.amount::text, s.currency,
-            s.status, s.payer_email::text, s.payer_name, s.expires_at::text
+            s.status, s.payer_email::text, s.payer_name, s.expires_at::text, s.provider
      FROM billing.family_payment_sessions s
      JOIN ops.tasks t ON t.id = s.task_id
      JOIN tenant.agencies ag ON ag.id = s.agency_id
@@ -48,13 +50,71 @@ familyRouter.get("/payments/:token", asyncHandler(async (req, res) => {
       amount: Number(session.amount),
       currency: session.currency,
       status: session.status === "created" ? "opened" : session.status,
+      provider: session.provider,
+      stripeEnabled: stripeConfigured(),
       payerEmail: session.payer_email,
       payerName: session.payer_name
     }
   });
 }));
 
+familyRouter.post("/payments/:token/checkout", asyncHandler(async (req, res) => {
+  if (!stripeConfigured()) return res.status(503).json({ error: "Stripe Checkout is not configured yet" });
+  const tokenHash = hashToken(req.params.token);
+  const session = await withTransaction(null, async (client) => {
+    const result = await client.query<{
+      id: string; task_id: string; task_public_id: string; payer_email: string;
+      amount: string; currency: string; status: string; expires_at: string; category: string; summary: string;
+      provider: string; provider_session_id: string | null;
+    }>(
+      `SELECT s.id::text, s.task_id::text, t.public_id AS task_public_id, s.payer_email::text,
+              s.amount::text, s.currency, s.status, s.expires_at::text, t.category, t.summary,
+              s.provider,
+              s.provider_session_id
+       FROM billing.family_payment_sessions s
+       JOIN ops.tasks t ON t.id = s.task_id
+       WHERE s.token_hash = $1 FOR UPDATE`,
+      [tokenHash]
+    );
+    const row = result.rows[0];
+    if (!row) return { status: 404, error: "Payment link not found" } as const;
+    if (row.status === "paid") return { status: 409, error: "This payment has already been completed" } as const;
+    if (row.provider === "stripe" && row.provider_session_id) return { status: 200, existingStripeSessionId: row.provider_session_id } as const;
+    if (new Date(row.expires_at).getTime() < Date.now()) {
+      await client.query("UPDATE billing.family_payment_sessions SET status = 'expired' WHERE id = $1", [row.id]);
+      return { status: 410, error: "Payment link has expired" } as const;
+    }
+    return { status: 200, row } as const;
+  });
+  if ("error" in session) return res.status(session.status).json({ error: session.error });
+  if ("existingStripeSessionId" in session && typeof session.existingStripeSessionId === "string") {
+    const checkout = await retrieveStripeCheckoutSession(session.existingStripeSessionId);
+    return res.json({ checkoutUrl: checkout.url });
+  }
+  const amountPence = Math.round(Number(session.row.amount) * 100);
+  if (!Number.isFinite(amountPence) || amountPence < 50) return res.status(422).json({ error: "Payment amount is invalid" });
+  const checkout = await createStripeCheckoutSession({
+    amountPence,
+    currency: session.row.currency,
+    customerEmail: session.row.payer_email,
+    taskPublicId: session.row.task_public_id,
+    taskId: session.row.task_id,
+    sessionId: session.row.id,
+    token: req.params.token,
+    description: `${session.row.category}: ${session.row.summary}`
+  });
+  await query(
+    `UPDATE billing.family_payment_sessions
+     SET provider = 'stripe', provider_session_id = $2, status = 'opened'
+     WHERE id = $1 AND status IN ('created', 'opened')`,
+    [session.row.id, checkout.id]
+  );
+  await audit(req, "family.payment.checkout_created", "task", session.row.task_id, { provider: "stripe", checkoutSessionId: checkout.id });
+  res.json({ checkoutUrl: checkout.url });
+}));
+
 familyRouter.post("/payments/:token/confirm", asyncHandler(async (req, res) => {
+  if (config.stripeSecretKey) return res.status(409).json({ error: "Card payments must be completed through Stripe Checkout" });
   const parsed = confirmPaymentSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Payment confirmation is invalid" });
   const tokenHash = hashToken(req.params.token);

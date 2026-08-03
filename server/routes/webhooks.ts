@@ -6,6 +6,7 @@ import { config } from "../config.js";
 import { query, withTransaction } from "../db.js";
 import { normalizeDbsProviderCallback } from "../integrations.js";
 import { decryptField, encryptField, hashToken, publicId } from "../security.js";
+import { assertStripeCheckoutMatchesPayment, isCheckoutCompletedSession, verifyStripeWebhook } from "../stripe.js";
 import { createTaskPlan } from "../task-planner.js";
 
 const incomingTaskSchema = z.object({
@@ -25,6 +26,29 @@ const dbsCallbackSchema = z.object({
 });
 
 export const webhookRouter = Router();
+
+webhookRouter.post("/stripe", async (req, res) => {
+  let event;
+  try {
+    event = verifyStripeWebhook(req.rawBody || Buffer.alloc(0), req.get("stripe-signature"));
+  } catch (error) {
+    return res.status((error as { statusCode?: number }).statusCode || 400).json({
+      error: error instanceof Error ? error.message : "Stripe webhook verification failed"
+    });
+  }
+
+  if (event.type === "checkout.session.completed") {
+    if (!isCheckoutCompletedSession(event.data.object)) return res.status(422).json({ error: "Stripe checkout session payload is invalid" });
+    try {
+      await processStripeCheckoutCompleted(event.data.object);
+    } catch (error) {
+      return res.status((error as { statusCode?: number }).statusCode || 500).json({
+        error: error instanceof Error ? error.message : "Stripe checkout processing failed"
+      });
+    }
+  }
+  res.json({ received: true });
+});
 
 webhookRouter.post("/care-platforms/:provider", async (req, res) => {
   const provider = parseCarePlatformProvider(req.params.provider);
@@ -342,6 +366,83 @@ async function logCarePlatformFailure(
   );
 }
 
+async function processStripeCheckoutCompleted(session: import("../stripe.js").StripeCheckoutCompletedSession) {
+  if (session.payment_status !== "paid") return;
+  const sessionId = session.metadata?.familyPaymentSessionId || "";
+  await withTransaction(null, async (client) => {
+    const result = await client.query<{
+      id: string; task_id: string; agency_id: string; amount: string; currency: string;
+      status: string; provider_session_id: string | null;
+    }>(
+      `SELECT id::text, task_id::text, agency_id::text, amount::text, currency, status, provider_session_id
+       FROM billing.family_payment_sessions
+       WHERE provider = 'stripe' AND (provider_session_id = $1 OR id::text = $2)
+       FOR UPDATE`,
+      [session.id, sessionId]
+    );
+    const row = result.rows[0];
+    if (!row) throw Object.assign(new Error("Stripe payment session was not found"), { statusCode: 404 });
+    if (row.status === "paid") return;
+    assertStripeCheckoutMatchesPayment(session, row);
+    await client.query(
+      `UPDATE billing.family_payment_sessions
+       SET status = 'paid', provider = 'stripe', provider_session_id = $2,
+           payer_name = COALESCE($3, payer_name), paid_at = clock_timestamp()
+       WHERE id = $1`,
+      [row.id, session.id, session.customer_details?.name || null]
+    );
+    await client.query(
+      `UPDATE ops.tasks
+       SET payment_status = 'family_paid', updated_at = clock_timestamp()
+       WHERE id = $1 AND payment_route = 'family_representative'`,
+      [row.task_id]
+    );
+    await client.query(
+      `INSERT INTO ops.task_status_events
+        (task_id, agency_id, previous_status, new_status, reason, metadata)
+       SELECT id, agency_id, status, status, 'Family payment confirmed by Stripe Checkout', $2
+       FROM ops.tasks WHERE id = $1`,
+      [row.task_id, {
+        paymentSessionId: row.id,
+        stripeCheckoutSessionId: session.id,
+        stripePaymentIntentId: session.payment_intent || null
+      }]
+    );
+    await client.query(
+      `INSERT INTO audit.audit_logs (action, entity_type, entity_id, metadata)
+       VALUES ('stripe.checkout.completed', 'task', $1, $2)`,
+      [row.task_id, {
+        paymentSessionId: row.id,
+        stripeCheckoutSessionId: session.id,
+        amountTotal: session.amount_total,
+        currency: session.currency
+      }]
+    );
+  });
+}
+
+async function recalculateTraderActivation(traderId: string) {
+  const eligibility = await query<{ eligible: boolean }>(
+    `SELECT
+       EXISTS (
+         SELECT 1 FROM trader.onboarding_documents
+         WHERE trader_id = $1 AND document_type = 'identity' AND review_status = 'approved'
+       )
+       AND EXISTS (
+         SELECT 1 FROM trader.insurance_records
+         WHERE trader_id = $1 AND status = 'verified' AND expiry_date >= current_date
+       )
+       AND EXISTS (
+         SELECT 1 FROM trader.dbs_verifications
+         WHERE trader_id = $1 AND status = 'approved' AND expiry_date >= current_date
+       ) AS eligible`,
+    [traderId]
+  );
+  const active = Boolean(eligibility.rows[0]?.eligible);
+  await query("UPDATE trader.traders SET status = $2 WHERE id = $1", [traderId, active ? "active" : "inactive"]);
+  return active;
+}
+
 async function handleDbsCallback(req: Request, res: Response) {
   if (!config.dbsWebhookSecret) return res.status(503).json({ error: "DBS webhook secret is not configured" });
   const signature = req.get("x-taskbridge-signature") || req.get("x-ddc-signature") || req.get("x-amiqus-signature") || req.get("x-signature") || "";
@@ -379,16 +480,18 @@ async function handleDbsCallback(req: Request, res: Response) {
     ]
   );
   if (!result.rows[0]) return res.status(404).json({ error: "DBS verification session was not found" });
+  const traderActive = await recalculateTraderActivation(result.rows[0].trader_id);
   await query(
     `INSERT INTO audit.audit_logs (action, entity_type, entity_id, metadata)
      VALUES ('dbs.callback.received', 'trader', $1, $2)`,
     [result.rows[0].trader_id, {
       providerSessionId: normalized.providerSessionId,
       status: normalized.status,
-      eventType: normalized.eventType
+      eventType: normalized.eventType,
+      traderActive
     }]
   );
-  res.json({ accepted: true });
+  res.json({ accepted: true, traderActive });
 }
 
 webhookRouter.post("/dbs-callback", handleDbsCallback);

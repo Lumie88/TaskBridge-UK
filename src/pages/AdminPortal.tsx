@@ -37,6 +37,7 @@ interface AdminDashboard {
   traders: Record<string, number>;
   integrationFailures: number;
   demoRequests: number;
+  handymanJoinRequests: number;
   paymentHolds: number;
 }
 
@@ -80,6 +81,14 @@ interface Trader {
   onboardingStatus: string;
   invitationExpiresAt: string | null;
   emailDeliveryStatus: string | null;
+  businessName: string | null;
+  tradingStatus: string;
+  companyRegistrationNumber: string | null;
+  vatNumber: string | null;
+  leadId: string | null;
+  leadStatus: string | null;
+  leadCreatedAt: string | null;
+  leadMessage: string | null;
   services: string[];
 }
 
@@ -154,6 +163,40 @@ interface DemoRequest {
   createdAt: string;
 }
 
+interface HandymanJoinRequest {
+  id: string;
+  fullName: string;
+  businessName: string | null;
+  tradingStatus: string;
+  companyRegistrationNumber: string | null;
+  vatNumber: string | null;
+  email: string;
+  phone: string;
+  postcode: string;
+  services: string[];
+  hasEnhancedDbs: boolean;
+  hasPublicLiability: boolean;
+  dbsRoute: string;
+  dbsEligibilityNotes: string | null;
+  message: string | null;
+  status: string;
+  source: string;
+  traderId: string | null;
+  traderStatus: string | null;
+  onboardingStatus: string | null;
+  emailDeliveryStatus: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface HandymanInviteResult {
+  fullName: string;
+  invitationUrl: string;
+  expiresAt: string;
+  emailDeliveryStatus: string;
+  smsDeliveryStatus?: string;
+}
+
 interface BillingCharge {
   id: string;
   taskId: string;
@@ -225,6 +268,7 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
   const [integrationFailures, setIntegrationFailures] = useState<IntegrationFailure[]>([]);
   const [providerStatuses, setProviderStatuses] = useState<CarePlatformProviderStatus[]>([]);
   const [demoRequests, setDemoRequests] = useState<DemoRequest[]>([]);
+  const [handymanJoinRequests, setHandymanJoinRequests] = useState<HandymanJoinRequest[]>([]);
   const [billingCharges, setBillingCharges] = useState<BillingCharge[]>([]);
   const [invoices, setInvoices] = useState<AdminInvoice[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -238,7 +282,7 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
     setLoading(true);
     setError("");
     try {
-      const [summary, taskResult, traderResult, agencyResult, accessResult, integrationResult, providerResult, demoResult, billingResult, invoiceResult, incidentResult] = await Promise.all([
+      const [summary, taskResult, traderResult, agencyResult, accessResult, integrationResult, providerResult, demoResult, handymanJoinResult, billingResult, invoiceResult, incidentResult] = await Promise.all([
         api<AdminDashboard>("/api/admin/dashboard"),
         api<{ tasks: AdminTask[] }>("/api/admin/tasks"),
         api<{ traders: Trader[] }>("/api/admin/traders"),
@@ -247,6 +291,7 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
         api<{ failures: IntegrationFailure[] }>("/api/admin/integrations/failures"),
         user.role === "taskbridge_super_admin" ? api<{ providers: CarePlatformProviderStatus[] }>("/api/admin/integrations/providers/status") : Promise.resolve({ providers: [] }),
         api<{ requests: DemoRequest[] }>("/api/admin/demo-requests"),
+        api<{ requests: HandymanJoinRequest[] }>("/api/admin/handyman-join-requests"),
         api<{ charges: BillingCharge[] }>("/api/admin/billing/task-charges"),
         api<{ invoices: AdminInvoice[] }>("/api/admin/billing/invoices"),
         api<{ incidents: Incident[] }>("/api/admin/incidents")
@@ -256,6 +301,7 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
       setIntegrationFailures(integrationResult.failures);
       setProviderStatuses(providerResult.providers);
       setDemoRequests(demoResult.requests);
+      setHandymanJoinRequests(handymanJoinResult.requests);
       setBillingCharges(billingResult.charges);
       setInvoices(invoiceResult.invoices);
       setIncidents(incidentResult.incidents);
@@ -267,12 +313,40 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
   useEffect(() => { void load(); }, []);
 
   function openOperationalView(view: string, filter = "all") {
+    if (view === "handyman-join-requests") {
+      setTraderFilter("leads");
+      setActive("traders");
+      return;
+    }
+    if (view === "incidents") {
+      setTaskFilter("incidents");
+      setActive("tasks");
+      return;
+    }
+    if (view === "access") {
+      setActive("access");
+      return;
+    }
     if (view === "tasks") taskFilter !== filter && setTaskFilter(filter);
     if (view === "traders") traderFilter !== filter && setTraderFilter(filter);
     setActive(view);
   }
 
   function changeActive(view: string) {
+    if (view === "handyman-join-requests") {
+      setTraderFilter("leads");
+      setActive("traders");
+      return;
+    }
+    if (view === "incidents") {
+      setTaskFilter("incidents");
+      setActive("tasks");
+      return;
+    }
+    if (view === "access") {
+      setActive("access");
+      return;
+    }
     if (view === "tasks") setTaskFilter("all");
     if (view === "traders") setTraderFilter("all");
     setActive(view);
@@ -285,18 +359,16 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
       : active === "demo-requests"
         ? <DemoRequestDesk requests={demoRequests} onChanged={load} />
         : active === "tasks"
-        ? <AssignmentDesk tasks={tasks} filter={taskFilter} onFilter={setTaskFilter} selectedTask={selectedTask} onSelect={setSelectedTask} onChanged={load} />
-        : active === "incidents"
-          ? <IncidentDesk incidents={incidents} tasks={tasks} onChanged={load} />
+        ? <AssignmentDesk tasks={tasks} incidents={incidents} filter={taskFilter} onFilter={setTaskFilter} selectedTask={selectedTask} onSelect={setSelectedTask} onChanged={load} />
         : active === "integrations"
           ? <IntegrationMonitor failures={integrationFailures} providerStatuses={providerStatuses} isSuperAdmin={user.role === "taskbridge_super_admin"} onRefresh={load} />
         : active === "billing"
           ? <FinanceControls charges={billingCharges} invoices={invoices} onChanged={load} />
         : active === "agencies" && user.role === "taskbridge_super_admin"
           ? <AgencyOnboarding agencies={agencies} onChanged={load} />
-          : active === "access" && user.role === "taskbridge_super_admin"
-            ? <AccessControl currentUser={user} users={accessUsers} invitations={accessInvitations} agencies={agencies} onChanged={load} />
-          : <ComplianceHub traders={traders} filter={traderFilter} onFilter={setTraderFilter} user={user} onChanged={load} />}
+        : active === "access" && user.role === "taskbridge_super_admin"
+          ? <AccessControl currentUser={user} users={accessUsers} invitations={accessInvitations} agencies={agencies} onChanged={load} />
+          : <ComplianceHub traders={traders} joinRequests={handymanJoinRequests} filter={traderFilter} onFilter={setTraderFilter} user={user} onChanged={load} />}
   </PortalShell>;
 }
 
@@ -316,6 +388,7 @@ function AdminOverview({ dashboard, tasks, onReview, onOpenView }: {
       <MetricAdmin icon={<FileWarning />} label="DBS action needed" value={(dashboard?.traders.pending || 0) + (dashboard?.traders.unclear || 0) + (dashboard?.traders.rejected || 0) + (dashboard?.traders.not_started || 0)} tone="blue" onClick={() => onOpenView("traders", "action-needed")} />
       <MetricAdmin icon={<CircleAlert />} label="Integration failures" value={dashboard?.integrationFailures || 0} tone="red" onClick={() => onOpenView("integrations")} />
       <MetricAdmin icon={<Mail />} label="Demo follow-ups" value={dashboard?.demoRequests || 0} tone="blue" onClick={() => onOpenView("demo-requests")} />
+      <MetricAdmin icon={<Wrench />} label="Handyman" value={dashboard?.handymanJoinRequests || 0} tone="green" onClick={() => onOpenView("traders", "leads")} />
       <MetricAdmin icon={<FileWarning />} label="Payout holds" value={dashboard?.paymentHolds || 0} tone="amber" onClick={() => onOpenView("billing")} />
     </div>
     <section className="panel">
@@ -353,8 +426,9 @@ function paymentRouteDetail(task: AdminTask) {
   return "This work will be included in the care-agency invoice process.";
 }
 
-function AssignmentDesk({ tasks, filter, onFilter, selectedTask, onSelect, onChanged }: {
+function AssignmentDesk({ tasks, incidents, filter, onFilter, selectedTask, onSelect, onChanged }: {
   tasks: AdminTask[];
+  incidents: Incident[];
   filter: string;
   onFilter: (filter: string) => void;
   selectedTask: AdminTask | null;
@@ -367,16 +441,21 @@ function AssignmentDesk({ tasks, filter, onFilter, selectedTask, onSelect, onCha
     const nextTask = filteredTasks.find((task) => ["pending_taskbridge_assignment", "assignment_review"].includes(task.status)) || filteredTasks[0];
     if (nextTask) onSelect(nextTask);
   }, [filter, tasks, selectedTask?.id]);
-  return <div className="assignment-layout">
+  return <>
+  <div className="assignment-layout">
     <section>
-      <div className="page-title-row compact"><div><span className="eyebrow">Secure assignment desk</span><h1>Review and release work</h1><p>Only eligible handymen can be approved for dispatch.</p></div></div>
+      <div className="page-title-row compact"><div><span className="eyebrow">Operations</span><h1>Assignments and incidents</h1><p>Review work, release dispatches and manage operational exceptions from one place.</p></div></div>
       <nav className="task-filter-links" aria-label="Filter assignment tasks">{[
-        ["all", "All tasks"], ["awaiting", "Awaiting review"], ["in-progress", "In progress"], ["completed", "Completed"]
-      ].map(([key, label]) => <button key={key} className={filter === key ? "active" : ""} onClick={() => onFilter(key)} aria-pressed={filter === key}>{label}<span>{tasks.filter((task) => taskMatchesAdminFilter(task, key)).length}</span></button>)}</nav>
-      <div className="panel admin-task-list selectable">{filteredTasks.map((task) => <AdminTaskRow key={task.id} task={task} selected={selectedTask?.id === task.id} onSelect={() => onSelect(task)} action={<button className="button button-secondary button-small" onClick={(event) => { event.stopPropagation(); onSelect(task); }}>Review task</button>} />)}{!filteredTasks.length && <EmptyState icon={<ClipboardCheck />} title="No tasks in this view" detail="Choose another status filter to review other work." />}</div>
+        ["all", "All tasks"], ["awaiting", "Awaiting review"], ["in-progress", "In progress"], ["completed", "Completed"], ["incidents", "Incidents"]
+      ].map(([key, label]) => <button key={key} className={filter === key ? "active" : ""} onClick={() => onFilter(key)} aria-pressed={filter === key}>{label}<span>{key === "incidents" ? incidents.filter((incident) => !["resolved", "closed"].includes(incident.status)).length : tasks.filter((task) => taskMatchesAdminFilter(task, key)).length}</span></button>)}</nav>
+      {filter === "incidents"
+        ? <IncidentDesk incidents={incidents} tasks={tasks} onChanged={onChanged} embedded />
+        : <div className="panel admin-task-list selectable">{filteredTasks.map((task) => <AdminTaskRow key={task.id} task={task} selected={selectedTask?.id === task.id} onSelect={() => onSelect(task)} action={<button className="button button-secondary button-small" onClick={(event) => { event.stopPropagation(); onSelect(task); }}>Review task</button>} />)}{!filteredTasks.length && <EmptyState icon={<ClipboardCheck />} title="No tasks in this view" detail="Choose another status filter to review other work." />}</div>}
     </section>
-    <CandidatePanel task={selectedTask && filteredTasks.some((task) => task.id === selectedTask.id) ? selectedTask : null} onChanged={onChanged} />
-  </div>;
+    {filter === "incidents" ? <aside className="candidate-panel"><EmptyState icon={<FileWarning />} title="Incident mode" detail="Select another operations filter to review task candidates and dispatch decisions." /></aside> : <CandidatePanel task={selectedTask && filteredTasks.some((task) => task.id === selectedTask.id) ? selectedTask : null} onChanged={onChanged} />}
+  </div>
+  {filter !== "incidents" && incidents.some((incident) => !["resolved", "closed"].includes(incident.status)) && <section className="panel pending-access-panel"><div className="panel-heading"><div><h2>Open operational incidents</h2><p>Unresolved exceptions linked to assignment, visit evidence, safeguarding or payment disputes.</p></div><button className="button button-secondary button-small" onClick={() => onFilter("incidents")}>Open incidents</button></div><div className="agency-list">{incidents.filter((incident) => !["resolved", "closed"].includes(incident.status)).slice(0, 4).map((incident) => <article key={incident.id}><span><FileWarning size={18} /></span><div><h3>{incident.title}</h3><p>{incident.taskId || "Unlinked"} · {humanize(incident.type)}</p><small>{formatDate(incident.createdAt, true)}</small></div><StatusBadge status={incident.severity}>{humanize(incident.severity)}</StatusBadge></article>)}</div></section>}
+  </>;
 }
 
 function AdminTaskRow({ task, action, selected = false, onSelect }: { task: AdminTask; action: React.ReactNode; selected?: boolean; onSelect?: () => void }) {
@@ -431,12 +510,12 @@ function CandidatePanel({ task, onChanged }: { task: AdminTask | null; onChanged
     if (!Number.isFinite(amount) || amount <= 0) return;
     setPaymentBusy("payment-link"); setError("");
     try {
-      const result = await api<{ paymentUrl: string }>(`/api/admin/tasks/${task.id}/family-payment-link`, {
+      const result = await api<{ paymentUrl: string; smsDeliveryStatus?: string }>(`/api/admin/tasks/${task.id}/family-payment-link`, {
         method: "POST",
         body: JSON.stringify({ amount })
       });
       await navigator.clipboard.writeText(result.paymentUrl);
-      window.alert("Secure family payment link copied to clipboard.");
+      window.alert(`Secure family payment link copied to clipboard. SMS: ${humanize(result.smsDeliveryStatus || "not_configured")}.`);
       await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to create family payment link"); }
     finally { setPaymentBusy(""); }
@@ -486,7 +565,7 @@ function CandidatePanel({ task, onChanged }: { task: AdminTask | null; onChanged
   </aside>;
 }
 
-function IncidentDesk({ incidents, tasks, onChanged }: { incidents: Incident[]; tasks: AdminTask[]; onChanged: () => Promise<void> }) {
+function IncidentDesk({ incidents, tasks, onChanged, embedded = false }: { incidents: Incident[]; tasks: AdminTask[]; onChanged: () => Promise<void>; embedded?: boolean }) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   async function createIncident() {
@@ -516,7 +595,7 @@ function IncidentDesk({ incidents, tasks, onChanged }: { incidents: Incident[]; 
     finally { setBusy(""); }
   }
   return <>
-    <div className="page-title-row"><div><span className="eyebrow">Safeguarding operations</span><h1>Incident and complaint workflow</h1><p>Track failed visits, family complaints, evidence gaps, safeguarding concerns and payment disputes.</p></div><button className="button button-primary" disabled={busy === "create"} onClick={createIncident}><Plus size={17} /> New incident</button></div>
+    {embedded ? <div className="panel-heading"><div><h2>Incident and complaint workflow</h2><p>Track failed visits, family complaints, evidence gaps, safeguarding concerns and payment disputes.</p></div><button className="button button-primary" disabled={busy === "create"} onClick={createIncident}><Plus size={17} /> New incident</button></div> : <div className="page-title-row"><div><span className="eyebrow">Safeguarding operations</span><h1>Incident and complaint workflow</h1><p>Track failed visits, family complaints, evidence gaps, safeguarding concerns and payment disputes.</p></div><button className="button button-primary" disabled={busy === "create"} onClick={createIncident}><Plus size={17} /> New incident</button></div>}
     {error && <div className="alert alert-danger">{error}</div>}
     <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Incident</th><th>Task / Agency</th><th>Severity</th><th>Status</th><th>Owner</th><th>Actions</th></tr></thead><tbody>{incidents.map((incident) => <tr key={incident.id}><td><strong>{incident.title}</strong><small>{incident.publicId} · {humanize(incident.type)} · {formatDate(incident.createdAt, true)}</small><p className="table-note">{incident.description}</p></td><td><strong>{incident.taskId || "Unlinked"}</strong><small>{incident.agencyName || "Platform"}</small></td><td><StatusBadge status={incident.severity}>{humanize(incident.severity)}</StatusBadge></td><td><StatusBadge status={incident.status}>{humanize(incident.status)}</StatusBadge>{incident.resolvedAt && <small>Resolved {formatDate(incident.resolvedAt, true)}</small>}</td><td>{incident.ownerName || "TaskBridge operations"}</td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === incident.id} onClick={() => updateIncident(incident, "investigating")}>Investigate</button><button className="button button-secondary button-small" disabled={busy === incident.id} onClick={() => updateIncident(incident, "escalated")}>Escalate</button><button className="button button-secondary button-small" disabled={busy === incident.id} onClick={() => updateIncident(incident, "resolved")}>Resolve</button></div></td></tr>)}</tbody></table></div>{!incidents.length && <EmptyState icon={<FileWarning />} title="No incidents recorded" detail="Operational exceptions and complaints will appear here." />}</section>
   </>;
@@ -577,6 +656,50 @@ function DemoRequestDesk({ requests, onChanged }: { requests: DemoRequest[]; onC
   </>;
 }
 
+function HandymanJoinRequestDesk({ requests, onChanged, embedded = false }: { requests: HandymanJoinRequest[]; onChanged: () => Promise<void>; embedded?: boolean }) {
+  const [filter, setFilter] = useState("open");
+  const [busy, setBusy] = useState("");
+  const [inviteResult, setInviteResult] = useState<HandymanInviteResult | null>(null);
+  const filtered = requests.filter((item) => filter === "open" ? ["new", "reviewing"].includes(item.status) : filter === "all" ? true : item.status === filter);
+  async function update(item: HandymanJoinRequest, status: string) {
+    setBusy(item.id); setInviteResult(null);
+    try {
+      await api(`/api/admin/handyman-join-requests/${item.id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      await onChanged();
+    } finally { setBusy(""); }
+  }
+  async function invite(item: HandymanJoinRequest) {
+    if (!window.confirm(`Send a secure onboarding invitation to ${item.fullName}?`)) return;
+    setBusy(item.id); setInviteResult(null);
+    try {
+      const result = await api<Omit<HandymanInviteResult, "fullName">>(`/api/admin/handyman-join-requests/${item.id}/invite`, { method: "POST" });
+      setInviteResult({ fullName: item.fullName, ...result });
+      await onChanged();
+    } finally { setBusy(""); }
+  }
+  async function copyLeadInviteLink() {
+    if (inviteResult) await navigator.clipboard.writeText(inviteResult.invitationUrl);
+  }
+  return <>
+    {!embedded && <div className="page-title-row"><div><span className="eyebrow">Website applications</span><h1>Handyman join requests</h1><p>Review public applications before inviting suitable handymen into secure onboarding.</p></div></div>}
+    {embedded && <div className="panel-heading"><div><h2>Lead intake</h2><p>Review website applications, then invite suitable handymen into onboarding and compliance.</p></div></div>}
+    {!embedded && <nav className="task-filter-links" aria-label="Filter handyman join requests">{[["open", "Open"], ["new", "New"], ["reviewing", "Reviewing"], ["invited", "Invited"], ["declined", "Declined"], ["closed", "Closed"], ["all", "All"]].map(([key, label]) => <button key={key} className={filter === key ? "active" : ""} onClick={() => setFilter(key)}>{label}<span>{requests.filter((item) => key === "open" ? ["new", "reviewing"].includes(item.status) : key === "all" ? true : item.status === key).length}</span></button>)}</nav>}
+    <section className="panel table-panel">
+      {inviteResult && <div className={`invitation-result ${inviteResult.emailDeliveryStatus === "sent" ? "sent" : "attention"}`}><div><strong>{inviteResult.fullName} moved into onboarding</strong><span>Email: {humanize(inviteResult.emailDeliveryStatus)} / SMS: {humanize(inviteResult.smsDeliveryStatus || "not_configured")} / expires {formatDate(inviteResult.expiresAt, true)}</span></div><div className="invitation-link"><input readOnly value={inviteResult.invitationUrl} aria-label="Handyman onboarding invitation URL" /><button className="icon-button" type="button" onClick={copyLeadInviteLink} aria-label="Copy invitation link"><Copy size={18} /></button><a className="icon-button" href={inviteResult.invitationUrl} target="_blank" rel="noreferrer" aria-label="Open onboarding invitation"><ExternalLink size={18} /></a></div></div>}
+      <div className="responsive-table"><table><thead><tr><th>Applicant</th><th>Business</th><th>Contact</th><th>Services</th><th>Safeguarding</th><th>Message</th><th>Actions</th></tr></thead><tbody>{filtered.map((item) => <tr key={item.id}>
+        <td><strong>{item.fullName}</strong><small>{formatDate(item.createdAt, true)}</small><StatusBadge status={item.status}>{humanize(item.status)}</StatusBadge>{item.traderId && <small>Compliance: {humanize(item.traderStatus || "inactive")} / {humanize(item.onboardingStatus || "not_invited")}</small>}</td>
+        <td><strong>{item.businessName || "No business name"}</strong><small>{humanize(item.tradingStatus)}</small>{item.companyRegistrationNumber && <small>Company reg: {item.companyRegistrationNumber}</small>}{item.vatNumber && <small>VAT: {item.vatNumber}</small>}</td>
+        <td><strong>{item.email}</strong><small>{item.phone} · {item.postcode}</small></td>
+        <td><span className="service-summary" title={item.services.join(", ")}>{item.services.join(", ") || "No services selected"}</span></td>
+        <td><StatusBadge status={item.dbsRoute}>{humanize(item.dbsRoute)}</StatusBadge><small>{item.hasPublicLiability ? "Public liability declared" : "No public liability declared"}</small><small>{item.hasEnhancedDbs ? "Enhanced DBS declared" : "Enhanced DBS not declared"}</small></td>
+        <td><span className="integration-endpoint">{item.message || "No extra note"}</span>{item.dbsEligibilityNotes && <small>{item.dbsEligibilityNotes}</small>}</td>
+        <td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === item.id || Boolean(item.traderId)} onClick={() => update(item, "reviewing")}>Reviewing</button><button className="button button-secondary button-small" disabled={busy === item.id || item.status === "invited" || Boolean(item.traderId)} onClick={() => invite(item)}>{item.traderId ? "In compliance" : "Invite"}</button><button className="button button-secondary button-small document-reject" disabled={busy === item.id || item.status === "invited" || Boolean(item.traderId)} onClick={() => update(item, "declined")}>Decline</button><button className="button button-secondary button-small" disabled={busy === item.id} onClick={() => update(item, "closed")}>Close</button></div></td>
+      </tr>)}</tbody></table></div>
+      {!filtered.length && <EmptyState icon={<Wrench />} title="No handyman leads in this view" detail="New join form submissions will appear here." />}
+    </section>
+  </>;
+}
+
 function FinanceControls({ charges, invoices, onChanged }: { charges: BillingCharge[]; invoices: AdminInvoice[]; onChanged: () => Promise<void> }) {
   const [busy, setBusy] = useState("");
   const defaultStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
@@ -628,7 +751,7 @@ function FinanceControls({ charges, invoices, onChanged }: { charges: BillingCha
     } finally { setBusy(""); }
   }
   return <>
-    <div className="page-title-row"><div><span className="eyebrow">Pilot finance control</span><h1>Invoices, settlement and payout holds</h1><p>Generate care-agency invoice exports, track settlements and hold payouts when evidence or disputes require review.</p></div></div>
+    <div className="page-title-row"><div><span className="eyebrow">Care Agency Finance</span><h1>Invoices, settlements, disputes and payouts</h1><p>Generate care-agency invoice exports, track settlement, and hold payouts when evidence, complaints or payment disputes require review.</p></div></div>
     <section className="panel invoice-create-panel">
       <div className="panel-heading"><div><h2>Generate agency invoice export</h2><p>Create an issued invoice from uninvoiced task charges for one care agency and billing period.</p></div></div>
       <div className="invoice-create-grid">
@@ -644,15 +767,28 @@ function FinanceControls({ charges, invoices, onChanged }: { charges: BillingCha
   </>;
 }
 
-function ComplianceHub({ traders, filter, onFilter, user, onChanged }: { traders: Trader[]; filter: string; onFilter: (filter: string) => void; user: User; onChanged: () => Promise<void> }) {
+function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChanged }: { traders: Trader[]; joinRequests: HandymanJoinRequest[]; filter: string; onFilter: (filter: string) => void; user: User; onChanged: () => Promise<void> }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteResult, setInviteResult] = useState<{ invitationUrl: string; expiresAt: string; emailDeliveryStatus: string } | null>(null);
+  const [inviteResult, setInviteResult] = useState<{ invitationUrl: string; expiresAt: string; emailDeliveryStatus: string; smsDeliveryStatus?: string } | null>(null);
   const [reviewingTrader, setReviewingTrader] = useState<Trader | null>(null);
   const [documents, setDocuments] = useState<ComplianceDocument[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
-  const filteredTraders = traders.filter((trader) => filter === "approved" ? trader.dbsStatus === "approved" : filter === "action-needed" ? trader.dbsStatus !== "approved" : true);
+  const openLeads = joinRequests.filter((item) => ["new", "reviewing"].includes(item.status));
+  const invitedLeads = joinRequests.filter((item) => item.status === "invited");
+  const pendingInviteTraders = traders.filter((trader) => trader.onboardingStatus === "pending");
+  const submittedTraders = traders.filter((trader) => trader.onboardingStatus === "submitted");
+  const onboardingTraders = traders.filter((trader) => ["pending", "submitted", "not_invited"].includes(trader.onboardingStatus));
+  const actionNeededTraders = traders.filter((trader) => trader.dbsStatus !== "approved" || trader.insuranceStatus !== "verified");
+  const filteredTraders = traders.filter((trader) => {
+    if (filter === "approved") return trader.dbsStatus === "approved";
+    if (filter === "action-needed") return trader.dbsStatus !== "approved" || trader.insuranceStatus !== "verified";
+    if (filter === "onboarding") return ["pending", "submitted", "not_invited"].includes(trader.onboardingStatus);
+    if (filter === "leads") return false;
+    return true;
+  });
+  const showLeadQueue = filter === "all" || filter === "leads" || filter === "action-needed";
   async function startCheck(trader: Trader) {
     setBusy(trader.id); setError("");
     try { await api(`/api/admin/traders/${trader.id}/dbs-check`, { method: "POST" }); await onChanged(); }
@@ -719,9 +855,9 @@ function ComplianceHub({ traders, filter, onFilter, user, onChanged }: { traders
     const values = new FormData(event.currentTarget);
     setBusy("invite"); setError(""); setInviteResult(null);
     try {
-      const result = await api<{ invitationUrl: string; expiresAt: string; emailDeliveryStatus: string }>("/api/admin/traders/invitations", {
+      const result = await api<{ invitationUrl: string; expiresAt: string; emailDeliveryStatus: string; smsDeliveryStatus?: string }>("/api/admin/traders/invitations", {
         method: "POST",
-        body: JSON.stringify({ fullName: values.get("fullName"), email: values.get("email") })
+        body: JSON.stringify({ fullName: values.get("fullName"), email: values.get("email"), mobile: values.get("mobile") })
       });
       setInviteResult(result);
       event.currentTarget.reset();
@@ -740,15 +876,45 @@ function ComplianceHub({ traders, filter, onFilter, user, onChanged }: { traders
     finally { setBusy(""); }
   }
   return <>
-    <div className="page-title-row"><div><span className="eyebrow">Handyman compliance</span><h1>Verification registry</h1><p>Review offered services, DBS route, public liability insurance and supervision suitability before activation.</p></div>{user.role === "taskbridge_super_admin" && <button className="button button-primary" onClick={() => { setInviteOpen(!inviteOpen); setInviteResult(null); }}><UserPlus size={18} /> Register handyman</button>}</div>
+    <div className="page-title-row"><div><span className="eyebrow">Handyman</span><h1>Leads, onboarding and compliance</h1><p>Move a handyman from website application to invite, document review, DBS, insurance and activation in one place.</p></div>{user.role === "taskbridge_super_admin" && <button className="button button-primary" onClick={() => { setInviteOpen(!inviteOpen); setInviteResult(null); }}><UserPlus size={18} /> Register handyman</button>}</div>
     {error && <div className="alert alert-danger">{error}</div>}
     {inviteOpen && <section className="panel invite-handyman-panel">
       <div className="panel-heading"><div><h2>Register and invite a handyman</h2><p>An expiring one-use registration link will be sent to their email address.</p></div></div>
-      <form className="invite-handyman-form" onSubmit={inviteHandyman}><label>Full name<input required name="fullName" minLength={2} autoComplete="off" /></label><label>Email address<input required name="email" type="email" autoComplete="off" /></label><button className="button button-primary" disabled={busy === "invite"} type="submit">{busy === "invite" ? <><LoaderCircle className="spin" size={17} /> Sending...</> : <><Send size={17} /> Send registration link</>}</button></form>
-      {inviteResult && <div className={`invitation-result ${inviteResult.emailDeliveryStatus === "sent" ? "sent" : "attention"}`}><div><strong>{inviteResult.emailDeliveryStatus === "sent" ? "Invitation email sent" : "Invitation created; email delivery needs configuration"}</strong><span>Expires {formatDate(inviteResult.expiresAt, true)}</span></div><div className="invitation-link"><input readOnly value={inviteResult.invitationUrl} aria-label="Handyman invitation URL" /><button className="icon-button" onClick={copyInvitationLink} type="button" aria-label="Copy invitation link"><Copy size={18} /></button><a className="icon-button" href={inviteResult.invitationUrl} target="_blank" rel="noreferrer" aria-label="Open invitation"><ExternalLink size={18} /></a></div></div>}
+      <form className="invite-handyman-form" onSubmit={inviteHandyman}><label>Full name<input required name="fullName" minLength={2} autoComplete="off" /></label><label>Email address<input required name="email" type="email" autoComplete="off" /></label><label>Mobile number<input name="mobile" type="tel" placeholder="+44..." autoComplete="off" /></label><button className="button button-primary" disabled={busy === "invite"} type="submit">{busy === "invite" ? <><LoaderCircle className="spin" size={17} /> Sending...</> : <><Send size={17} /> Send registration link</>}</button></form>
+      {inviteResult && <div className={`invitation-result ${inviteResult.emailDeliveryStatus === "sent" ? "sent" : "attention"}`}><div><strong>{inviteResult.emailDeliveryStatus === "sent" ? "Invitation email sent" : "Invitation created; email delivery needs configuration"}</strong><span>SMS: {humanize(inviteResult.smsDeliveryStatus || "not_configured")} · Expires {formatDate(inviteResult.expiresAt, true)}</span></div><div className="invitation-link"><input readOnly value={inviteResult.invitationUrl} aria-label="Handyman invitation URL" /><button className="icon-button" onClick={copyInvitationLink} type="button" aria-label="Copy invitation link"><Copy size={18} /></button><a className="icon-button" href={inviteResult.invitationUrl} target="_blank" rel="noreferrer" aria-label="Open invitation"><ExternalLink size={18} /></a></div></div>}
     </section>}
-    <nav className="task-filter-links" aria-label="Filter handyman compliance">{[["all", "All handymen"], ["approved", "DBS approved"], ["action-needed", "Action needed"]].map(([key, label]) => <button key={key} className={filter === key ? "active" : ""} onClick={() => onFilter(key)} aria-pressed={filter === key}>{label}<span>{traders.filter((trader) => key === "approved" ? trader.dbsStatus === "approved" : key === "action-needed" ? trader.dbsStatus !== "approved" : true).length}</span></button>)}</nav>
-    <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Handyman</th><th>Onboarding</th><th>Services</th><th>DBS route</th><th>Insurance</th><th>Quality</th><th>Action</th></tr></thead><tbody>{filteredTraders.map((trader) => <tr key={trader.id}><td><strong>{trader.displayName}</strong><small>{trader.email || trader.network || "Direct network"}</small></td><td><StatusBadge status={trader.onboardingStatus}>{humanize(trader.onboardingStatus)}</StatusBadge><small>{trader.emailDeliveryStatus ? `Email: ${humanize(trader.emailDeliveryStatus)}` : "Marketplace record"}</small></td><td><span className="service-summary" title={trader.services.join(", ")}>{trader.services.length ? `${trader.services.slice(0, 2).join(", ")}${trader.services.length > 2 ? ` +${trader.services.length - 2}` : ""}` : "Awaiting registration"}</span></td><td><StatusBadge status={trader.dbsStatus}>{humanize(trader.dbsStatus)}</StatusBadge><small>{trader.dbsExpiryDate ? `Expires ${formatDate(trader.dbsExpiryDate)}` : dbsRouteLabel(trader)}</small>{trader.dbsOutcome && <small className="table-note">{trader.dbsOutcome}</small>}</td><td><StatusBadge status={trader.insuranceStatus}>{humanize(trader.insuranceStatus)}</StatusBadge><small>{trader.insuranceExpiryDate ? `Expires ${formatDate(trader.insuranceExpiryDate)}` : "No active expiry"}</small></td><td><span className="rating"><Star size={15} /> {trader.qualityScore}</span></td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === `passport-${trader.id}`} onClick={() => openPassport(trader)}>Passport</button><button className="button button-secondary button-small" disabled={documentsLoading && reviewingTrader?.id === trader.id} onClick={() => openDocuments(trader)}><FileCheck2 size={15} /> Review documents</button><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start DBS route</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td></tr>)}</tbody></table></div>{!filteredTraders.length && <EmptyState icon={<BadgeCheck />} title="No handymen in this view" detail="Choose another compliance filter to review the registry." />}</section>
+    <nav className="task-filter-links" aria-label="Filter handyman pipeline">{[
+      ["all", "All"],
+      ["leads", "Leads"],
+      ["onboarding", "Onboarding"],
+      ["action-needed", "Action needed"],
+      ["approved", "DBS approved"]
+    ].map(([key, label]) => <button key={key} className={filter === key ? "active" : ""} onClick={() => onFilter(key)} aria-pressed={filter === key}>{label}<span>{key === "leads" ? openLeads.length : key === "onboarding" ? onboardingTraders.length : key === "approved" ? traders.filter((trader) => trader.dbsStatus === "approved").length : key === "action-needed" ? actionNeededTraders.length + openLeads.length : traders.length + openLeads.length}</span></button>)}</nav>
+    <section className="panel compliance-stage-panel">
+      <div className="compliance-document-grid">
+        <article className="compliance-document-card"><div className="compliance-document-heading"><span><Wrench size={19} /></span><div><h3>Lead intake</h3><p>Website applications awaiting review</p></div><StatusBadge status={openLeads.length ? "pending" : "approved"}>{openLeads.length}</StatusBadge></div></article>
+        <article className="compliance-document-card"><div className="compliance-document-heading"><span><Send size={19} /></span><div><h3>Invited</h3><p>Token sent, waiting for registration</p></div><StatusBadge status="invited">{pendingInviteTraders.length || invitedLeads.length}</StatusBadge></div></article>
+        <article className="compliance-document-card"><div className="compliance-document-heading"><span><FileCheck2 size={19} /></span><div><h3>Submitted</h3><p>Documents ready for review</p></div><StatusBadge status={submittedTraders.length ? "pending" : "approved"}>{submittedTraders.length}</StatusBadge></div></article>
+        <article className="compliance-document-card"><div className="compliance-document-heading"><span><ShieldCheck size={19} /></span><div><h3>Compliance action</h3><p>DBS, identity or insurance still needs review</p></div><StatusBadge status={actionNeededTraders.length ? "pending" : "approved"}>{actionNeededTraders.length}</StatusBadge></div></article>
+      </div>
+    </section>
+    {showLeadQueue && <HandymanJoinRequestDesk requests={filter === "leads" ? joinRequests : openLeads} onChanged={onChanged} embedded />}
+    {filter !== "leads" && <>
+    <section className="panel table-panel">
+      <div className="responsive-table"><table><thead><tr><th>Handyman</th><th>Lead source</th><th>Business</th><th>Onboarding</th><th>Services</th><th>DBS route</th><th>Insurance</th><th>Quality</th><th>Action</th></tr></thead><tbody>{filteredTraders.map((trader) => <tr key={trader.id}>
+        <td><strong>{trader.displayName}</strong><small>{trader.email || trader.network || "Direct network"}</small></td>
+        <td>{trader.leadId ? <><StatusBadge status={trader.leadStatus || "invited"}>{humanize(trader.leadStatus || "invited")}</StatusBadge><small>Website lead {trader.leadCreatedAt ? formatDate(trader.leadCreatedAt, true) : ""}</small></> : <small>Manual compliance record</small>}</td>
+        <td><strong>{trader.businessName || "No business name"}</strong><small>{humanize(trader.tradingStatus || "sole_trader")}</small>{trader.companyRegistrationNumber && <small>Company reg: {trader.companyRegistrationNumber}</small>}{trader.vatNumber && <small>VAT: {trader.vatNumber}</small>}</td>
+        <td><StatusBadge status={trader.onboardingStatus}>{humanize(trader.onboardingStatus)}</StatusBadge><small>{trader.emailDeliveryStatus ? `Email: ${humanize(trader.emailDeliveryStatus)}` : "Marketplace record"}</small></td>
+        <td><span className="service-summary" title={trader.services.join(", ")}>{trader.services.length ? `${trader.services.slice(0, 2).join(", ")}${trader.services.length > 2 ? ` +${trader.services.length - 2}` : ""}` : "Awaiting registration"}</span></td>
+        <td><StatusBadge status={trader.dbsStatus}>{humanize(trader.dbsStatus)}</StatusBadge><small>{trader.dbsExpiryDate ? `Expires ${formatDate(trader.dbsExpiryDate)}` : dbsRouteLabel(trader)}</small>{trader.dbsOutcome && <small className="table-note">{trader.dbsOutcome}</small>}</td>
+        <td><StatusBadge status={trader.insuranceStatus}>{humanize(trader.insuranceStatus)}</StatusBadge><small>{trader.insuranceExpiryDate ? `Expires ${formatDate(trader.insuranceExpiryDate)}` : "No active expiry"}</small></td>
+        <td><span className="rating"><Star size={15} /> {trader.qualityScore}</span></td>
+        <td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === `passport-${trader.id}`} onClick={() => openPassport(trader)}>Passport</button><button className="button button-secondary button-small" disabled={documentsLoading && reviewingTrader?.id === trader.id} onClick={() => openDocuments(trader)}><FileCheck2 size={15} /> Review documents</button><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start DBS route</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td>
+      </tr>)}</tbody></table></div>
+      {!filteredTraders.length && <EmptyState icon={<BadgeCheck />} title="No handymen in this view" detail="Choose another compliance filter to review the registry." />}
+    </section>
+    </>}
     {reviewingTrader && <ComplianceDocumentReview trader={reviewingTrader} documents={documents} loading={documentsLoading} busy={busy} onClose={() => { setReviewingTrader(null); setDocuments([]); }} onReview={reviewDocument} />}
   </>;
 }
@@ -769,8 +935,16 @@ function ComplianceDocumentReview({ trader, documents, loading, busy, onClose, o
   onClose: () => void;
   onReview: (document: ComplianceDocument, status: "approved" | "rejected") => Promise<void>;
 }) {
+  const identity = documents.find((document) => document.documentType === "identity");
+  const insurance = documents.find((document) => document.documentType === "public_liability_insurance");
   return <section className="panel compliance-review-panel">
     <div className="panel-heading"><div><span className="eyebrow">Submitted evidence</span><h2>{trader.displayName}</h2><p>Services: {trader.services.length ? trader.services.join(", ") : "No services selected"}</p></div><button className="button button-secondary button-small" onClick={onClose}>Close</button></div>
+    {!loading && <div className="compliance-document-grid">
+      <article className="compliance-document-card"><div className="compliance-document-heading"><span><UserCheck size={19} /></span><div><h3>Identity</h3><p>Must be approved before dispatch</p></div><StatusBadge status={identity?.reviewStatus || "pending"}>{humanize(identity?.reviewStatus || "missing")}</StatusBadge></div></article>
+      <article className="compliance-document-card"><div className="compliance-document-heading"><span><ShieldCheck size={19} /></span><div><h3>Insurance</h3><p>Public liability evidence must be current</p></div><StatusBadge status={insurance?.reviewStatus || "pending"}>{humanize(insurance?.reviewStatus || "missing")}</StatusBadge></div></article>
+      <article className="compliance-document-card"><div className="compliance-document-heading"><span><BadgeCheck size={19} /></span><div><h3>DBS route</h3><p>Approve submitted evidence or record a manual DBS decision</p></div><StatusBadge status={trader.dbsStatus}>{humanize(trader.dbsStatus)}</StatusBadge></div></article>
+      <article className="compliance-document-card"><div className="compliance-document-heading"><span><FileCheck2 size={19} /></span><div><h3>Activation</h3><p>Active only after identity, insurance and DBS are approved</p></div><StatusBadge status={trader.status}>{humanize(trader.status)}</StatusBadge></div></article>
+    </div>}
     {loading ? <div className="app-loading"><LoaderCircle className="spin" /> Loading secure documents...</div> : <div className="compliance-document-grid">{documents.map((document) => <article key={document.id} className="compliance-document-card">
       <div className="compliance-document-heading"><span><FileCheck2 size={19} /></span><div><h3>{humanize(document.documentType)}</h3><p>{document.originalFilename}</p></div><StatusBadge status={document.reviewStatus}>{humanize(document.reviewStatus)}</StatusBadge></div>
       <dl><div><dt>Submitted</dt><dd>{formatDate(document.createdAt, true)}</dd></div>{document.reference && <div><dt>Reference</dt><dd>{document.reference}</dd></div>}{document.issueDate && <div><dt>Issue date</dt><dd>{formatDate(document.issueDate)}</dd></div>}{document.expiryDate && <div><dt>Expiry date</dt><dd>{formatDate(document.expiryDate)}</dd></div>}<div><dt>File size</dt><dd>{Math.max(1, Math.round(document.sizeBytes / 1024))} KB</dd></div></dl>
@@ -906,8 +1080,8 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
   </>;
 }
 
-function AccessControl({ currentUser, users, invitations, agencies, onChanged }: {
-  currentUser: User; users: AccessUser[]; invitations: AccessInvitation[]; agencies: Agency[]; onChanged: () => Promise<void>;
+function AccessControl({ currentUser, users, invitations, agencies, onChanged, embedded = false }: {
+  currentUser: User; users: AccessUser[]; invitations: AccessInvitation[]; agencies: Agency[]; onChanged: () => Promise<void>; embedded?: boolean;
 }) {
   const [role, setRole] = useState("taskbridge_admin");
   const [busy, setBusy] = useState("");
@@ -960,7 +1134,7 @@ function AccessControl({ currentUser, users, invitations, agencies, onChanged }:
   }
 
   return <>
-    <div className="page-title-row"><div><span className="eyebrow">Super-admin control</span><h1>People and privileges</h1><p>Invite staff and manage TaskBridge administrator access with a complete audit trail.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Super admin only</span></div>
+    {embedded ? <div className="page-title-row compact"><div><span className="eyebrow">Access setup</span><h1>People and privileges</h1><p>Invite care-agency users and manage TaskBridge administrator access from the onboarding workspace.</p></div></div> : <div className="page-title-row"><div><span className="eyebrow">Super-admin control</span><h1>People and privileges</h1><p>Invite staff and manage TaskBridge administrator access with a complete audit trail.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Super admin only</span></div>}
     {error && <div className="alert alert-danger">{error}</div>}
     <div className="access-control-layout">
       <section className="panel table-panel"><div className="panel-heading"><div><h2>TaskBridge administrators</h2><p>Promotion, demotion and account changes require a fresh sign-in.</p></div></div><div className="responsive-table"><table><thead><tr><th>Administrator</th><th>Role</th><th>Status</th><th>Last sign in</th><th>Actions</th></tr></thead><tbody>{taskbridgeUsers.map((entry) => <tr key={entry.id}><td><strong>{entry.full_name}</strong><small>{entry.email}</small></td><td><StatusBadge status={entry.role}>{humanize(entry.role)}</StatusBadge></td><td><StatusBadge status={entry.status}>{humanize(entry.status)}</StatusBadge></td><td>{entry.last_login_at ? formatDate(entry.last_login_at, true) : "Not yet"}</td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={entry.id === currentUser.id || busy === entry.id} onClick={() => changeRole(entry)}>{entry.role === "taskbridge_super_admin" ? "Demote" : "Promote"}</button><button className="button button-secondary button-small" disabled={entry.id === currentUser.id || busy === entry.id} onClick={() => changeStatus(entry)}>{entry.status === "active" ? "Suspend" : "Activate"}</button><button className="icon-button danger-icon" disabled={entry.id === currentUser.id || busy === entry.id} onClick={() => remove(entry)} aria-label={`Delete ${entry.full_name}`}><Trash2 size={17} /></button></div></td></tr>)}</tbody></table></div></section>

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { PoolClient } from "pg";
 import { z } from "zod";
 import { asyncHandler } from "../async-handler.js";
 import { audit } from "../audit.js";
@@ -7,7 +8,7 @@ import { carePlatformCredentialStatus, carePlatformHealthCheck } from "../care-p
 import { normalizeCarePlatformEvent } from "../care-platform-adapters.js";
 import { config } from "../config.js";
 import { query, withTransaction } from "../db.js";
-import { dispatchToHandymanNetwork, sendHandymanOnboardingInvite, sendSecureVisitLink, sendStaffOnboardingInvite, startDbsVerification } from "../integrations.js";
+import { dispatchToHandymanNetwork, sendFamilyPaymentSms, sendHandymanOnboardingInvite, sendHandymanOnboardingSms, sendSecureVisitLink, sendStaffOnboardingInvite, startDbsVerification } from "../integrations.js";
 import { evaluateTrader, requiresElectricalQualification, type MatchableTask, type MatchableTrader } from "../matching.js";
 import { createComplianceDocumentReviewUrl } from "../media.js";
 import { processRetryQueue } from "../retry-worker.js";
@@ -73,7 +74,8 @@ const createAgencySchema = z.object({
 });
 const createHandymanInvitationSchema = z.object({
   fullName: z.string().trim().min(2).max(160),
-  email: z.string().trim().email().max(200)
+  email: z.string().trim().email().max(200),
+  mobile: z.string().trim().max(40).optional().or(z.literal(""))
 });
 const createStaffInvitationSchema = z.object({
   fullName: z.string().trim().min(2).max(160),
@@ -92,6 +94,9 @@ const documentReviewSchema = z.object({
 const demoRequestUpdateSchema = z.object({
   status: z.enum(["new", "contacted", "qualified", "closed"]),
   internalNotes: z.string().trim().max(2000).optional().default("")
+});
+const handymanJoinRequestUpdateSchema = z.object({
+  status: z.enum(["new", "reviewing", "declined", "closed"])
 });
 const agencySettingsSchema = z.object({
   vulnerableAdultRequiresEnhancedDbs: z.boolean(),
@@ -142,7 +147,8 @@ const paymentStatusSchema = z.object({
 const familyPaymentLinkSchema = z.object({
   amount: z.number().min(1).max(100000),
   payerEmail: z.string().trim().email().max(200).optional(),
-  payerName: z.string().trim().max(160).optional()
+  payerName: z.string().trim().max(160).optional(),
+  payerPhone: z.string().trim().max(40).optional()
 });
 const familyUpdateLinkSchema = z.object({
   recipientEmail: z.string().trim().email().max(200),
@@ -160,11 +166,33 @@ const incidentUpdateSchema = z.object({
   resolutionNotes: z.string().trim().max(2000).optional().nullable()
 });
 
+async function recalculateTraderActivation(client: PoolClient, traderId: string) {
+  const eligibility = await client.query<{ eligible: boolean }>(
+    `SELECT
+       EXISTS (
+         SELECT 1 FROM trader.onboarding_documents
+         WHERE trader_id = $1 AND document_type = 'identity' AND review_status = 'approved'
+       )
+       AND EXISTS (
+         SELECT 1 FROM trader.insurance_records
+         WHERE trader_id = $1 AND status = 'verified' AND expiry_date >= current_date
+       )
+       AND EXISTS (
+         SELECT 1 FROM trader.dbs_verifications
+         WHERE trader_id = $1 AND status = 'approved' AND expiry_date >= current_date
+       ) AS eligible`,
+    [traderId]
+  );
+  const active = Boolean(eligibility.rows[0]?.eligible);
+  await client.query("UPDATE trader.traders SET status = $2 WHERE id = $1", [traderId, active ? "active" : "inactive"]);
+  return active;
+}
+
 export const adminRouter = Router();
 adminRouter.use(requireRoles("taskbridge_admin", "taskbridge_super_admin"));
 
 adminRouter.get("/dashboard", async (_req, res) => {
-  const [taskCounts, traderCounts, integrationFailures, demoRequests, paymentHolds] = await Promise.all([
+  const [taskCounts, traderCounts, integrationFailures, demoRequests, handymanJoinRequests, paymentHolds] = await Promise.all([
     query<{ status: string; count: string }>("SELECT status::text, count(*)::text FROM ops.tasks WHERE deleted_at IS NULL GROUP BY status"),
     query<{ dbs_status: string; count: string }>(
       `SELECT COALESCE(d.status::text, 'not_started') AS dbs_status, count(*)::text
@@ -176,6 +204,7 @@ adminRouter.get("/dashboard", async (_req, res) => {
     ),
     query<{ count: string }>("SELECT count(*)::text FROM integration.webhook_logs WHERE status IN ('failed', 'retrying')"),
     query<{ count: string }>("SELECT count(*)::text FROM tenant.demo_requests WHERE status IN ('new', 'contacted')"),
+    query<{ count: string }>("SELECT count(*)::text FROM tenant.handyman_join_requests WHERE status IN ('new', 'reviewing')"),
     query<{ count: string }>("SELECT count(*)::text FROM billing.payouts WHERE status = 'hold'")
   ]);
   res.json({
@@ -183,6 +212,7 @@ adminRouter.get("/dashboard", async (_req, res) => {
     traders: Object.fromEntries(traderCounts.rows.map((row) => [row.dbs_status, Number(row.count)])),
     integrationFailures: Number(integrationFailures.rows[0]?.count || 0),
     demoRequests: Number(demoRequests.rows[0]?.count || 0),
+    handymanJoinRequests: Number(handymanJoinRequests.rows[0]?.count || 0),
     paymentHolds: Number(paymentHolds.rows[0]?.count || 0)
   });
 });
@@ -278,6 +308,148 @@ adminRouter.patch("/demo-requests/:id", asyncHandler(async (req, res) => {
   res.json({ id: result.rows[0].id, status: parsed.data.status });
 }));
 
+adminRouter.get("/handyman-join-requests", asyncHandler(async (_req, res) => {
+  const result = await query<{
+    id: string; full_name: string; business_name: string | null; email: string; phone: string;
+    trading_status: string; company_registration_number: string | null; vat_number: string | null;
+    postcode: string; services: string[]; has_enhanced_dbs: boolean; has_public_liability: boolean;
+    dbs_route: string; dbs_eligibility_notes: string | null; message: string | null; status: string;
+    source: string; trader_id: string | null; trader_status: string | null; onboarding_status: string | null;
+    email_delivery_status: string | null; created_at: string; updated_at: string;
+  }>(
+    `SELECT r.id::text, r.full_name, r.business_name, r.trading_status, r.company_registration_number, r.vat_number,
+            r.email::text, r.phone, r.postcode,
+            r.services, r.has_enhanced_dbs, r.has_public_liability, r.dbs_route,
+            r.dbs_eligibility_notes, r.message, r.status, r.source, r.trader_id::text,
+            t.status::text AS trader_status, invite.status::text AS onboarding_status,
+            invite.email_delivery_status, r.created_at::text, r.updated_at::text
+     FROM tenant.handyman_join_requests r
+     LEFT JOIN trader.traders t ON t.id = r.trader_id AND t.deleted_at IS NULL
+     LEFT JOIN LATERAL (
+       SELECT status, email_delivery_status
+       FROM trader.onboarding_invitations oi
+       WHERE oi.trader_id = r.trader_id
+       ORDER BY oi.created_at DESC LIMIT 1
+     ) invite ON true
+     ORDER BY r.created_at DESC LIMIT 200`
+  );
+  res.json({ requests: result.rows.map((row) => ({
+    id: row.id,
+    fullName: row.full_name,
+    businessName: row.business_name,
+    tradingStatus: row.trading_status,
+    companyRegistrationNumber: row.company_registration_number,
+    vatNumber: row.vat_number,
+    email: row.email,
+    phone: row.phone,
+    postcode: row.postcode,
+    services: row.services,
+    hasEnhancedDbs: row.has_enhanced_dbs,
+    hasPublicLiability: row.has_public_liability,
+    dbsRoute: row.dbs_route,
+    dbsEligibilityNotes: row.dbs_eligibility_notes,
+    message: row.message,
+    status: row.status,
+    source: row.source,
+    traderId: row.trader_id,
+    traderStatus: row.trader_status,
+    onboardingStatus: row.onboarding_status,
+    emailDeliveryStatus: row.email_delivery_status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  })) });
+}));
+
+adminRouter.patch("/handyman-join-requests/:id", asyncHandler(async (req, res) => {
+  const parsed = handymanJoinRequestUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: "Select a valid join request status" });
+  const result = await query<{ id: string }>(
+    `UPDATE tenant.handyman_join_requests
+     SET status = $2
+     WHERE id = $1
+     RETURNING id::text`,
+    [req.params.id, parsed.data.status]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: "Handyman join request not found" });
+  await audit(req, "admin.handyman_join_request.updated", "handyman_join_request", result.rows[0].id, { status: parsed.data.status });
+  res.json({ id: result.rows[0].id, status: parsed.data.status });
+}));
+
+adminRouter.post("/handyman-join-requests/:id/invite", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {
+  const rawToken = createOpaqueToken(36);
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const created = await withTransaction(req.auth!, async (client) => {
+    const leadResult = await client.query<{
+      id: string; full_name: string; business_name: string | null; trading_status: string;
+      company_registration_number: string | null; vat_number: string | null; email: string; phone: string; status: string;
+    }>(
+      `SELECT id::text, full_name, business_name, trading_status, company_registration_number,
+              vat_number, email::text, phone, status
+       FROM tenant.handyman_join_requests
+       WHERE id = $1
+       FOR UPDATE`,
+      [req.params.id]
+    );
+    const lead = leadResult.rows[0];
+    if (!lead) throw Object.assign(new Error("Handyman join request not found"), { statusCode: 404 });
+    if (lead.status === "invited") throw Object.assign(new Error("This lead has already been marked invited"), { statusCode: 409 });
+    if (["declined", "closed"].includes(lead.status)) throw Object.assign(new Error("Closed or declined leads cannot be invited"), { statusCode: 409 });
+    const email = lead.email.toLowerCase();
+    const existing = await client.query("SELECT 1 FROM trader.traders WHERE lower(email::text) = $1 AND deleted_at IS NULL", [email]);
+    if (existing.rowCount) throw Object.assign(new Error("A handyman record already exists for this email"), { statusCode: 409 });
+    const trader = await client.query<{ id: string }>(
+      `INSERT INTO trader.traders
+        (external_trader_id, display_name, encrypted_full_name, encrypted_mobile, email, status,
+         business_name, trading_status, company_registration_number, vat_number, source_join_request_id)
+       VALUES ($1, $2, $3, $4, $5, 'inactive', $6, $7, $8, $9, $10)
+       RETURNING id::text`,
+      [publicId("direct"), lead.full_name, encryptField(lead.full_name), encryptField(lead.phone), email,
+        lead.business_name, lead.trading_status, lead.company_registration_number, lead.vat_number, lead.id]
+    );
+    const invitation = await client.query<{ id: string }>(
+      `INSERT INTO trader.onboarding_invitations
+        (trader_id, email, token_hash, created_by_user_id, expires_at)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id::text`,
+      [trader.rows[0].id, email, hashToken(rawToken), req.auth!.userId, expiresAt]
+    );
+    await client.query("UPDATE tenant.handyman_join_requests SET status = 'invited', trader_id = $2 WHERE id = $1", [lead.id, trader.rows[0].id]);
+    return { leadId: lead.id, traderId: trader.rows[0].id, invitationId: invitation.rows[0].id, email, mobile: lead.phone, fullName: lead.full_name };
+  });
+
+  const invitationUrl = `${config.appOrigin}/handyman-onboarding/${rawToken}`;
+  const delivery = await sendHandymanOnboardingInvite({
+    email: created.email,
+    fullName: created.fullName,
+    invitationUrl,
+    expiresAt: expiresAt.toISOString()
+  });
+  await query(
+    `UPDATE trader.onboarding_invitations
+     SET email_delivery_status = $2, provider_message_id = $3,
+         sent_at = CASE WHEN $2 = 'sent' THEN clock_timestamp() ELSE sent_at END
+     WHERE id = $1`,
+    [created.invitationId, delivery.status, delivery.providerMessageId]
+  );
+  const smsDelivery = await sendHandymanOnboardingSms({
+    mobile: created.mobile,
+    fullName: created.fullName,
+    invitationUrl,
+    expiresAt: expiresAt.toISOString()
+  });
+  const smsStatus = ["sent", "queued", "not_configured", "failed"].includes(String(smsDelivery.status)) ? String(smsDelivery.status) : "queued";
+  await query(
+    `INSERT INTO integration.notification_deliveries
+       (channel, purpose, recipient_reference, provider, provider_message_id, status, metadata)
+     VALUES ('sms', 'handyman_onboarding_invite', $1, $2, $3, $4, $5)`,
+    [hashToken(created.mobile || created.email), String(smsDelivery.provider || "none"),
+      smsDelivery.providerMessageId || null, smsStatus, { leadId: created.leadId, traderId: created.traderId }]
+  );
+  await audit(req, "super_admin.handyman_join_request.invited", "handyman_join_request", created.leadId, {
+    traderId: created.traderId, invitationId: created.invitationId, emailDeliveryStatus: delivery.status, smsDeliveryStatus: smsStatus
+  });
+  res.status(201).json({ traderId: created.traderId, invitationUrl, expiresAt: expiresAt.toISOString(), emailDeliveryStatus: delivery.status, smsDeliveryStatus: smsStatus });
+}));
+
 adminRouter.get("/tasks", async (_req, res) => {
   const result = await query<{
     public_id: string; agency_name: string; encrypted_name: string; category: string; urgency: string;
@@ -366,9 +538,9 @@ adminRouter.post("/tasks/:publicId/family-payment-link", asyncHandler(async (req
   const rawToken = createOpaqueToken(36);
   const result = await withTransaction(req.auth!, async (client) => {
     const task = await client.query<{
-      id: string; agency_id: string; payment_route: string; payer_email: string | null; payer_name: string | null;
+      id: string; agency_id: string; payment_route: string; payer_email: string | null; payer_name: string | null; payer_phone: string | null;
     }>(
-      `SELECT id::text, agency_id::text, payment_route, payer_email::text, payer_name
+      `SELECT id::text, agency_id::text, payment_route, payer_email::text, payer_name, payer_phone
        FROM ops.tasks WHERE public_id = $1 AND deleted_at IS NULL FOR UPDATE`,
       [req.params.publicId]
     );
@@ -379,18 +551,39 @@ adminRouter.post("/tasks/:publicId/family-payment-link", asyncHandler(async (req
     }
     const payerEmail = parsed.data.payerEmail || row.payer_email;
     if (!payerEmail) throw Object.assign(new Error("A payer email is required before a family payment link can be created"), { statusCode: 422 });
+    const payerName = parsed.data.payerName || row.payer_name;
+    const payerPhone = parsed.data.payerPhone || row.payer_phone;
     const session = await client.query<{ id: string }>(
       `INSERT INTO billing.family_payment_sessions
         (task_id, agency_id, payer_email, payer_name, token_hash, amount, expires_at, created_by_user_id)
        VALUES ($1, $2, $3, $4, $5, $6, clock_timestamp() + interval '7 days', $7)
        RETURNING id::text`,
-      [row.id, row.agency_id, payerEmail.toLowerCase(), parsed.data.payerName || row.payer_name,
+      [row.id, row.agency_id, payerEmail.toLowerCase(), payerName,
         hashToken(rawToken), parsed.data.amount, req.auth!.userId]
     );
-    return { id: session.rows[0].id, taskId: row.id };
+    return { id: session.rows[0].id, taskId: row.id, payerName, payerPhone };
   });
-  await audit(req, "admin.family_payment_link.created", "task", result.taskId, { amount: parsed.data.amount });
-  res.status(201).json({ id: result.id, paymentUrl: `${config.appOrigin}/family-payment/${rawToken}` });
+  const paymentUrl = `${config.appOrigin}/family-payment/${rawToken}`;
+  const smsDelivery = await sendFamilyPaymentSms({
+    mobile: result.payerPhone,
+    payerName: result.payerName,
+    taskPublicId: req.params.publicId,
+    amount: parsed.data.amount,
+    currency: "GBP",
+    paymentUrl
+  });
+  await audit(req, "admin.family_payment_link.created", "task", result.taskId, {
+    amount: parsed.data.amount,
+    smsDeliveryStatus: smsDelivery.status,
+    smsProvider: smsDelivery.provider
+  });
+  res.status(201).json({
+    id: result.id,
+    paymentUrl,
+    smsDeliveryStatus: smsDelivery.status,
+    smsProvider: smsDelivery.provider,
+    smsProviderMessageId: smsDelivery.providerMessageId
+  });
 }));
 
 adminRouter.post("/tasks/:publicId/family-update-link", asyncHandler(async (req, res) => {
@@ -650,15 +843,21 @@ adminRouter.get("/traders", async (_req, res) => {
     dbs_outcome: string | null; dbs_route: string | null; update_service_status: string | null;
     insurance_status: string; insurance_expiry_date: string | null; services: string[];
     onboarding_status: string | null; invitation_expires_at: string | null; email_delivery_status: string | null;
+    business_name: string | null; trading_status: string; company_registration_number: string | null; vat_number: string | null;
+    lead_id: string | null; lead_status: string | null; lead_created_at: string | null; lead_message: string | null;
   }>(
     `SELECT t.id::text, t.display_name, t.email::text, n.name AS network_name, t.hourly_rate::text, t.quality_score::text,
             t.status::text, COALESCE(d.status::text, 'not_started') AS dbs_status, d.expiry_date::text AS dbs_expiry_date,
             d.outcome AS dbs_outcome, d.verification_route AS dbs_route, d.update_service_status,
             COALESCE(i.status::text, 'unverified') AS insurance_status, i.expiry_date::text AS insurance_expiry_date,
             COALESCE(s.services, '{}') AS services, invite.status AS onboarding_status,
-            invite.expires_at::text AS invitation_expires_at, invite.email_delivery_status
+            invite.expires_at::text AS invitation_expires_at, invite.email_delivery_status,
+            t.business_name, t.trading_status, t.company_registration_number, t.vat_number,
+            lead.id::text AS lead_id, lead.status AS lead_status, lead.created_at::text AS lead_created_at,
+            lead.message AS lead_message
      FROM trader.traders t
      LEFT JOIN trader.networks n ON n.id = t.network_id
+     LEFT JOIN tenant.handyman_join_requests lead ON lead.id = t.source_join_request_id
      LEFT JOIN LATERAL (
        SELECT status, expiry_date, outcome, verification_route, update_service_status
        FROM trader.dbs_verifications dv WHERE dv.trader_id = t.id ORDER BY dv.created_at DESC LIMIT 1
@@ -694,6 +893,14 @@ adminRouter.get("/traders", async (_req, res) => {
     onboardingStatus: row.onboarding_status || "not_invited",
     invitationExpiresAt: row.invitation_expires_at,
     emailDeliveryStatus: row.email_delivery_status,
+    businessName: row.business_name,
+    tradingStatus: row.trading_status,
+    companyRegistrationNumber: row.company_registration_number,
+    vatNumber: row.vat_number,
+    leadId: row.lead_id,
+    leadStatus: row.lead_status,
+    leadCreatedAt: row.lead_created_at,
+    leadMessage: row.lead_message,
     services: row.services
   })) });
 });
@@ -961,26 +1168,8 @@ adminRouter.post("/traders/:id/documents/:documentId/review", asyncHandler(async
       );
       if (!insurance.rowCount) throw Object.assign(new Error("The submitted insurance record could not be linked"), { statusCode: 409 });
     }
-    const eligibility = await client.query<{ eligible: boolean }>(
-      `SELECT
-         (SELECT count(*) = 2 FROM (
-            SELECT DISTINCT ON (document_type) document_type, review_status
-            FROM trader.onboarding_documents
-            WHERE trader_id = $1 AND document_type IN ('identity', 'public_liability_insurance')
-            ORDER BY document_type, created_at DESC
-          ) required_docs WHERE review_status = 'approved')
-         AND EXISTS (
-           SELECT 1 FROM trader.dbs_verifications WHERE trader_id = $1 AND status = 'approved'
-             AND expiry_date >= current_date ORDER BY created_at DESC LIMIT 1
-         )
-         AND EXISTS (
-           SELECT 1 FROM trader.insurance_records WHERE trader_id = $1 AND status = 'verified'
-             AND expiry_date >= current_date ORDER BY created_at DESC LIMIT 1
-         ) AS eligible`
-      , [req.params.id]
-    );
-    await client.query("UPDATE trader.traders SET status = $2 WHERE id = $1", [req.params.id, eligibility.rows[0]?.eligible ? "active" : "inactive"]);
-    return { documentId: document.id, documentType: document.document_type, traderActive: Boolean(eligibility.rows[0]?.eligible) };
+    const traderActive = await recalculateTraderActivation(client, req.params.id);
+    return { documentId: document.id, documentType: document.document_type, traderActive };
   });
   await audit(req, "admin.compliance_document.reviewed", "onboarding_document", result.documentId, {
     traderId: req.params.id, documentType: result.documentType, status: data.status, reason: data.reason
@@ -993,6 +1182,7 @@ adminRouter.post("/traders/invitations", requireRoles("taskbridge_super_admin"),
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid handyman details" });
   const data = parsed.data;
   const email = data.email.toLowerCase();
+  const mobile = String(data.mobile || "").trim();
   const rawToken = createOpaqueToken(36);
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   const created = await withTransaction(req.auth!, async (client) => {
@@ -1002,7 +1192,7 @@ adminRouter.post("/traders/invitations", requireRoles("taskbridge_super_admin"),
       `INSERT INTO trader.traders
         (external_trader_id, display_name, encrypted_full_name, encrypted_mobile, email, status)
        VALUES ($1, $2, $3, $4, $5, 'inactive') RETURNING id::text`,
-      [publicId("direct"), data.fullName, encryptField(data.fullName), encryptField(""), email]
+      [publicId("direct"), data.fullName, encryptField(data.fullName), encryptField(mobile), email]
     );
     const invitation = await client.query<{ id: string }>(
       `INSERT INTO trader.onboarding_invitations
@@ -1027,15 +1217,31 @@ adminRouter.post("/traders/invitations", requireRoles("taskbridge_super_admin"),
      WHERE id = $1`,
     [created.invitationId, delivery.status, delivery.providerMessageId]
   );
+  const smsDelivery = await sendHandymanOnboardingSms({
+    mobile,
+    fullName: data.fullName,
+    invitationUrl,
+    expiresAt: expiresAt.toISOString()
+  });
+  const smsStatus = ["sent", "queued", "not_configured", "failed"].includes(String(smsDelivery.status)) ? String(smsDelivery.status) : "queued";
+  await query(
+    `INSERT INTO integration.notification_deliveries
+       (channel, purpose, recipient_reference, provider, provider_message_id, status, metadata)
+     VALUES ('sms', 'handyman_onboarding_invite', $1, $2, $3, $4, $5)`,
+    [hashToken(mobile || email), String(smsDelivery.provider || "none"),
+      smsDelivery.providerMessageId || null, smsStatus, { traderId: created.traderId, source: "manual_invite" }]
+  );
   await audit(req, "super_admin.handyman.invited", "trader", created.traderId, {
     invitationId: created.invitationId,
-    emailDeliveryStatus: delivery.status
+    emailDeliveryStatus: delivery.status,
+    smsDeliveryStatus: smsStatus
   });
   res.status(201).json({
     traderId: created.traderId,
     invitationUrl,
     expiresAt: expiresAt.toISOString(),
-    emailDeliveryStatus: delivery.status
+    emailDeliveryStatus: delivery.status,
+    smsDeliveryStatus: smsStatus
   });
 }));
 
@@ -1098,18 +1304,22 @@ adminRouter.post("/traders/:id/dbs-check", async (req, res) => {
 adminRouter.post("/traders/:id/dbs-review", requireRoles("taskbridge_super_admin"), async (req, res) => {
   const parsed = dbsReviewSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid DBS review" });
-  const result = await query<{ id: string }>(
-    `INSERT INTO trader.dbs_verifications
-      (trader_id, status, outcome, expiry_date, evidence_reference, checked_at, verification_route, enhanced_dbs_eligible, workforce_type, update_service_status)
-     SELECT id, $2, $3, $4, $5, clock_timestamp(), 'manual_review', false, 'unknown',
-            CASE WHEN $2 = 'approved' THEN 'active_confirmed' ELSE 'not_checked' END
-     FROM trader.traders
-     WHERE id = $1 AND deleted_at IS NULL RETURNING id::text`,
-    [req.params.id, parsed.data.status, parsed.data.reason, parsed.data.expiryDate || null, parsed.data.evidenceReference || null]
-  );
-  if (!result.rows[0]) return res.status(404).json({ error: "Handyman not found" });
-  await audit(req, "super_admin.dbs.reviewed", "trader", req.params.id, { status: parsed.data.status, reason: parsed.data.reason });
-  res.json({ traderId: req.params.id, status: parsed.data.status });
+  const result = await withTransaction(req.auth!, async (client) => {
+    const inserted = await client.query<{ id: string }>(
+      `INSERT INTO trader.dbs_verifications
+        (trader_id, status, outcome, expiry_date, evidence_reference, checked_at, verification_route, enhanced_dbs_eligible, workforce_type, update_service_status)
+       SELECT id, $2, $3, $4, $5, clock_timestamp(), 'manual_review', false, 'unknown',
+              CASE WHEN $2 = 'approved' THEN 'active_confirmed' ELSE 'not_checked' END
+       FROM trader.traders
+       WHERE id = $1 AND deleted_at IS NULL RETURNING id::text`,
+      [req.params.id, parsed.data.status, parsed.data.reason, parsed.data.expiryDate || null, parsed.data.evidenceReference || null]
+    );
+    if (!inserted.rows[0]) throw Object.assign(new Error("Handyman not found"), { statusCode: 404 });
+    const traderActive = await recalculateTraderActivation(client, req.params.id);
+    return { traderActive };
+  });
+  await audit(req, "super_admin.dbs.reviewed", "trader", req.params.id, { status: parsed.data.status, reason: parsed.data.reason, traderActive: result.traderActive });
+  res.json({ traderId: req.params.id, status: parsed.data.status, traderActive: result.traderActive });
 });
 
 adminRouter.post("/traders/:id/electrical-review", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {
