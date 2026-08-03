@@ -81,8 +81,15 @@ export function createApp() {
   app.get("/api/readiness", async (_req, res) => {
     const database = await databaseReady();
     const missing = productionConfigErrors();
+    const objectStorage = Boolean(
+      config.objectStorageEndpoint &&
+      config.objectStorageAccessKeyId &&
+      config.objectStorageSecretAccessKey &&
+      config.objectStorageBucket &&
+      config.objectStoragePublicBaseUrl
+    );
     const ready = database && missing.length === 0;
-    res.status(ready ? 200 : 503).json({ ready, database, missingConfiguration: missing });
+    res.status(ready ? 200 : 503).json({ ready, database, objectStorage, missingConfiguration: missing });
   });
 
   app.use("/api/auth", authRouter);

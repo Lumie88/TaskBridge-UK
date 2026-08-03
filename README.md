@@ -75,7 +75,20 @@ OBJECT_STORAGE_BUCKET=
 OBJECT_STORAGE_PUBLIC_BASE_URL=
 ```
 
-Use a private write policy and a controlled read/CDN URL. Upload links expire after five minutes and accept only JPEG, PNG, or WebP files up to 10 MB.
+Recommended production setup: Cloudflare R2 or another S3-compatible private bucket.
+
+For Cloudflare R2, set:
+
+```text
+OBJECT_STORAGE_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+OBJECT_STORAGE_REGION=auto
+OBJECT_STORAGE_ACCESS_KEY_ID=<R2 access key id>
+OBJECT_STORAGE_SECRET_ACCESS_KEY=<R2 secret access key>
+OBJECT_STORAGE_BUCKET=taskbridge-production
+OBJECT_STORAGE_PUBLIC_BASE_URL=https://<controlled-public-or-worker-domain>
+```
+
+Use a private write policy and a controlled read/CDN URL. Upload links expire after five minutes and accept only JPEG, PNG, or WebP files up to 10 MB. `/api/readiness` reports `objectStorage: true` when all storage variables are present.
 
 ## Production provider integrations
 
@@ -121,6 +134,16 @@ ZOHO_MAIL_OAUTH_TOKEN=
 ```
 
 Zoho is used for demo receipts, care-agency staff invitations and handyman onboarding invitations.
+
+DNS deliverability records for `growingfig.com` should include SPF, DKIM and DMARC. SPF and Zoho DKIM are present; add DMARC before full scale:
+
+```text
+Host: _dmarc
+Type: TXT
+Value: v=DMARC1; p=quarantine; rua=mailto:postmaster@growingfig.com; ruf=mailto:postmaster@growingfig.com; adkim=s; aspf=s
+```
+
+Start with `p=none` if you want reporting-only monitoring first, then move to `quarantine` or `reject` after confirming legitimate mail passes.
 
 ## Verification
 
