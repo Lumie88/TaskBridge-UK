@@ -13,24 +13,23 @@ test("a care note containing multiple needs becomes separate reviewable tasks", 
   assert.ok(plan.some((item) => /repair|window/i.test(item.category)));
 });
 
-test("keysafe information and safeguarding warnings are separated from task summaries", async () => {
+test("keysafe information in care notes is not auto-filled into access instructions", async () => {
   const note = "The path is unsafe. Keysafe code: 4182. The service user is usually alone.";
-  assert.equal(extractKeysafeInfo(note), "Key-safe access code: 4182");
+  assert.equal(extractKeysafeInfo(note), null);
   const analysis = await analyzeCareNote(note, true);
-  assert.equal(analysis.keysafeInfo, "Key-safe access code: 4182");
+  assert.equal(analysis.keysafeInfo, null);
   assert.ok(analysis.safeguardingWarnings.length >= 2);
   assert.ok(analysis.suggestions.every((item) => !item.summary.includes("4182")));
   assert.ok(analysis.suggestions.every((item) => !/key safe/i.test(item.category)));
 });
 
-test("keysafe access notes are retained as building access instructions", () => {
+test("keysafe access notes are ignored for task creation and left for coordinator entry", () => {
   const note = "Please use the keysafe by the rear porch. Code is 4182. Clear moss from the path.";
   const accessInfo = extractKeysafeInfo(note);
   const plan = deterministicTaskPlan(note, true);
 
   assert.equal(hasKeysafeAccessInfo(note), true);
-  assert.match(accessInfo || "", /rear porch/i);
-  assert.match(accessInfo || "", /4182/);
+  assert.equal(accessInfo, null);
   assert.ok(plan.some((item) => item.category === "Path clearing"));
   assert.ok(plan.every((item) => item.category !== "Key safe and lock safety"));
 });
@@ -45,7 +44,7 @@ test("keysafe repair wording is not mistaken for an access code", async () => {
   const note = "Got the key from the keysafe, Janet was fine. did her personal care. we noticed the keysafe is loose, screw is out of the wall. locked the door and secured the key in the keysafe";
   const analysis = await analyzeCareNote(note, true);
 
-  assert.equal(analysis.keysafeInfo, "Key kept in key-safe; access code not provided.");
+  assert.equal(analysis.keysafeInfo, null);
   assert.ok(analysis.suggestions.some((item) => item.category === "Key safe and lock safety"));
   assert.ok(analysis.suggestions.every((item) => item.category !== "Loose rail repair"));
   assert.ok(analysis.suggestions.every((item) => item.category !== "Lock repairs"));

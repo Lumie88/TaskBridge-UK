@@ -198,20 +198,7 @@ export function hasKeysafeAccessInfo(note: string) {
 }
 
 export function extractKeysafeInfo(note: string) {
-  const parts = sentenceParts(note);
-  const accessIndex = parts.findIndex((part) => keysafeAccessPattern.test(part));
-  const accessSentence = parts[accessIndex];
-  if (!accessSentence) return null;
-  const nextSentence = parts[accessIndex + 1] || "";
-  const codeSource = [accessSentence, nextSentence].find((part) => /\b(?:code|passcode|pin|number)\b/i.test(part)) || accessSentence;
-  const explicitCode = codeSource.match(/\b(?:code|passcode|pin|number)\s*(?:is|:|-)?\s*([a-z0-9-]{3,16})\b/i);
-  const keysafeCode = codeSource.match(/\b(?:key\s*safe|keysafe)\s*(?:code|passcode|pin)\s*(?:is|:|-)?\s*([a-z0-9-]{3,16})\b|\b(?:access|entry|door)\s+code\s*(?:is|:|-)?\s*([a-z0-9-]{3,16})\b/i);
-  const code = explicitCode?.[1] || keysafeCode?.[1] || null;
-  const cleaned = [accessSentence, codeSource === nextSentence ? nextSentence : ""].filter(Boolean).join(". ").replace(/\s+/g, " ").trim();
-  if (code && cleaned.length <= code.length + 18) return `Key-safe access code: ${code}`;
-  if (!code && accessActionPattern.test(cleaned)) return "Key kept in key-safe; access code not provided.";
-  if (!code && keysafeWorkPattern.test(cleaned)) return null;
-  return cleaned;
+  return null;
 }
 
 export async function analyzeCareNote(note: string, vulnerable: boolean) {
