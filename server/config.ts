@@ -62,6 +62,7 @@ export const config = {
   twilioAccountSid: process.env.TWILIO_ACCOUNT_SID || "",
   twilioAuthToken: process.env.TWILIO_AUTH_TOKEN || "",
   twilioFromNumber: process.env.TWILIO_FROM_NUMBER || "",
+  twilioFallbackFromNumber: process.env.TWILIO_FALLBACK_FROM_NUMBER || "",
   twilioStatusCallbackUrl: process.env.TWILIO_STATUS_CALLBACK_URL || "",
   emailProviderKind: process.env.EMAIL_PROVIDER_KIND || "generic",
   emailProviderApiUrl: process.env.EMAIL_PROVIDER_API_URL || "https://api.resend.com/emails",

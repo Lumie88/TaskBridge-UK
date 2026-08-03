@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { familyPaymentSmsBody, normalizeDbsProviderCallback } from "../server/integrations.js";
+import { config } from "../server/config.js";
+import { familyPaymentSmsBody, normalizeDbsProviderCallback, sendTwilioSms } from "../server/integrations.js";
 
 test("normalises nested DBS provider completion into an approved DBS result", () => {
   const result = normalizeDbsProviderCallback({
@@ -63,4 +64,41 @@ test("family payment SMS includes the secure payment link and amount", () => {
   assert.match(body, /Hello Ade/);
   assert.match(body, /GBP 75\.00/);
   assert.match(body, /https:\/\/www\.growingfig\.com\/family-payment\/token/);
+});
+
+test("Twilio SMS retries with fallback sender when alphanumeric sender is rejected", async () => {
+  const previous = {
+    sid: config.twilioAccountSid,
+    token: config.twilioAuthToken,
+    from: config.twilioFromNumber,
+    fallback: config.twilioFallbackFromNumber
+  };
+  const originalFetch = globalThis.fetch;
+  const senders: string[] = [];
+  config.twilioAccountSid = "AC_test";
+  config.twilioAuthToken = "auth_test";
+  config.twilioFromNumber = "TaskBridge";
+  config.twilioFallbackFromNumber = "+447460077297";
+  globalThis.fetch = async (_url, init) => {
+    const body = init?.body as URLSearchParams;
+    senders.push(body.get("From") || "");
+    if (senders.length === 1) {
+      return new Response(JSON.stringify({ code: 21612, message: "The From phone number is not a valid, SMS-capable inbound phone number or short code for your account." }), { status: 400 });
+    }
+    return new Response(JSON.stringify({ sid: "SM123", status: "queued" }), { status: 201 });
+  };
+
+  try {
+    const result = await sendTwilioSms("+447760861579", "TaskBridge test");
+    assert.deepEqual(senders, ["TaskBridge", "+447460077297"]);
+    assert.equal(result.status, "queued");
+    assert.equal(result.providerMessageId, "SM123");
+    assert.equal(result.from, "+447460077297");
+  } finally {
+    config.twilioAccountSid = previous.sid;
+    config.twilioAuthToken = previous.token;
+    config.twilioFromNumber = previous.from;
+    config.twilioFallbackFromNumber = previous.fallback;
+    globalThis.fetch = originalFetch;
+  }
 });

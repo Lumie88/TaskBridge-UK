@@ -1,6 +1,13 @@
 import { config } from "./config.js";
 
 type JsonRecord = Record<string, unknown>;
+type SmsDeliveryResult = {
+  status: string;
+  provider: string;
+  providerMessageId: string | null;
+  providerError?: string | null;
+  from?: string | null;
+};
 
 export type DbsStatus = "pending" | "approved" | "rejected" | "unclear";
 
@@ -63,6 +70,58 @@ function readPath(source: unknown, paths: string[]) {
 
 function asString(value: unknown) {
   return typeof value === "string" ? value : value === undefined || value === null ? "" : String(value);
+}
+
+function twilioConfigured() {
+  return Boolean(config.twilioAccountSid && config.twilioAuthToken && config.twilioFromNumber);
+}
+
+function twilioSenderOptions() {
+  return Array.from(new Set([config.twilioFromNumber, config.twilioFallbackFromNumber].map((value) => value.trim()).filter(Boolean)));
+}
+
+async function twilioErrorMessage(response: Response) {
+  const text = await response.text().catch(() => "");
+  if (!text) return `Twilio request failed with status ${response.status}`;
+  try {
+    const payload = JSON.parse(text) as { message?: string; code?: number | string };
+    const detail = [payload.code ? `code ${payload.code}` : "", payload.message || ""].filter(Boolean).join(": ");
+    return detail || `Twilio request failed with status ${response.status}`;
+  } catch {
+    return `Twilio request failed with status ${response.status}: ${text.slice(0, 160)}`;
+  }
+}
+
+export async function sendTwilioSms(to: string, body: string): Promise<SmsDeliveryResult> {
+  if (!twilioConfigured()) return { status: "not_configured", provider: "none", providerMessageId: null };
+  let lastError = "Twilio SMS failed";
+  for (const from of twilioSenderOptions()) {
+    try {
+      const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${config.twilioAccountSid}/Messages.json`, {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${Buffer.from(`${config.twilioAccountSid}:${config.twilioAuthToken}`).toString("base64")}`,
+          "content-type": "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({
+          From: from,
+          To: to,
+          Body: body,
+          ...(config.twilioStatusCallbackUrl ? { StatusCallback: config.twilioStatusCallbackUrl } : {})
+        }),
+        signal: AbortSignal.timeout(15_000)
+      });
+      if (!response.ok) {
+        lastError = await twilioErrorMessage(response);
+        continue;
+      }
+      const result = await response.json() as { sid?: string; status?: string };
+      return { status: result.status || "queued", provider: "twilio", providerMessageId: result.sid || null, from };
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : "Twilio SMS failed";
+    }
+  }
+  return { status: "failed", provider: "twilio", providerMessageId: null, providerError: lastError };
 }
 
 function normaliseStatus(value: unknown): DbsStatus {
@@ -285,27 +344,9 @@ export async function cancelHandymanNetworkBooking(payload: JsonRecord) {
 }
 
 export async function sendSecureVisitLink(payload: JsonRecord) {
-  if (config.twilioAccountSid && config.twilioAuthToken && config.twilioFromNumber) {
-    const mobile = String(payload.mobile || "");
-    const visitUrl = String(payload.visitUrl || "");
-    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${config.twilioAccountSid}/Messages.json`, {
-      method: "POST",
-      headers: {
-        authorization: `Basic ${Buffer.from(`${config.twilioAccountSid}:${config.twilioAuthToken}`).toString("base64")}`,
-        "content-type": "application/x-www-form-urlencoded"
-      },
-      body: new URLSearchParams({
-        From: config.twilioFromNumber,
-        To: mobile,
-        Body: `TaskBridge visit assigned. Use this secure one-use link to check in, upload evidence and check out: ${visitUrl}`,
-        ...(config.twilioStatusCallbackUrl ? { StatusCallback: config.twilioStatusCallbackUrl } : {})
-      }),
-      signal: AbortSignal.timeout(15_000)
-    });
-    if (!response.ok) throw new Error(`Twilio request failed with status ${response.status}`);
-    const result = await response.json() as { sid?: string; status?: string };
-    return { status: result.status || "queued", provider: "twilio", providerMessageId: result.sid || null };
-  }
+  const mobile = String(payload.mobile || "");
+  const visitUrl = String(payload.visitUrl || "");
+  if (twilioConfigured()) return sendTwilioSms(mobile, `TaskBridge visit assigned. Use this secure one-use link to check in, upload evidence and check out: ${visitUrl}`);
   if (!config.smsProviderApiUrl) return { status: "not_configured", provider: "none", providerMessageId: null };
   return providerPost(config.smsProviderApiUrl, config.smsProviderApiKey, payload);
 }
@@ -321,29 +362,7 @@ export async function sendHandymanOnboardingSms(input: {
   const expiry = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/London" })
     .format(new Date(input.expiresAt));
   const body = `TaskBridge: You are invited to complete your handyman onboarding. Use this secure link before ${expiry}: ${input.invitationUrl}`;
-  if (config.twilioAccountSid && config.twilioAuthToken && config.twilioFromNumber) {
-    try {
-      const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${config.twilioAccountSid}/Messages.json`, {
-        method: "POST",
-        headers: {
-          authorization: `Basic ${Buffer.from(`${config.twilioAccountSid}:${config.twilioAuthToken}`).toString("base64")}`,
-          "content-type": "application/x-www-form-urlencoded"
-        },
-        body: new URLSearchParams({
-          From: config.twilioFromNumber,
-          To: mobile,
-          Body: body,
-          ...(config.twilioStatusCallbackUrl ? { StatusCallback: config.twilioStatusCallbackUrl } : {})
-        }),
-        signal: AbortSignal.timeout(15_000)
-      });
-      if (!response.ok) return { status: "failed" as const, provider: "twilio", providerMessageId: null };
-      const result = await response.json() as { sid?: string; status?: string };
-      return { status: result.status || "queued", provider: "twilio", providerMessageId: result.sid || null };
-    } catch {
-      return { status: "failed" as const, provider: "twilio", providerMessageId: null };
-    }
-  }
+  if (twilioConfigured()) return sendTwilioSms(mobile, body);
   if (!config.smsProviderApiUrl) return { status: "not_configured" as const, provider: "none", providerMessageId: null };
   return providerPost(config.smsProviderApiUrl, config.smsProviderApiKey, { ...input, mobile, body });
 }
@@ -370,29 +389,7 @@ export async function sendFamilyPaymentSms(input: {
   const mobile = String(input.mobile || "").trim();
   if (!mobile) return { status: "not_configured" as const, provider: "none", providerMessageId: null };
   const body = familyPaymentSmsBody(input);
-  if (config.twilioAccountSid && config.twilioAuthToken && config.twilioFromNumber) {
-    try {
-      const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${config.twilioAccountSid}/Messages.json`, {
-        method: "POST",
-        headers: {
-          authorization: `Basic ${Buffer.from(`${config.twilioAccountSid}:${config.twilioAuthToken}`).toString("base64")}`,
-          "content-type": "application/x-www-form-urlencoded"
-        },
-        body: new URLSearchParams({
-          From: config.twilioFromNumber,
-          To: mobile,
-          Body: body,
-          ...(config.twilioStatusCallbackUrl ? { StatusCallback: config.twilioStatusCallbackUrl } : {})
-        }),
-        signal: AbortSignal.timeout(15_000)
-      });
-      if (!response.ok) return { status: "failed" as const, provider: "twilio", providerMessageId: null };
-      const result = await response.json() as { sid?: string; status?: string };
-      return { status: result.status || "queued", provider: "twilio", providerMessageId: result.sid || null };
-    } catch {
-      return { status: "failed" as const, provider: "twilio", providerMessageId: null };
-    }
-  }
+  if (twilioConfigured()) return sendTwilioSms(mobile, body);
   if (!config.smsProviderApiUrl) return { status: "not_configured" as const, provider: "none", providerMessageId: null };
   return providerPost(config.smsProviderApiUrl, config.smsProviderApiKey, { ...input, mobile, body });
 }

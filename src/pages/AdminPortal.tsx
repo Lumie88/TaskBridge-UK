@@ -510,12 +510,14 @@ function CandidatePanel({ task, onChanged }: { task: AdminTask | null; onChanged
     if (!Number.isFinite(amount) || amount <= 0) return;
     setPaymentBusy("payment-link"); setError("");
     try {
-      const result = await api<{ paymentUrl: string; smsDeliveryStatus?: string }>(`/api/admin/tasks/${task.id}/family-payment-link`, {
+      const result = await api<{ paymentUrl: string; smsDeliveryStatus?: string; smsProviderError?: string | null }>(`/api/admin/tasks/${task.id}/family-payment-link`, {
         method: "POST",
         body: JSON.stringify({ amount })
       });
       await navigator.clipboard.writeText(result.paymentUrl);
-      window.alert(`Secure family payment link copied to clipboard. SMS: ${humanize(result.smsDeliveryStatus || "not_configured")}.`);
+      const smsStatus = humanize(result.smsDeliveryStatus || "not_configured");
+      const smsError = result.smsProviderError ? `\n\nSMS provider reason: ${result.smsProviderError}` : "";
+      window.alert(`Secure family payment link copied to clipboard.\n\nSMS: ${smsStatus}.${smsError}`);
       await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to create family payment link"); }
     finally { setPaymentBusy(""); }

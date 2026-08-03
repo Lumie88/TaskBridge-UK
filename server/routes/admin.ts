@@ -575,14 +575,16 @@ adminRouter.post("/tasks/:publicId/family-payment-link", asyncHandler(async (req
   await audit(req, "admin.family_payment_link.created", "task", result.taskId, {
     amount: parsed.data.amount,
     smsDeliveryStatus: smsDelivery.status,
-    smsProvider: smsDelivery.provider
+    smsProvider: smsDelivery.provider,
+    smsProviderError: smsDelivery.providerError || null
   });
   res.status(201).json({
     id: result.id,
     paymentUrl,
     smsDeliveryStatus: smsDelivery.status,
     smsProvider: smsDelivery.provider,
-    smsProviderMessageId: smsDelivery.providerMessageId
+    smsProviderMessageId: smsDelivery.providerMessageId,
+    smsProviderError: smsDelivery.providerError || null
   });
 }));
 
