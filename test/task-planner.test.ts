@@ -62,6 +62,27 @@ test("ungrounded AI rail and lock suggestions are replaced by the real keysafe f
   assert.deepEqual(categories, ["Key safe and lock safety"]);
 });
 
+test("socket and bulb faults are not mistaken for seasonal or appliance work", () => {
+  const note = "Got to Janet apartment, all fine, about leaving, notice the socket is blown out and one of the bulbs in the living area is also blown out. locked up and secured the key in the keysafe";
+  const plan = deterministicTaskPlan(note, true);
+  const categories = plan.map((item) => item.category);
+
+  assert.ok(categories.includes("Electrical safety checks"));
+  assert.ok(categories.every((item) => item !== "Seasonal safety checks"));
+  assert.ok(categories.every((item) => item !== "Appliance safety checks"));
+});
+
+test("ungrounded AI seasonal and appliance suggestions fall back to electrical work", () => {
+  const note = "Got to Janet apartment, all fine, about leaving, notice the socket is blown out and one of the bulbs in the living area is also blown out. locked up and secured the key in the keysafe";
+  const grounded = postProcessSuggestions(note, [
+    { category: "Appliance safety checks", summary: "Appliance safety checks required.", urgency: "low", safeguardingApplies: true },
+    { category: "Seasonal safety checks", summary: "Seasonal safety checks required.", urgency: "low", safeguardingApplies: true }
+  ]);
+  const categories = grounded.map((item) => item.category);
+
+  assert.deepEqual(categories, ["Electrical safety checks"]);
+});
+
 test("Age UK-style home safety notes map to practical check categories", () => {
   const plan = deterministicTaskPlan(
     "Repeat visit requested after another near fall. Please check the key safe, smoke alarm, CO alarm and seasonal ice risk by the back step.",

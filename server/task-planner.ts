@@ -22,7 +22,8 @@ const categoryRules = [
   { category: "Lock repairs", terms: ["lock", "door security", "sticking door"] },
   { category: "Key safe and lock safety", terms: ["key safe", "keysafe", "spare key", "access code", "door access", "thumbturn"] },
   { category: "Deep cleaning", terms: ["deep clean", "grease", "dirty oven", "cleaning"] },
-  { category: "Appliance safety checks", terms: ["appliance", "oven", "boiler", "electrical", "socket"] },
+  { category: "Electrical safety checks", terms: ["electrical", "socket", "plug", "light", "bulb", "wiring", "fuse"] },
+  { category: "Appliance safety checks", terms: ["appliance", "oven", "boiler"] },
   { category: "Smoke and carbon monoxide alarm checks", terms: ["smoke alarm", "carbon monoxide", "co alarm", "fire alarm", "alarm battery"] },
   { category: "Trip hazard removal", terms: ["trip", "wire", "fall hazard", "clutter", "rug"] },
   { category: "Seasonal safety checks", terms: ["winter", "cold", "ice", "heatwave", "summer", "seasonal", "leaves", "salt"] },
@@ -31,7 +32,6 @@ const categoryRules = [
 
 const keysafeAccessPattern = /\b(?:key\s*safe|keysafe|spare\s+key|access\s+code|door\s+code|entry\s+code)\b/i;
 const keysafeWorkPattern = /\b(?:key\s*safe|keysafe|spare\s+key|access\s+code|door\s+access|thumbturn|lock)\b.*\b(?:broken|stuck|jammed|loose|damaged|faulty|not\s+working|cannot\s+open|won't\s+open|wont\s+open|replace|repair|check|inspect|review|unsafe|concern)\b|\b(?:broken|stuck|jammed|loose|damaged|faulty|unsafe|check|inspect|review|repair|replace)\b.*\b(?:key\s*safe|keysafe|lock|door\s+access|thumbturn)\b/i;
-const accessActionPattern = /\b(?:key|keys)\b.*\b(?:from|in|into|back\s+in|returned|secured|left)\b.*\b(?:key\s*safe|keysafe)\b|\b(?:key\s*safe|keysafe)\b.*\b(?:key|keys|access)\b/i;
 const railWorkPattern = /\b(?:rail|handrail|grab\s*rail|banister)\b.*\b(?:loose|broken|damaged|repair|fix|unsafe|wobbly)\b|\b(?:loose|broken|damaged|wobbly|unsafe)\b.*\b(?:rail|handrail|grab\s*rail|banister)\b/i;
 const lockWorkPattern = /\b(?:lock|door\s+security|sticking\s+door)\b.*\b(?:broken|stuck|jammed|loose|damaged|faulty|not\s+working|cannot\s+open|won't\s+open|wont\s+open|replace|repair|check|inspect|review|unsafe|concern)\b|\b(?:broken|stuck|jammed|loose|damaged|faulty|unsafe|check|inspect|review|repair|replace)\b.*\b(?:lock|door\s+security|sticking\s+door)\b/i;
 
@@ -55,6 +55,16 @@ function shouldUseCategory(rule: { category: string }, note: string) {
   return keysafeWorkPattern.test(note);
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function hasTerm(note: string, term: string) {
+  const escaped = escapeRegExp(term).replace(/\\ /g, "\\s+");
+  const pluralSuffix = /^[a-z]+$/i.test(term) && !term.endsWith("s") ? "s?" : "";
+  return new RegExp(`\\b${escaped}${pluralSuffix}\\b`, "i").test(note);
+}
+
 function taskSummaryForCategory(category: string) {
   if (category === "Key safe and lock safety") {
     return "Check the reported key-safe, lock or door-access concern and make the access route safe. Do not include the access code in the task summary.";
@@ -64,9 +74,8 @@ function taskSummaryForCategory(category: string) {
 
 export function deterministicTaskPlan(note: string, vulnerable: boolean): TaskSuggestion[] {
   const taskNote = noteForTaskMatching(note);
-  const lower = taskNote.toLowerCase();
   const urgency = inferredUrgency(note);
-  const matches = categoryRules.filter((rule) => shouldUseCategory(rule, note) && rule.terms.some((term) => lower.includes(term)));
+  const matches = categoryRules.filter((rule) => shouldUseCategory(rule, note) && rule.terms.some((term) => hasTerm(taskNote, term)));
   const selected = matches.length ? matches : [{ category: "Home safety inspection", terms: [] }];
   return selected.map((rule) => ({
     category: rule.category,
@@ -154,10 +163,18 @@ export function postProcessSuggestions(note: string, suggestions: TaskSuggestion
 }
 
 function isGroundedSuggestion(note: string, suggestion: TaskSuggestion, accessOnlyKeysafe: boolean) {
+  const taskNote = noteForTaskMatching(note);
   if (accessOnlyKeysafe && /key\s*safe|keysafe|lock|access/i.test(suggestion.category)) return false;
   if (/loose\s+rail|handrail|grab\s*rail|banister/i.test(suggestion.category) && !railWorkPattern.test(note)) return false;
   if (/lock\s+repair|door\s+lock/i.test(suggestion.category) && !lockWorkPattern.test(note)) return false;
+  if (/seasonal\s+safety/i.test(suggestion.category) && !categoryHasTerm("Seasonal safety checks", taskNote)) return false;
+  if (/appliance\s+safety/i.test(suggestion.category) && !categoryHasTerm("Appliance safety checks", taskNote)) return false;
   return true;
+}
+
+function categoryHasTerm(category: string, note: string) {
+  const rule = categoryRules.find((item) => item.category === category);
+  return !!rule?.terms.some((term) => hasTerm(note, term));
 }
 
 function mergeGroundedSuggestions(note: string, suggestions: TaskSuggestion[]) {
