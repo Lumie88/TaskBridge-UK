@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { analyzeCareNote, createTaskPlan, extractKeysafeInfo } from "../server/task-planner.js";
+import { analyzeCareNote, createTaskPlan, deterministicTaskPlan, extractKeysafeInfo, hasKeysafeAccessInfo, postProcessSuggestions } from "../server/task-planner.js";
 
 test("a care note containing multiple needs becomes separate reviewable tasks", async () => {
   const plan = await createTaskPlan(
@@ -15,9 +15,63 @@ test("a care note containing multiple needs becomes separate reviewable tasks", 
 
 test("keysafe information and safeguarding warnings are separated from task summaries", async () => {
   const note = "The path is unsafe. Keysafe code: 4182. The service user is usually alone.";
-  assert.equal(extractKeysafeInfo(note), "4182");
+  assert.equal(extractKeysafeInfo(note), "Key-safe access code: 4182");
   const analysis = await analyzeCareNote(note, true);
-  assert.equal(analysis.keysafeInfo, "4182");
+  assert.equal(analysis.keysafeInfo, "Key-safe access code: 4182");
   assert.ok(analysis.safeguardingWarnings.length >= 2);
   assert.ok(analysis.suggestions.every((item) => !item.summary.includes("4182")));
+  assert.ok(analysis.suggestions.every((item) => !/key safe/i.test(item.category)));
+});
+
+test("keysafe access notes are retained as building access instructions", () => {
+  const note = "Please use the keysafe by the rear porch. Code is 4182. Clear moss from the path.";
+  const accessInfo = extractKeysafeInfo(note);
+  const plan = deterministicTaskPlan(note, true);
+
+  assert.equal(hasKeysafeAccessInfo(note), true);
+  assert.match(accessInfo || "", /rear porch/i);
+  assert.match(accessInfo || "", /4182/);
+  assert.ok(plan.some((item) => item.category === "Path clearing"));
+  assert.ok(plan.every((item) => item.category !== "Key safe and lock safety"));
+});
+
+test("actual keysafe or lock faults still become a safety task", () => {
+  const plan = deterministicTaskPlan("The keysafe is jammed and the front door lock is sticking.", true);
+
+  assert.ok(plan.some((item) => item.category === "Key safe and lock safety"));
+});
+
+test("keysafe repair wording is not mistaken for an access code", async () => {
+  const note = "Got the key from the keysafe, Janet was fine. did her personal care. we noticed the keysafe is loose, screw is out of the wall. locked the door and secured the key in the keysafe";
+  const analysis = await analyzeCareNote(note, true);
+
+  assert.equal(analysis.keysafeInfo, "Key kept in key-safe; access code not provided.");
+  assert.ok(analysis.suggestions.some((item) => item.category === "Key safe and lock safety"));
+  assert.ok(analysis.suggestions.every((item) => item.category !== "Loose rail repair"));
+  assert.ok(analysis.suggestions.every((item) => item.category !== "Lock repairs"));
+  assert.ok(analysis.suggestions.every((item) => item.summary !== "loose"));
+});
+
+test("ungrounded AI rail and lock suggestions are replaced by the real keysafe fixture issue", () => {
+  const note = "Got the key from the keysafe, Janet was fine. did her personal care. we noticed the keysafe is loose, screw is out of the wall. locked the door and secured the key in the keysafe";
+  const grounded = postProcessSuggestions(note, [
+    { category: "Loose rail repair", summary: "Loose rail repair required.", urgency: "low", safeguardingApplies: true },
+    { category: "Lock repairs", summary: "Lock repairs required.", urgency: "low", safeguardingApplies: true }
+  ]);
+  const categories = grounded.map((item) => item.category);
+
+  assert.deepEqual(categories, ["Key safe and lock safety"]);
+});
+
+test("Age UK-style home safety notes map to practical check categories", () => {
+  const plan = deterministicTaskPlan(
+    "Repeat visit requested after another near fall. Please check the key safe, smoke alarm, CO alarm and seasonal ice risk by the back step.",
+    true
+  );
+  const categories = plan.map((item) => item.category);
+  assert.ok(categories.includes("Falls-risk triage"));
+  assert.ok(categories.includes("Key safe and lock safety"));
+  assert.ok(categories.includes("Smoke and carbon monoxide alarm checks"));
+  assert.ok(categories.includes("Seasonal safety checks"));
+  assert.ok(categories.includes("Repeat visit review"));
 });
