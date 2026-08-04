@@ -1,0 +1,143 @@
+export type ServiceUserRiskLevel = "standard" | "vulnerable_adult" | "high_risk";
+
+export interface ServiceUserCsvRow {
+  reference: string;
+  fullName: string;
+  address: string;
+  town: string;
+  county: string;
+  postcode: string;
+  riskLevel: ServiceUserRiskLevel;
+  vulnerabilityNotes: string;
+}
+
+export interface ServiceUserCsvParseResult {
+  rows: ServiceUserCsvRow[];
+  errors: string[];
+}
+
+const MAX_SERVICE_USER_IMPORT_ROWS = 500;
+
+export const SERVICE_USER_CSV_TEMPLATE = [
+  ["reference", "full_name", "address", "town", "county", "postcode", "risk_level", "vulnerability_notes"],
+  ["", "Janet Hart", "Flat 4, 12 Example Road", "Peterborough", "Cambridgeshire", "PE1 1AA", "vulnerable_adult", "Lives alone; carer should be on site for high-risk work"]
+].map((row) => row.map(csvEscape).join(",")).join("\r\n") + "\r\n";
+
+export function parseServiceUserCsv(csvText: string): ServiceUserCsvParseResult {
+  const records = parseCsvRecords(csvText);
+  if (!records.length) return { rows: [], errors: ["CSV file is empty"] };
+
+  const headers = records[0].map(normalizeHeader);
+  const body = records.slice(1).filter((record) => record.some((value) => value.trim()));
+  const errors: string[] = [];
+  const rows: ServiceUserCsvRow[] = [];
+  const seenReferences = new Set<string>();
+
+  if (body.length > MAX_SERVICE_USER_IMPORT_ROWS) {
+    return { rows: [], errors: [`CSV can import up to ${MAX_SERVICE_USER_IMPORT_ROWS} service users at a time`] };
+  }
+
+  body.forEach((record, index) => {
+    const source = Object.fromEntries(headers.map((header, headerIndex) => [header, record[headerIndex]?.trim() || ""]));
+    const line = index + 2;
+    const row = normalizeServiceUserRow(source);
+    const rowErrors = validateServiceUserRow(row, line);
+
+    if (row.reference) {
+      const key = row.reference.toLowerCase();
+      if (seenReferences.has(key)) rowErrors.push(`CSV row ${line}: reference "${row.reference}" is duplicated in this file`);
+      seenReferences.add(key);
+    }
+
+    if (rowErrors.length) {
+      errors.push(...rowErrors);
+      return;
+    }
+    rows.push(row);
+  });
+
+  if (!rows.length && !errors.length) errors.push("CSV file does not contain any service-user rows");
+  return { rows, errors };
+}
+
+function normalizeServiceUserRow(row: Record<string, string>): ServiceUserCsvRow {
+  return {
+    reference: firstValue(row, ["reference", "service_user_reference", "service_user_id", "external_service_user_id"]),
+    fullName: firstValue(row, ["full_name", "service_user_full_name", "name", "service_user_name"]),
+    address: firstValue(row, ["address", "street_address", "home_address"]),
+    town: firstValue(row, ["town", "city"]),
+    county: firstValue(row, ["county", "region"]),
+    postcode: firstValue(row, ["postcode", "post_code", "postal_code"]).toUpperCase(),
+    riskLevel: normalizeRiskLevel(firstValue(row, ["risk_level", "safeguarding_status", "status"])),
+    vulnerabilityNotes: firstValue(row, ["vulnerability_notes", "safeguarding_notes", "notes", "visit_controls"])
+  };
+}
+
+function validateServiceUserRow(row: ServiceUserCsvRow, line: number) {
+  const errors: string[] = [];
+  if (row.reference.length > 80) errors.push(`CSV row ${line}: reference must be 80 characters or fewer`);
+  if (row.fullName.length < 2 || row.fullName.length > 160) errors.push(`CSV row ${line}: full_name must be 2-160 characters`);
+  if (row.address.length < 5 || row.address.length > 500) errors.push(`CSV row ${line}: address must be 5-500 characters`);
+  if (row.town.length < 2 || row.town.length > 120) errors.push(`CSV row ${line}: town must be 2-120 characters`);
+  if (row.county.length < 2 || row.county.length > 120) errors.push(`CSV row ${line}: county must be 2-120 characters`);
+  if (row.postcode.length < 5 || row.postcode.length > 12) errors.push(`CSV row ${line}: postcode must be 5-12 characters`);
+  if (row.vulnerabilityNotes.length > 2000) errors.push(`CSV row ${line}: vulnerability_notes must be 2000 characters or fewer`);
+  return errors;
+}
+
+function normalizeRiskLevel(value: string): ServiceUserRiskLevel {
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  if (["high", "high_risk", "urgent", "enhanced"].includes(normalized)) return "high_risk";
+  if (["vulnerable", "vulnerable_adult", "adult_at_risk", "safeguarded"].includes(normalized)) return "vulnerable_adult";
+  return "standard";
+}
+
+function parseCsvRecords(csvText: string) {
+  const records: string[][] = [];
+  let record: string[] = [];
+  let value = "";
+  let quoted = false;
+
+  for (let index = 0; index < csvText.length; index += 1) {
+    const char = csvText[index];
+    const next = csvText[index + 1];
+
+    if (char === "\"" && quoted && next === "\"") {
+      value += "\"";
+      index += 1;
+    } else if (char === "\"") {
+      quoted = !quoted;
+    } else if (char === "," && !quoted) {
+      record.push(value);
+      value = "";
+    } else if ((char === "\n" || char === "\r") && !quoted) {
+      record.push(value);
+      value = "";
+      if (record.some((item) => item.trim())) records.push(record);
+      record = [];
+      if (char === "\r" && next === "\n") index += 1;
+    } else {
+      value += char;
+    }
+  }
+
+  record.push(value);
+  if (record.some((item) => item.trim())) records.push(record);
+  return records;
+}
+
+function firstValue(row: Record<string, string>, keys: string[]) {
+  for (const key of keys) {
+    const value = row[key]?.trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function normalizeHeader(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+}
+
+function csvEscape(value: string) {
+  return `"${value.replaceAll("\"", "\"\"")}"`;
+}

@@ -400,6 +400,7 @@ function ServiceUserDirectory({ serviceUsers, onChanged }: { serviceUsers: Servi
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState("");
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -459,6 +460,41 @@ function ServiceUserDirectory({ serviceUsers, onChanged }: { serviceUsers: Servi
     }
   }
 
+  function downloadTemplate() {
+    window.location.assign("/api/coordinator/service-users/template.csv");
+  }
+
+  async function importCsv(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const file = formData.get("serviceUserCsv");
+    if (!(file instanceof File) || file.size === 0) {
+      setError("Choose a populated service-user CSV file.");
+      setSuccess("");
+      return;
+    }
+    setImporting(true);
+    setError("");
+    setSuccess("");
+    try {
+      const csvText = await file.text();
+      const result = await api<{ imported: number; skipped: number; errors: string[]; duplicateReferences: string[] }>("/api/coordinator/service-users/import", {
+        method: "POST",
+        body: JSON.stringify({ fileName: file.name, csvText })
+      });
+      const skippedCopy = result.skipped ? ` ${result.skipped} row${result.skipped === 1 ? " was" : "s were"} skipped.` : "";
+      const duplicateCopy = result.duplicateReferences.length ? ` Duplicate references: ${result.duplicateReferences.slice(0, 5).join(", ")}.` : "";
+      setSuccess(`${result.imported} service user${result.imported === 1 ? "" : "s"} imported securely.${skippedCopy}${duplicateCopy}`);
+      if (result.errors.length) setError(result.errors.slice(0, 3).join(" "));
+      event.currentTarget.reset();
+      await onChanged();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to import the service-user CSV");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return <>
     <div className="page-title-row"><div><span className="eyebrow">Secure people directory</span><h1>Service users</h1><p>Maintain the people, addresses and safeguarding controls used for home-safety work.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Encrypted at rest</span></div>
     <div className="resident-layout">
@@ -472,6 +508,13 @@ function ServiceUserDirectory({ serviceUsers, onChanged }: { serviceUsers: Servi
       </section>
       <aside className="resident-create-panel">
         <div className="resident-create-heading"><span>{editingId ? <Pencil size={21} /> : <UserPlus size={21} />}</span><div><h2>{editingId ? "Edit service user" : "Add a service user"}</h2><p>The record is limited to your agency workspace.</p></div></div>
+        <div className="service-user-import-panel">
+          <button className="button button-secondary button-full" type="button" onClick={downloadTemplate}><FileText size={17} /> Download CSV template</button>
+          <form className="stack" onSubmit={importCsv}>
+            <label>Upload populated CSV<input name="serviceUserCsv" type="file" accept=".csv,text/csv" /></label>
+            <button className="button button-primary button-full" disabled={importing} type="submit">{importing ? <><LoaderCircle className="spin" size={17} /> Importing...</> : <><UploadCloud size={17} /> Import service users</>}</button>
+          </form>
+        </div>
         <form className="stack" onSubmit={save}>
           <label>Service-user full name<input required minLength={2} maxLength={160} value={form.fullName} onChange={(event) => update("fullName", event.target.value)} autoComplete="off" /></label>
           <label>Street address<textarea required minLength={5} maxLength={500} rows={3} value={form.address} onChange={(event) => update("address", event.target.value)} autoComplete="street-address" /></label>

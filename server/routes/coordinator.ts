@@ -6,6 +6,7 @@ import { requireAgency, requireRoles } from "../auth.js";
 import { query, withTransaction } from "../db.js";
 import { cancelHandymanNetworkBooking } from "../integrations.js";
 import { decryptField, encryptField, hashToken, publicId, safeInitials } from "../security.js";
+import { parseServiceUserCsv, SERVICE_USER_CSV_TEMPLATE } from "../service-user-csv.js";
 import { analyzeCareNote } from "../task-planner.js";
 
 interface ServiceUserRow {
@@ -128,6 +129,10 @@ const reverseAssignmentSchema = z.object({
   reason: z.string().trim().min(5).max(500)
 });
 const analyticsUploadSchema = z.object({
+  fileName: z.string().trim().min(1).max(240),
+  csvText: z.string().min(10).max(750_000)
+});
+const serviceUserImportSchema = z.object({
   fileName: z.string().trim().min(1).max(240),
   csvText: z.string().min(10).max(750_000)
 });
@@ -532,6 +537,63 @@ coordinatorRouter.get("/service-users", async (req, res) => {
     serviceUsers: result.rows.map(mapServiceUser)
   });
 });
+
+coordinatorRouter.get("/service-users/template.csv", (_req, res) => {
+  res.type("text/csv");
+  res.setHeader("Content-Disposition", "attachment; filename=\"taskbridge-service-users-template.csv\"");
+  res.send(SERVICE_USER_CSV_TEMPLATE);
+});
+
+coordinatorRouter.post("/service-users/import", asyncHandler(async (req, res) => {
+  const parsed = serviceUserImportSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid CSV upload" });
+
+  const csv = parseServiceUserCsv(parsed.data.csvText);
+  if (!csv.rows.length) return res.status(422).json({ error: csv.errors[0] || "CSV file does not contain valid service-user rows", errors: csv.errors });
+
+  const imported = await withTransaction(req.auth!, async (client) => {
+    const rows: ServiceUserRow[] = [];
+    const duplicates: string[] = [];
+
+    for (const row of csv.rows) {
+      const reference = row.reference || publicId("res");
+      const normalizedPostcode = row.postcode.toUpperCase().replace(/\s+/g, "");
+      const result = await client.query<ServiceUserRow>(
+        `INSERT INTO care.service_users
+          (agency_id, external_service_user_id, encrypted_name, encrypted_address, postcode_hash,
+           town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level, vulnerability_notes_ciphertext)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ON CONFLICT (agency_id, external_service_user_id) DO NOTHING
+         RETURNING id::text, external_service_user_id, encrypted_name, encrypted_address,
+                   town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+                   vulnerability_notes_ciphertext, created_at::text`,
+        [req.auth!.agencyId, reference, encryptField(row.fullName), encryptField(row.address),
+          hashToken(normalizedPostcode), encryptField(row.town), encryptField(row.county),
+          encryptField(row.postcode.toUpperCase()), row.riskLevel,
+          row.vulnerabilityNotes ? encryptField(row.vulnerabilityNotes) : null]
+      );
+      if (result.rows[0]) rows.push(result.rows[0]);
+      else duplicates.push(reference);
+    }
+
+    return { rows, duplicates };
+  });
+
+  await audit(req, "care.service_users.imported", "service_user", req.auth!.agencyId!, {
+    fileName: parsed.data.fileName,
+    imported: imported.rows.length,
+    rejected: csv.errors.length,
+    duplicates: imported.duplicates.length
+  });
+
+  res.status(201).json({
+    imported: imported.rows.length,
+    skipped: csv.errors.length + imported.duplicates.length,
+    errors: csv.errors,
+    duplicateReferences: imported.duplicates,
+    serviceUsers: imported.rows.map(mapServiceUser)
+  });
+}));
 
 coordinatorRouter.post("/service-users", async (req, res) => {
   const parsed = createServiceUserSchema.safeParse(req.body);
