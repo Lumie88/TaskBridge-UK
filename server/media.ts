@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { config } from "./config.js";
@@ -21,6 +21,16 @@ const complianceDocumentTypes = new Set([
   "enhanced_dbs",
   "qualification"
 ]);
+
+function storageSignature(storageKey: string) {
+  return createHmac("sha256", config.encryptionKey).update(storageKey).digest("base64url");
+}
+
+function signedEvidenceFileUrl(storageKey: string) {
+  const publicBase = config.objectStoragePublicBaseUrl.replace(/\/$/, "");
+  if (!publicBase) throw Object.assign(new Error("Secure photo storage public URL is not configured"), { statusCode: 503 });
+  return `${publicBase}/${storageKey}?sig=${encodeURIComponent(storageSignature(storageKey))}`;
+}
 
 function storageClient() {
   if (!config.objectStorageEndpoint || !config.objectStorageAccessKeyId || !config.objectStorageSecretAccessKey || !config.objectStorageBucket) {
@@ -62,7 +72,7 @@ export async function createEvidenceUpload(
   return {
     uploadUrl,
     storageKey: key,
-    fileUrl: `${publicBase}/${key}`,
+    fileUrl: signedEvidenceFileUrl(key),
     headers: { "content-type": contentType }
   };
 }
@@ -71,9 +81,28 @@ export function evidenceFileUrl(storageKey: string) {
   if (!storageKey.startsWith("visit-evidence/")) {
     throw Object.assign(new Error("Evidence storage path is invalid"), { statusCode: 422 });
   }
-  const publicBase = config.objectStoragePublicBaseUrl.replace(/\/$/, "");
-  if (!publicBase) throw Object.assign(new Error("Secure photo storage public URL is not configured"), { statusCode: 503 });
-  return `${publicBase}/${storageKey}`;
+  return signedEvidenceFileUrl(storageKey);
+}
+
+export function verifyEvidenceObjectSignature(storageKey: string, signature: string | undefined) {
+  if (!signature) throw Object.assign(new Error("Evidence download signature is missing"), { statusCode: 401 });
+  const expected = Buffer.from(storageSignature(storageKey));
+  const received = Buffer.from(signature);
+  if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
+    throw Object.assign(new Error("Evidence download signature is invalid"), { statusCode: 401 });
+  }
+}
+
+export async function getEvidenceObject(storageKey: string, signature: string | undefined) {
+  if (!storageKey.startsWith("visit-evidence/")) {
+    throw Object.assign(new Error("Evidence storage path is invalid"), { statusCode: 422 });
+  }
+  verifyEvidenceObjectSignature(storageKey, signature);
+  try {
+    return await storageClient().send(new GetObjectCommand({ Bucket: config.objectStorageBucket, Key: storageKey }));
+  } catch {
+    throw Object.assign(new Error("Evidence file was not found"), { statusCode: 404 });
+  }
 }
 
 export async function verifyEvidenceUpload(

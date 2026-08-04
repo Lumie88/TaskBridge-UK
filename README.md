@@ -85,10 +85,10 @@ OBJECT_STORAGE_REGION=auto
 OBJECT_STORAGE_ACCESS_KEY_ID=<R2 access key id>
 OBJECT_STORAGE_SECRET_ACCESS_KEY=<R2 secret access key>
 OBJECT_STORAGE_BUCKET=taskbridge-production
-OBJECT_STORAGE_PUBLIC_BASE_URL=https://<controlled-public-or-worker-domain>
+OBJECT_STORAGE_PUBLIC_BASE_URL=https://www.growingfig.com/api/storage
 ```
 
-Use a private write policy and a controlled read/CDN URL. Upload links expire after five minutes and accept only JPEG, PNG, or WebP files up to 10 MB. `/api/readiness` reports `objectStorage: true` when all storage variables are present.
+Use a private write policy. Upload links expire after five minutes and accept only JPEG, PNG, or WebP files up to 10 MB. Visit evidence downloads can be served through the Railway app at signed `/api/storage/...` URLs, avoiding a separate evidence subdomain while preventing unsigned storage-key access. `/api/readiness` reports `objectStorage: true` when all storage variables are present.
 
 ## Production provider integrations
 

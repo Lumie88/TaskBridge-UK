@@ -5,6 +5,7 @@ import helmet from "helmet";
 import { authenticate } from "./auth.js";
 import { config, isProduction, productionConfigErrors } from "./config.js";
 import { databaseReady, withRequestDbContext } from "./db.js";
+import { getEvidenceObject } from "./media.js";
 import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
 import { coordinatorRouter } from "./routes/coordinator.js";
@@ -90,6 +91,26 @@ export function createApp() {
     );
     const ready = database && missing.length === 0;
     res.status(ready ? 200 : 503).json({ ready, database, objectStorage, missingConfiguration: missing });
+  });
+
+  app.get("/api/storage/*", async (req, res, next) => {
+    try {
+      const storageKey = (req.params as Record<string, string>)["0"] || "";
+      const signature = typeof req.query.sig === "string" ? req.query.sig : undefined;
+      const object = await getEvidenceObject(storageKey, signature);
+      if (object.ContentType) res.type(object.ContentType);
+      if (object.ContentLength !== undefined) res.setHeader("content-length", String(object.ContentLength));
+      res.setHeader("cache-control", "private, max-age=300");
+      const body = object.Body;
+      if (!body) return res.status(404).json({ error: "Evidence file was not found" });
+      if (typeof (body as { pipe?: unknown }).pipe === "function") {
+        return (body as NodeJS.ReadableStream).pipe(res);
+      }
+      const bytes = await new Response(body as BodyInit).arrayBuffer();
+      res.send(Buffer.from(bytes));
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.use("/api/auth", authRouter);
