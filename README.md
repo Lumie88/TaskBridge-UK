@@ -127,7 +127,7 @@ TaskBridge uses Twilio Programmable Messaging to send secure visit links to hand
 Set `EMAIL_PROVIDER_KIND=zoho` and add:
 
 ```text
-EMAIL_FROM_ADDRESS=TaskBridge Onboarding <integrations@growingfig.com>
+EMAIL_FROM_ADDRESS=TaskBridge Support <integration@growingfig.com>
 ZOHO_MAIL_API_BASE_URL=https://mail.zoho.com
 ZOHO_MAIL_ACCOUNT_ID=
 ZOHO_MAIL_OAUTH_TOKEN=

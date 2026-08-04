@@ -10,6 +10,8 @@ Current DNS status:
 
 Known failure reason:
 - The earlier message to `oshonubi@growingfig.com` bounced with `550 5.1.1 Invalid email recipients`. That means Zoho rejected the recipient address as invalid or non-existent. It was not an SPF/DKIM/DMARC failure.
+- Zoho also rejected `integrations@growingfig.com` and `handyman.support@growingfig.com` as API senders with `Given FromAddress not exists!`.
+- The connected Zoho Mail API account reports the mailbox `integration@growingfig.com`, and live API sending from `integration@growingfig.com` succeeds.
 
 Required DNS fix before full scale:
 
