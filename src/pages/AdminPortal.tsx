@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   BadgeCheck,
@@ -69,6 +69,7 @@ interface Trader {
   email: string | null;
   network: string | null;
   hourlyRate: number;
+  postcodeArea: string | null;
   qualityScore: number;
   status: string;
   dbsStatus: string;
@@ -678,15 +679,45 @@ function DemoRequestDesk({ requests, onChanged }: { requests: DemoRequest[]; onC
   </>;
 }
 
+function handymanLeadScore(item: HandymanJoinRequest) {
+  let score = 20;
+  if (item.hasPublicLiability) score += 25;
+  if (item.hasEnhancedDbs || item.dbsRoute === "already_enhanced") score += 15;
+  if (item.services.length >= 3) score += 15;
+  else score += item.services.length * 4;
+  if (item.businessName) score += 6;
+  if (item.companyRegistrationNumber || ["sole_trader", "partnership"].includes(item.tradingStatus)) score += 6;
+  if (/care|housing|older|vulnerable|council|maintenance|safety/i.test(item.message || "")) score += 8;
+  if (/referral|council|care|agency|approved|facebook|google|directory/i.test(item.source)) score += 5;
+  if (!item.hasPublicLiability) score -= 18;
+  if (item.status === "declined") score -= 30;
+  if (item.status === "closed") score -= 20;
+  return Math.max(0, Math.min(100, score));
+}
+
+function scoreBand(score: number) {
+  if (score >= 75) return "strong";
+  if (score >= 55) return "medium";
+  return "weak";
+}
+
+function compactSource(source: string) {
+  if (source.startsWith("referral:")) return `Referral: ${source.slice("referral:".length)}`;
+  return humanize(source);
+}
+
 function HandymanJoinRequestDesk({ requests, onChanged, embedded = false }: { requests: HandymanJoinRequest[]; onChanged: () => Promise<void>; embedded?: boolean }) {
   const [filter, setFilter] = useState("open");
   const [busy, setBusy] = useState("");
   const [inviteResult, setInviteResult] = useState<HandymanInviteResult | null>(null);
   const filtered = requests.filter((item) => filter === "open" ? ["new", "reviewing"].includes(item.status) : filter === "all" ? true : item.status === filter);
   async function update(item: HandymanJoinRequest, status: string) {
+    const rejectionReason = ["declined", "closed"].includes(status)
+      ? window.prompt(`Reason for marking ${item.fullName} as ${status}?`, "") || ""
+      : "";
     setBusy(item.id); setInviteResult(null);
     try {
-      await api(`/api/admin/handyman-join-requests/${item.id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      await api(`/api/admin/handyman-join-requests/${item.id}`, { method: "PATCH", body: JSON.stringify({ status, rejectionReason }) });
       await onChanged();
     } finally { setBusy(""); }
   }
@@ -708,15 +739,19 @@ function HandymanJoinRequestDesk({ requests, onChanged, embedded = false }: { re
     {!embedded && <nav className="task-filter-links" aria-label="Filter handyman join requests">{[["open", "Open"], ["new", "New"], ["reviewing", "Reviewing"], ["invited", "Invited"], ["declined", "Declined"], ["closed", "Closed"], ["all", "All"]].map(([key, label]) => <button key={key} className={filter === key ? "active" : ""} onClick={() => setFilter(key)}>{label}<span>{requests.filter((item) => key === "open" ? ["new", "reviewing"].includes(item.status) : key === "all" ? true : item.status === key).length}</span></button>)}</nav>}
     <section className="panel table-panel">
       {inviteResult && <div className={`invitation-result ${inviteResult.emailDeliveryStatus === "sent" ? "sent" : "attention"}`}><div><strong>{inviteResult.fullName} moved into onboarding</strong><span>Email: {humanize(inviteResult.emailDeliveryStatus)} / SMS: {humanize(inviteResult.smsDeliveryStatus || "not_configured")} / expires {formatDate(inviteResult.expiresAt, true)}</span></div><div className="invitation-link"><input readOnly value={inviteResult.invitationUrl} aria-label="Handyman onboarding invitation URL" /><button className="icon-button" type="button" onClick={copyLeadInviteLink} aria-label="Copy invitation link"><Copy size={18} /></button><a className="icon-button" href={inviteResult.invitationUrl} target="_blank" rel="noreferrer" aria-label="Open onboarding invitation"><ExternalLink size={18} /></a></div></div>}
-      <div className="responsive-table"><table><thead><tr><th>Applicant</th><th>Business</th><th>Contact</th><th>Services</th><th>Safeguarding</th><th>Message</th><th>Actions</th></tr></thead><tbody>{filtered.map((item) => <tr key={item.id}>
+      <div className="responsive-table"><table><thead><tr><th>Applicant</th><th>Source / score</th><th>Business</th><th>Contact</th><th>Services</th><th>Safeguarding</th><th>Message</th><th>Actions</th></tr></thead><tbody>{filtered.map((item) => {
+        const score = handymanLeadScore(item);
+        return <tr key={item.id}>
         <td><strong>{item.fullName}</strong><small>{formatDate(item.createdAt, true)}</small><StatusBadge status={item.status}>{humanize(item.status)}</StatusBadge>{item.traderId && <small>Compliance: {humanize(item.traderStatus || "inactive")} / {humanize(item.onboardingStatus || "not_invited")}</small>}</td>
+        <td><strong>{compactSource(item.source)}</strong><small className={`lead-score lead-score-${scoreBand(score)}`}>{score}/100 {humanize(scoreBand(score))}</small></td>
         <td><strong>{item.businessName || "No business name"}</strong><small>{humanize(item.tradingStatus)}</small>{item.companyRegistrationNumber && <small>Company reg: {item.companyRegistrationNumber}</small>}{item.vatNumber && <small>VAT: {item.vatNumber}</small>}</td>
         <td><strong>{item.email}</strong><small>{item.phone} · {item.postcode}</small></td>
         <td><span className="service-summary" title={item.services.join(", ")}>{item.services.join(", ") || "No services selected"}</span></td>
         <td><StatusBadge status={item.dbsRoute}>{humanize(item.dbsRoute)}</StatusBadge><small>{item.hasPublicLiability ? "Public liability declared" : "No public liability declared"}</small><small>{item.hasEnhancedDbs ? "Enhanced DBS declared" : "Enhanced DBS not declared"}</small></td>
         <td><span className="integration-endpoint">{item.message || "No extra note"}</span>{item.dbsEligibilityNotes && <small>{item.dbsEligibilityNotes}</small>}</td>
         <td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === item.id || Boolean(item.traderId)} onClick={() => update(item, "reviewing")}>Reviewing</button><button className="button button-secondary button-small" disabled={busy === item.id || item.status === "invited" || Boolean(item.traderId)} onClick={() => invite(item)}>{item.traderId ? "In compliance" : "Invite"}</button><button className="button button-secondary button-small document-reject" disabled={busy === item.id || item.status === "invited" || Boolean(item.traderId)} onClick={() => update(item, "declined")}>Decline</button><button className="button button-secondary button-small" disabled={busy === item.id} onClick={() => update(item, "closed")}>Close</button></div></td>
-      </tr>)}</tbody></table></div>
+      </tr>;
+      })}</tbody></table></div>
       {!filtered.length && <EmptyState icon={<Wrench />} title="No handyman leads in this view" detail="New join form submissions will appear here." />}
     </section>
   </>;
@@ -805,6 +840,41 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
   const submittedTraders = traders.filter((trader) => trader.onboardingStatus === "submitted");
   const onboardingTraders = traders.filter((trader) => ["pending", "submitted", "not_invited"].includes(trader.onboardingStatus));
   const actionNeededTraders = traders.filter((trader) => trader.dbsStatus !== "approved" || trader.insuranceStatus !== "verified");
+  const recruitment = useMemo(() => {
+    const readyLeads = joinRequests
+      .filter((item) => ["new", "reviewing"].includes(item.status) && !item.traderId)
+      .map((item) => ({ item, score: handymanLeadScore(item) }))
+      .filter((item) => item.score >= 70)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 5);
+    const sourceRows = Array.from(joinRequests.reduce((map, item) => {
+      const current = map.get(item.source) || { source: item.source, total: 0, invited: 0, open: 0, declined: 0 };
+      current.total += 1;
+      if (item.status === "invited") current.invited += 1;
+      if (["new", "reviewing"].includes(item.status)) current.open += 1;
+      if (item.status === "declined") current.declined += 1;
+      map.set(item.source, current);
+      return map;
+    }, new Map<string, { source: string; total: number; invited: number; open: number; declined: number }>()).values())
+      .sort((left, right) => right.total - left.total)
+      .slice(0, 5);
+    const serviceRows = Array.from(traders
+      .filter((trader) => trader.status === "active" || (trader.dbsStatus === "approved" && trader.insuranceStatus === "verified"))
+      .reduce((map, trader) => {
+        for (const service of trader.services.length ? trader.services : ["Uncategorised"]) {
+          const key = `${trader.postcodeArea || "Unknown"}|${service}`;
+          const current = map.get(key) || { postcode: trader.postcodeArea || "Unknown", service, count: 0 };
+          current.count += 1;
+          map.set(key, current);
+        }
+        return map;
+      }, new Map<string, { postcode: string; service: string; count: number }>()).values())
+      .sort((left, right) => right.count - left.count || left.postcode.localeCompare(right.postcode))
+      .slice(0, 8);
+    const referralCode = "CARE-AGENCY-HANDYMAN";
+    const referralUrl = `${window.location.origin}/join-handyman?ref=${encodeURIComponent(referralCode)}`;
+    return { readyLeads, sourceRows, serviceRows, referralCode, referralUrl };
+  }, [joinRequests, traders]);
   const filteredTraders = traders.filter((trader) => {
     if (filter === "approved") return trader.dbsStatus === "approved";
     if (filter === "action-needed") return trader.dbsStatus !== "approved" || trader.insuranceStatus !== "verified";
@@ -940,6 +1010,40 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
         <article className="compliance-document-card"><div className="compliance-document-heading"><span><FileCheck2 size={19} /></span><div><h3>Submitted</h3><p>Documents ready for review</p></div><StatusBadge status={submittedTraders.length ? "pending" : "approved"}>{submittedTraders.length}</StatusBadge></div></article>
         <article className="compliance-document-card"><div className="compliance-document-heading"><span><ShieldCheck size={19} /></span><div><h3>Compliance action</h3><p>DBS, identity or insurance still needs review</p></div><StatusBadge status={actionNeededTraders.length ? "pending" : "approved"}>{actionNeededTraders.length}</StatusBadge></div></article>
       </div>
+    </section>
+    <section className="handyman-recruitment-grid">
+      <article className="panel recruitment-card">
+        <div className="panel-heading"><div><h2>Ready for onboarding shortlist</h2><p>Strong leads based on insurance, DBS route, services and care-sector fit.</p></div></div>
+        <div className="recruitment-list">
+          {recruitment.readyLeads.map(({ item, score }) => <div key={item.id}><strong>{item.fullName}</strong><span className={`lead-score lead-score-${scoreBand(score)}`}>{score}/100</span><p>{item.postcode} / {item.services.slice(0, 3).join(", ")}</p></div>)}
+          {!recruitment.readyLeads.length && <p className="muted-copy">No strong open leads yet. Keep sourcing and review new submissions.</p>}
+        </div>
+      </article>
+      <article className="panel recruitment-card">
+        <div className="panel-heading"><div><h2>Invite campaign status</h2><p>Which sources are producing open and invited leads.</p></div></div>
+        <div className="source-funnel-list">
+          {recruitment.sourceRows.map((source) => <div key={source.source}><strong>{compactSource(source.source)}</strong><span>{source.total} leads</span><i><b style={{ width: `${Math.round((source.invited / Math.max(1, source.total)) * 100)}%` }} /></i><small>{source.open} open / {source.invited} invited / {source.declined} declined</small></div>)}
+          {!recruitment.sourceRows.length && <p className="muted-copy">No campaign sources yet.</p>}
+        </div>
+      </article>
+      <article className="panel recruitment-card">
+        <div className="panel-heading"><div><h2>Approved capacity</h2><p>Coverage by postcode area and service category.</p></div></div>
+        <div className="capacity-list">
+          {recruitment.serviceRows.map((row) => <span key={`${row.postcode}-${row.service}`}><strong>{row.postcode}</strong>{row.service}<b>{row.count}</b></span>)}
+          {!recruitment.serviceRows.length && <p className="muted-copy">Approved service coverage will appear after compliance activation.</p>}
+        </div>
+      </article>
+      <article className="panel recruitment-card">
+        <div className="panel-heading"><div><h2>Care agency referral code</h2><p>Share this with agencies so trusted handymen enter the right campaign.</p></div></div>
+        <div className="referral-code-card"><strong>{recruitment.referralCode}</strong><div className="invitation-link"><input readOnly value={recruitment.referralUrl} aria-label="Handyman referral link" /><button className="icon-button" onClick={() => navigator.clipboard.writeText(recruitment.referralUrl)} aria-label="Copy referral link"><Copy size={17} /></button></div></div>
+      </article>
+      <article className="panel recruitment-card recruitment-template-card">
+        <div className="panel-heading"><div><h2>Email and SMS invite templates</h2><p>Pre-approved wording for controlled outreach.</p></div></div>
+        <div className="template-snippets">
+          <p><strong>Email</strong> Join TaskBridge as a vetted local home-safety operative supporting care organisations with practical, approved tasks for older and vulnerable residents.</p>
+          <p><strong>SMS</strong> TaskBridge: trusted local handyman panel now open. Clear care-approved tasks, safeguarded visits and evidence workflow. Apply: {window.location.origin}/join-handyman</p>
+        </div>
+      </article>
     </section>
     {showLeadQueue && <HandymanJoinRequestDesk requests={filter === "leads" ? joinRequests : openLeads} onChanged={onChanged} embedded />}
     {filter !== "leads" && <>

@@ -853,6 +853,31 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shado
 .invitation-result span { margin-top: 3px; font-size: .72rem; }
 .invitation-link { display: grid; grid-template-columns: minmax(0, 1fr) 36px 36px; gap: 6px; }
 .invitation-link input { min-width: 0; font-size: .72rem; }
+.handyman-recruitment-grid { margin-bottom: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.handyman-recruitment-grid .recruitment-template-card { grid-column: span 2; }
+.recruitment-card { min-width: 0; }
+.recruitment-list, .source-funnel-list, .capacity-list, .template-snippets, .referral-code-card { padding: 15px; display: grid; gap: 10px; }
+.recruitment-list > div { padding: 11px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
+.recruitment-list strong { min-width: 0; color: #0f172a; font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recruitment-list p { grid-column: 1 / -1; margin: 0; color: #64748b; font-size: .7rem; line-height: 1.45; }
+.lead-score { width: fit-content; padding: 4px 8px; display: inline-flex; align-items: center; border-radius: 999px; font-size: .64rem; font-weight: 900; }
+.lead-score-strong { color: #047857; background: #dcfce7; }
+.lead-score-medium { color: #8a4f00; background: #fff3d6; }
+.lead-score-weak { color: #9f1239; background: #ffe4ea; }
+.source-funnel-list > div { display: grid; gap: 6px; }
+.source-funnel-list strong, .source-funnel-list span { font-size: .78rem; }
+.source-funnel-list div > span { color: #0d6370; font-weight: 850; }
+.source-funnel-list i { height: 8px; overflow: hidden; display: block; background: #e2e8f0; border-radius: 999px; }
+.source-funnel-list b { display: block; height: 100%; background: linear-gradient(90deg, #0d6370, #35d399); border-radius: inherit; }
+.source-funnel-list small { color: #64748b; font-size: .66rem; }
+.capacity-list { display: flex; flex-wrap: wrap; align-content: start; }
+.capacity-list span { padding: 8px 9px; display: inline-flex; align-items: center; gap: 7px; color: #334155; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 999px; font-size: .68rem; font-weight: 800; }
+.capacity-list strong { color: #0d6370; }
+.capacity-list b { min-width: 20px; height: 20px; display: inline-grid; place-items: center; color: white; background: #2563eb; border-radius: 999px; font-size: .62rem; }
+.referral-code-card > strong { color: #0f172a; font-family: "JetBrains Mono", monospace; font-size: .9rem; }
+.referral-code-card .invitation-link { grid-template-columns: minmax(0, 1fr) 36px; }
+.template-snippets p { margin: 0; padding: 11px; color: #4f6469; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: .72rem; line-height: 1.5; }
+.template-snippets strong { display: block; margin-bottom: 4px; color: #0f172a; }
 .agency-onboarding-layout { display: grid; grid-template-columns: minmax(0, 1fr) 410px; gap: 24px; align-items: start; }
 .agency-list { display: grid; }
 .agency-list article { min-height: 98px; padding: 18px 21px; display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; gap: 13px; align-items: center; border-bottom: 1px solid var(--line); }
@@ -1113,6 +1138,8 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .invite-handyman-form { grid-template-columns: 1fr 1fr; }
   .invite-handyman-form .button { grid-column: 1 / -1; }
   .invitation-result { grid-template-columns: 1fr; }
+  .handyman-recruitment-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .handyman-recruitment-grid .recruitment-template-card { grid-column: span 2; }
   .task-row { grid-template-columns: 40px 1fr auto; }
   .task-assignee { grid-column: 2; }
   .task-status { grid-column: 3; grid-row: 1 / span 2; }
@@ -1283,6 +1310,7 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .invite-handyman-form { grid-template-columns: 1fr; padding: 17px; }
   .invitation-result { margin-inline: 17px; }
   .invitation-link { grid-template-columns: minmax(0, 1fr) 36px 36px; }
+  .handyman-recruitment-grid, .handyman-recruitment-grid .recruitment-template-card { grid-template-columns: 1fr; grid-column: auto; }
   .handyman-onboarding-header { height: 68px; padding-inline: 14px; }
   .handyman-onboarding-header .brand-copy small { display: none; }
   .handyman-onboarding-shell { width: min(100% - 24px, 960px); }

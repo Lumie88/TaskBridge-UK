@@ -100,7 +100,8 @@ const demoRequestUpdateSchema = z.object({
   internalNotes: z.string().trim().max(2000).optional().default("")
 });
 const handymanJoinRequestUpdateSchema = z.object({
-  status: z.enum(["new", "reviewing", "declined", "closed"])
+  status: z.enum(["new", "reviewing", "declined", "closed"]),
+  rejectionReason: z.string().trim().max(500).optional().default("")
 });
 const agencySettingsSchema = z.object({
   vulnerableAdultRequiresEnhancedDbs: z.boolean(),
@@ -375,7 +376,10 @@ adminRouter.patch("/handyman-join-requests/:id", asyncHandler(async (req, res) =
     [req.params.id, parsed.data.status]
   );
   if (!result.rows[0]) return res.status(404).json({ error: "Handyman join request not found" });
-  await audit(req, "admin.handyman_join_request.updated", "handyman_join_request", result.rows[0].id, { status: parsed.data.status });
+  await audit(req, "admin.handyman_join_request.updated", "handyman_join_request", result.rows[0].id, {
+    status: parsed.data.status,
+    rejectionReason: parsed.data.rejectionReason || null
+  });
   res.json({ id: result.rows[0].id, status: parsed.data.status });
 }));
 
@@ -845,6 +849,7 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
 adminRouter.get("/traders", async (_req, res) => {
   const result = await query<{
     id: string; display_name: string; email: string | null; network_name: string | null; hourly_rate: string;
+    postcode_area: string | null;
     quality_score: string; status: string; dbs_status: string; dbs_expiry_date: string | null;
     dbs_outcome: string | null; dbs_route: string | null; update_service_status: string | null;
     insurance_status: string; insurance_expiry_date: string | null; services: string[];
@@ -852,7 +857,8 @@ adminRouter.get("/traders", async (_req, res) => {
     business_name: string | null; trading_status: string; company_registration_number: string | null; vat_number: string | null;
     lead_id: string | null; lead_status: string | null; lead_created_at: string | null; lead_message: string | null;
   }>(
-    `SELECT t.id::text, t.display_name, t.email::text, n.name AS network_name, t.hourly_rate::text, t.quality_score::text,
+    `SELECT t.id::text, t.display_name, t.email::text, n.name AS network_name, t.hourly_rate::text, t.postcode_area,
+            t.quality_score::text,
             t.status::text, COALESCE(d.status::text, 'not_started') AS dbs_status, d.expiry_date::text AS dbs_expiry_date,
             d.outcome AS dbs_outcome, d.verification_route AS dbs_route, d.update_service_status,
             COALESCE(i.status::text, 'unverified') AS insurance_status, i.expiry_date::text AS insurance_expiry_date,
@@ -887,6 +893,7 @@ adminRouter.get("/traders", async (_req, res) => {
     email: row.email,
     network: row.network_name,
     hourlyRate: Number(row.hourly_rate),
+    postcodeArea: row.postcode_area,
     qualityScore: Number(row.quality_score),
     status: row.status,
     dbsStatus: row.dbs_status,
