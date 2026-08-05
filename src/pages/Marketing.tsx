@@ -35,10 +35,10 @@ import SafeguardingGuideline from "../guidelines/SafeguardingGuideline";
 import ServicesGuideline from "../guidelines/ServicesGuideline";
 
 const services = [
-  { title: "Reduce slips and falls", detail: "Mossy paths, loose rails, trip hazards and unsafe thresholds." },
-  { title: "Keep access safe", detail: "Locks, handles, door concerns and safer key access arrangements." },
-  { title: "Support safe daily living", detail: "Small repairs, fittings and practical jobs that protect independence." },
-  { title: "Tackle neglected outdoor risks", detail: "Lawn care, garden paths, window access and visible home hazards." }
+  { title: "Reduce slips and falls", detail: "Falls-risk triage, trip hazards, loose rails, mossy paths and unsafe thresholds." },
+  { title: "Keep access safe", detail: "Key safes, locks, handles, door concerns and safer emergency access arrangements." },
+  { title: "Support safe daily living", detail: "Minor adaptations, smoke/CO alarm checks, fittings and practical safety jobs." },
+  { title: "Tackle changing home risks", detail: "Seasonal safety checks, repeat visit reviews, lawn care and visible outdoor hazards." }
 ];
 
 const storyMoments = [
@@ -76,6 +76,12 @@ const handymanServices = [
   "Window cleaning",
   "Lock and handle repairs",
   "Trip hazard removal",
+  "Minor adaptations",
+  "Falls-risk triage",
+  "Smoke/CO alarm checks",
+  "Key-safe and lock safety",
+  "Seasonal safety checks",
+  "Repeat visit reviews",
   "Appliance safety checks"
 ];
 
@@ -127,9 +133,7 @@ export function MarketingHome() {
               </div>
             </div>
             <div className="studio-hero-visual">
-              <div className="studio-image-frame"><img src={heroImage} alt="A verified handyman installing a safety rail in a bright bathroom" /></div>
-              <div className="studio-float-card verification-card"><span><BadgeCheck size={20} /></span><div><small>Safeguarded match</small><strong>Verified home-safety operative</strong><p>DBS route, insurance and service fit checked</p></div></div>
-              <div className="studio-float-card privacy-card"><span><ShieldAlert size={20} /></span><div><small>Care record protected</small><strong>Identity details shielded</strong><p>Only approved visit context is shared</p></div></div>
+              <TaskBridgeHeroAnimation />
             </div>
           </div>
         </section>
@@ -226,6 +230,37 @@ export function MarketingHome() {
       </main>
       <Footer />
       <DemoModal open={demoOpen} onClose={() => setDemoOpen(false)} />
+    </div>
+  );
+}
+
+function TaskBridgeHeroAnimation() {
+  return (
+    <div className="taskbridge-hero-animation" aria-label="Animated TaskBridge workflow from care note to evidenced completion">
+      <div className="hero-shape hero-shape-rose" />
+      <div className="hero-shape hero-shape-teal" />
+      <div className="hero-workflow-photo">
+        <img src={heroImage} alt="A verified handyman installing a safety rail in a bright bathroom" />
+        <span className="hero-photo-badge"><ShieldCheck size={18} /> Safeguarded visit</span>
+      </div>
+      <div className="hero-device-card">
+        <header><TaskBridgeMark size={22} /><span>TaskBridge</span><strong>Live safety workflow</strong></header>
+        <div className="hero-care-note-bubble">
+          <MessageSquareText size={18} />
+          <p><strong>Care note received</strong><span>Loose rail near bathroom door. Please review.</span></p>
+        </div>
+        <div className="hero-workflow-list">
+          <span className="hero-step-one"><Check size={15} /> Extract clear task</span>
+          <span className="hero-step-two"><ShieldCheck size={15} /> Apply visit safeguards</span>
+          <span className="hero-step-three"><UsersRound size={15} /> Match vetted handyman</span>
+          <span className="hero-step-four"><Camera size={15} /> Return visit evidence</span>
+        </div>
+      </div>
+      <div className="hero-mini-card hero-mini-task"><FileCheck2 size={18} /><span>Approved task</span><strong>Loose rail repair</strong></div>
+      <div className="hero-mini-card hero-mini-family"><Clock3 size={18} /><span>Visit window</span><strong>Today, 2:10pm</strong></div>
+      <div className="hero-mini-card hero-mini-cqc"><BadgeCheck size={18} /><span>CQC-ready</span><strong>Evidence saved</strong></div>
+      <div className="hero-route-line hero-route-line-one" />
+      <div className="hero-route-line hero-route-line-two" />
     </div>
   );
 }
@@ -557,6 +592,7 @@ export function JoinHandymanPage() {
   const [error, setError] = useState("");
   const [selectedServices, setSelectedServices] = useState<string[]>(["Minor repairs"]);
   const [dbsRoute, setDbsRoute] = useState<"already_enhanced" | "needs_application" | "basic_or_not_sure">("needs_application");
+  const [tradingStatus, setTradingStatus] = useState("sole_trader");
 
   function toggleService(service: string) {
     setSelectedServices((current) => current.includes(service) ? current.filter((item) => item !== service) : [...current, service]);
@@ -574,6 +610,9 @@ export function JoinHandymanPage() {
         body: JSON.stringify({
           fullName: values.get("fullName"),
           businessName: values.get("businessName"),
+          tradingStatus,
+          companyRegistrationNumber: values.get("companyRegistrationNumber"),
+          vatNumber: values.get("vatNumber"),
           email: values.get("email"),
           phone: values.get("phone"),
           postcode: values.get("postcode"),
@@ -612,6 +651,8 @@ export function JoinHandymanPage() {
             {!submitted ? <form onSubmit={submit}>
               <header><span className="eyebrow">Apply to join</span><h2>Handyman interest form</h2><p>TaskBridge admin will review your details before sending a secure onboarding link.</p></header>
               <div className="field-row"><label>Full name<input name="fullName" required autoComplete="name" /></label><label>Business name<input name="businessName" autoComplete="organization" /></label></div>
+              <div className="field-row"><label>Trading status<select name="tradingStatus" value={tradingStatus} onChange={(event) => setTradingStatus(event.target.value)}><option value="sole_trader">Sole trader</option><option value="limited_company">Limited company</option><option value="partnership">Partnership</option><option value="llp">LLP</option><option value="other">Other</option></select></label><label>Company registration number<input name="companyRegistrationNumber" required={["limited_company", "llp"].includes(tradingStatus)} placeholder={["limited_company", "llp"].includes(tradingStatus) ? "Required" : "If applicable"} /></label></div>
+              <label>VAT number<input name="vatNumber" placeholder="Optional" /></label>
               <div className="field-row"><label>Email<input name="email" type="email" required autoComplete="email" /></label><label>Mobile number<input name="phone" required autoComplete="tel" /></label></div>
               <label>Primary postcode<input name="postcode" required autoComplete="postal-code" /></label>
               <fieldset className="join-service-picker"><legend>Services you can offer</legend>{handymanServices.map((service) => <label key={service} className={selectedServices.includes(service) ? "selected" : ""}><input type="checkbox" checked={selectedServices.includes(service)} onChange={() => toggleService(service)} />{service}</label>)}</fieldset>
