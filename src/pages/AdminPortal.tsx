@@ -70,6 +70,7 @@ interface Trader {
   network: string | null;
   hourlyRate: number;
   postcodeArea: string | null;
+  rateCards: TraderRateCard[];
   qualityScore: number;
   status: string;
   dbsStatus: string;
@@ -91,6 +92,23 @@ interface Trader {
   leadCreatedAt: string | null;
   leadMessage: string | null;
   services: string[];
+}
+
+interface TraderRateCard {
+  id: string;
+  serviceCategory: string;
+  postcodeArea: string | null;
+  callOutFee: string | number;
+  hourlyRate: string | number | null;
+  fixedPrice: string | number | null;
+  minimumHours: string | number;
+  materialsRule: string;
+  materialsCap: string | number | null;
+  emergencyUpliftPercent: string | number;
+  vatRegistered: boolean;
+  status: string;
+  adminNotes: string | null;
+  approvedAt: string | null;
 }
 
 interface ComplianceDocument {
@@ -578,7 +596,8 @@ function CandidatePanel({ task, onChanged }: { task: AdminTask | null; onChanged
       {visitUrl && <div className="alert alert-success"><span>Dispatch complete. The secure link is shown once.</span><a href={visitUrl} target="_blank" rel="noreferrer">Open visit link <ExternalLink size={15} /></a></div>}
       {loading ? <div className="app-loading"><LoaderCircle className="spin" /> Evaluating eligibility...</div> : <div className="candidate-list">{candidates.map((candidate) => <article key={candidate.id} className={`candidate ${candidate.eligible ? "eligible" : "ineligible"}`}>
         <div className="candidate-name"><span className="avatar"><Wrench size={18} /></span><div><h3>{candidate.displayName}</h3><p>{candidate.network || "Direct network"}</p></div><StatusBadge status={candidate.eligible ? "approved" : "rejected"}>{candidate.eligible ? "Eligible" : "Blocked"}</StatusBadge></div>
-        <div className="candidate-facts"><span><MapPin size={15} /> {candidate.distanceMiles} mi</span><span><Star size={15} /> {candidate.qualityScore}</span><span>£{candidate.hourlyRate}/hr</span></div>
+        <div className="candidate-facts"><span><MapPin size={15} /> {candidate.distanceMiles} mi</span><span><Star size={15} /> {candidate.qualityScore}</span><span className={candidate.agreedQuote ? "agreed-quote" : "missing-quote"}>{candidate.agreedQuote ? `Agreed GBP ${candidate.agreedQuote.toFixed(2)}` : "No agreed price"}</span></div>
+        <div className="candidate-price-note"><strong>{candidate.rateCardLabel || "Rate card required"}</strong><span>{candidate.materialsRule ? `Materials: ${humanize(candidate.materialsRule)}` : "Add approved rate card before dispatch"}{candidate.vatRegistered ? " / VAT registered" : ""}</span></div>
         <div className="candidate-checks"><span><BadgeCheck size={15} /> DBS: {humanize(candidate.dbsStatus)}</span><span><ShieldCheck size={15} /> Insurance: {humanize(candidate.insuranceStatus)}</span></div>
         {!candidate.eligible && <ul className="reason-list">{candidate.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>}
         <button className="button button-primary button-full button-small" disabled={!candidate.eligible || Boolean(dispatching)} onClick={() => dispatch(candidate)}>{dispatching === candidate.id ? "Dispatching..." : "Approve and dispatch"}</button>
@@ -988,6 +1007,46 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
     catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to revoke invitation"); }
     finally { setBusy(""); }
   }
+  async function upsertRateCard(trader: Trader) {
+    const existing = trader.rateCards.find((card) => card.status === "approved") || trader.rateCards[0];
+    const serviceCategory = window.prompt("Service category for this agreed rate card", existing?.serviceCategory || trader.services[0] || "All services");
+    if (!serviceCategory) return;
+    const postcodeArea = window.prompt("Postcode area coverage, or ALL", existing?.postcodeArea || trader.postcodeArea || "ALL") || "ALL";
+    const fixedPriceText = window.prompt("Fixed labour price in GBP. Leave blank if hourly", existing?.fixedPrice ? String(existing.fixedPrice) : "");
+    const hourlyRateText = !fixedPriceText ? window.prompt("Hourly rate in GBP", existing?.hourlyRate ? String(existing.hourlyRate) : String(trader.hourlyRate || 45)) : "";
+    const callOutFeeText = window.prompt("Call-out fee in GBP", existing?.callOutFee ? String(existing.callOutFee) : "0");
+    const minimumHoursText = window.prompt("Minimum billable hours", existing?.minimumHours ? String(existing.minimumHours) : "1");
+    const materialsRule = window.prompt("Materials rule: included, charged_with_receipt, capped, not_included", existing?.materialsRule || "charged_with_receipt") || "charged_with_receipt";
+    const vatRegistered = (window.prompt("VAT registered? yes or no", existing?.vatRegistered ? "yes" : "no") || "no").trim().toLowerCase().startsWith("y");
+    const fixedPrice = fixedPriceText ? Number(fixedPriceText) : null;
+    const hourlyRate = hourlyRateText ? Number(hourlyRateText) : null;
+    const callOutFee = Number(callOutFeeText || 0);
+    const minimumHours = Number(minimumHoursText || 1);
+    if ((fixedPrice === null && hourlyRate === null) || !Number.isFinite(callOutFee) || !Number.isFinite(minimumHours)) {
+      setError("Add a valid fixed price or hourly rate before saving the rate card.");
+      return;
+    }
+    setBusy(`rate-${trader.id}`); setError("");
+    try {
+      await api(`/api/admin/traders/${trader.id}/rate-cards`, {
+        method: "POST",
+        body: JSON.stringify({
+          serviceCategory,
+          postcodeArea,
+          callOutFee,
+          hourlyRate,
+          fixedPrice,
+          minimumHours,
+          materialsRule,
+          vatRegistered,
+          status: "approved",
+          adminNotes: "Approved by TaskBridge operations"
+        })
+      });
+      await onChanged();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to save rate card"); }
+    finally { setBusy(""); }
+  }
   return <>
     <div className="page-title-row"><div><span className="eyebrow">Handyman</span><h1>Leads, onboarding and compliance</h1><p>Move a handyman from website application to invite, document review, DBS, insurance and activation in one place.</p></div>{user.role === "taskbridge_super_admin" && <button className="button button-primary" onClick={() => { setInviteOpen(!inviteOpen); setInviteResult(null); }}><UserPlus size={18} /> Register handyman</button>}</div>
     {error && <div className="alert alert-danger">{error}</div>}
@@ -1048,16 +1107,17 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
     {showLeadQueue && <HandymanJoinRequestDesk requests={filter === "leads" ? joinRequests : openLeads} onChanged={onChanged} embedded />}
     {filter !== "leads" && <>
     <section className="panel table-panel">
-      <div className="responsive-table"><table><thead><tr><th>Handyman</th><th>Lead source</th><th>Business</th><th>Onboarding</th><th>Services</th><th>DBS route</th><th>Insurance</th><th>Quality</th><th>Action</th></tr></thead><tbody>{filteredTraders.map((trader) => <tr key={trader.id}>
+      <div className="responsive-table"><table><thead><tr><th>Handyman</th><th>Lead source</th><th>Business</th><th>Onboarding</th><th>Services</th><th>Rate card</th><th>DBS route</th><th>Insurance</th><th>Quality</th><th>Action</th></tr></thead><tbody>{filteredTraders.map((trader) => <tr key={trader.id}>
         <td><strong>{trader.displayName}</strong><small>{trader.email || trader.network || "Direct network"}</small></td>
         <td>{trader.leadId ? <><StatusBadge status={trader.leadStatus || "invited"}>{humanize(trader.leadStatus || "invited")}</StatusBadge><small>Website lead {trader.leadCreatedAt ? formatDate(trader.leadCreatedAt, true) : ""}</small></> : <small>Manual compliance record</small>}</td>
         <td><strong>{trader.businessName || "No business name"}</strong><small>{humanize(trader.tradingStatus || "sole_trader")}</small>{trader.companyRegistrationNumber && <small>Company reg: {trader.companyRegistrationNumber}</small>}{trader.vatNumber && <small>VAT: {trader.vatNumber}</small>}</td>
         <td><StatusBadge status={trader.onboardingStatus}>{humanize(trader.onboardingStatus)}</StatusBadge><small>{trader.emailDeliveryStatus ? `Email: ${humanize(trader.emailDeliveryStatus)}` : "Marketplace record"}</small></td>
         <td><span className="service-summary" title={trader.services.join(", ")}>{trader.services.length ? `${trader.services.slice(0, 2).join(", ")}${trader.services.length > 2 ? ` +${trader.services.length - 2}` : ""}` : "Awaiting registration"}</span></td>
+        <td><RateCardSummary trader={trader} /></td>
         <td><StatusBadge status={trader.dbsStatus}>{humanize(trader.dbsStatus)}</StatusBadge><small>{trader.dbsExpiryDate ? `Expires ${formatDate(trader.dbsExpiryDate)}` : dbsRouteLabel(trader)}</small>{trader.dbsOutcome && <small className="table-note">{trader.dbsOutcome}</small>}</td>
         <td><StatusBadge status={trader.insuranceStatus}>{humanize(trader.insuranceStatus)}</StatusBadge><small>{trader.insuranceExpiryDate ? `Expires ${formatDate(trader.insuranceExpiryDate)}` : "No active expiry"}</small></td>
         <td><span className="rating"><Star size={15} /> {trader.qualityScore}</span></td>
-        <td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === `passport-${trader.id}`} onClick={() => openPassport(trader)}>Passport</button><button className="button button-secondary button-small" disabled={documentsLoading && reviewingTrader?.id === trader.id} onClick={() => openDocuments(trader)}><FileCheck2 size={15} /> Review documents</button><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start DBS route</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td>
+        <td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === `passport-${trader.id}`} onClick={() => openPassport(trader)}>Passport</button><button className="button button-secondary button-small" disabled={busy === `rate-${trader.id}`} onClick={() => upsertRateCard(trader)}><CreditCard size={15} /> Rate card</button><button className="button button-secondary button-small" disabled={documentsLoading && reviewingTrader?.id === trader.id} onClick={() => openDocuments(trader)}><FileCheck2 size={15} /> Review documents</button><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start DBS route</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td>
       </tr>)}</tbody></table></div>
       {!filteredTraders.length && <EmptyState icon={<BadgeCheck />} title="No handymen in this view" detail="Choose another compliance filter to review the registry." />}
     </section>
@@ -1072,6 +1132,23 @@ function dbsRouteLabel(trader: Trader) {
   if (trader.dbsRoute === "basic_dbs_provider_application") return "Basic DBS provider route";
   if (trader.dbsRoute === "basic_or_not_sure") return "Limited to non-vulnerable or supervised work";
   return "No active expiry";
+}
+
+function RateCardSummary({ trader }: { trader: Trader }) {
+  const approved = trader.rateCards.filter((card) => card.status === "approved");
+  const primary = approved[0] || trader.rateCards[0];
+  if (!primary) return <><StatusBadge status="pending">Missing</StatusBadge><small>No agreed price</small></>;
+  const fixedPrice = primary.fixedPrice !== null && primary.fixedPrice !== undefined ? Number(primary.fixedPrice) : null;
+  const hourlyRate = primary.hourlyRate !== null && primary.hourlyRate !== undefined ? Number(primary.hourlyRate) : null;
+  const callOut = Number(primary.callOutFee || 0);
+  const minimumHours = Number(primary.minimumHours || 1);
+  const estimate = fixedPrice !== null ? fixedPrice : callOut + (hourlyRate || 0) * minimumHours;
+  return <>
+    <StatusBadge status={primary.status}>{humanize(primary.status)}</StatusBadge>
+    <small>{primary.serviceCategory} / {primary.postcodeArea || "ALL"}</small>
+    <small>Agreed: GBP {estimate.toFixed(2)}{fixedPrice === null && hourlyRate !== null ? ` (${minimumHours}h min)` : ""}</small>
+    {approved.length > 1 && <small>{approved.length} approved cards</small>}
+  </>;
 }
 
 function ComplianceDocumentReview({ trader, documents, ddcPack, ddcMessage, loading, busy, onClose, onReview, onDdcStatus }: {

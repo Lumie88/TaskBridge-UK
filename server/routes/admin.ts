@@ -47,6 +47,12 @@ interface CandidateTraderRow {
   latitude: string;
   longitude: string;
   hourly_rate: string;
+  agreed_quote: string | null;
+  rate_card_id: string | null;
+  rate_card_status: string | null;
+  rate_card_label: string | null;
+  materials_rule: string | null;
+  vat_registered: boolean | null;
   quality_score: string;
   available: boolean;
   network_name: string | null;
@@ -60,6 +66,22 @@ interface EvaluatedCandidate {
 }
 
 const dispatchSchema = z.object({ traderId: z.string().uuid() });
+const rateCardSchema = z.object({
+  serviceCategory: z.string().trim().min(2).max(120),
+  postcodeArea: z.string().trim().max(16).optional().nullable(),
+  callOutFee: z.number().min(0).max(10000).default(0),
+  hourlyRate: z.number().min(0).max(10000).optional().nullable(),
+  fixedPrice: z.number().min(0).max(10000).optional().nullable(),
+  minimumHours: z.number().min(0).max(24).default(1),
+  materialsRule: z.enum(["included", "charged_with_receipt", "capped", "not_included"]).default("charged_with_receipt"),
+  materialsCap: z.number().min(0).max(10000).optional().nullable(),
+  emergencyUpliftPercent: z.number().min(0).max(300).default(0),
+  vatRegistered: z.boolean().default(false),
+  status: z.enum(["draft", "submitted", "approved", "expired", "rejected"]).default("approved"),
+  adminNotes: z.string().trim().max(1000).optional().default("")
+}).refine((data) => data.fixedPrice !== null && data.fixedPrice !== undefined || data.hourlyRate !== null && data.hourlyRate !== undefined, {
+  message: "Add either a fixed price or hourly rate"
+});
 const dbsReviewSchema = z.object({
   status: z.enum(["approved", "rejected", "unclear"]),
   expiryDate: z.string().date().nullable().optional(),
@@ -636,6 +658,11 @@ adminRouter.get("/tasks/:publicId/candidates", async (req, res) => {
       displayName: trader.display_name,
       network: trader.network_name,
       hourlyRate: Number(trader.hourly_rate),
+      agreedQuote: trader.agreed_quote ? Number(trader.agreed_quote) : null,
+      rateCardStatus: trader.rate_card_status,
+      rateCardLabel: trader.rate_card_label,
+      materialsRule: trader.materials_rule,
+      vatRegistered: Boolean(trader.vat_registered),
       qualityScore: Number(trader.quality_score),
       dbsStatus: trader.dbs_status,
       dbsExpiryDate: trader.dbs_expiry_date,
@@ -658,7 +685,8 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
   if (!selected.evaluation.eligible) return res.status(409).json({ error: selected.evaluation.reasons.join("; ") });
   const paymentError = paymentClearanceError(candidates.task.payment_route, candidates.task.payment_status);
   if (paymentError) return res.status(409).json({ error: paymentError });
-  const quote = Number(selected.trader.hourly_rate);
+  const quote = Number(selected.trader.agreed_quote || 0);
+  if (!selected.trader.rate_card_id || quote <= 0) return res.status(409).json({ error: "Approved pre-agreed rate card is required before dispatch." });
   const precheck = candidates.task.payment_route === "agency" ? await monthlyCapCheck(candidates.task.agency_id, quote) : null;
   if (precheck && !precheck.allowed) {
     return res.status(409).json({
@@ -702,7 +730,7 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
       `INSERT INTO ops.task_status_events
         (task_id, agency_id, previous_status, new_status, changed_by_user_id, reason, metadata)
        VALUES ($1, $2, $3, 'assignment_review', $4, 'Assignment reserved before provider dispatch', $5)`,
-      [task.id, task.agency_id, task.status, req.auth!.userId, { traderId: selected.trader.id, assignmentId: assignment.rows[0].id }]
+      [task.id, task.agency_id, task.status, req.auth!.userId, { traderId: selected.trader.id, assignmentId: assignment.rows[0].id, rateCardId: selected.trader.rate_card_id, agreedQuote: quote }]
     );
     return { taskId: task.id, agencyId: task.agency_id, assignmentId: assignment.rows[0].id };
   });
@@ -821,7 +849,7 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
       `INSERT INTO ops.task_status_events
         (task_id, agency_id, previous_status, new_status, changed_by_user_id, reason, metadata)
        VALUES ($1, $2, $3, 'dispatched', $4, 'Handyman approved and released by TaskBridge admin', $5)`,
-      [task.id, task.agency_id, task.status, req.auth!.userId, { traderId: selected.trader.id }]
+      [task.id, task.agency_id, task.status, req.auth!.userId, { traderId: selected.trader.id, rateCardId: selected.trader.rate_card_id, agreedQuote: quote }]
     );
     return { taskId: task.id, visitId: visit.rows[0].id };
   });
@@ -853,6 +881,7 @@ adminRouter.get("/traders", async (_req, res) => {
     quality_score: string; status: string; dbs_status: string; dbs_expiry_date: string | null;
     dbs_outcome: string | null; dbs_route: string | null; update_service_status: string | null;
     insurance_status: string; insurance_expiry_date: string | null; services: string[];
+    rate_cards: unknown[];
     onboarding_status: string | null; invitation_expires_at: string | null; email_delivery_status: string | null;
     business_name: string | null; trading_status: string; company_registration_number: string | null; vat_number: string | null;
     lead_id: string | null; lead_status: string | null; lead_created_at: string | null; lead_message: string | null;
@@ -862,7 +891,8 @@ adminRouter.get("/traders", async (_req, res) => {
             t.status::text, COALESCE(d.status::text, 'not_started') AS dbs_status, d.expiry_date::text AS dbs_expiry_date,
             d.outcome AS dbs_outcome, d.verification_route AS dbs_route, d.update_service_status,
             COALESCE(i.status::text, 'unverified') AS insurance_status, i.expiry_date::text AS insurance_expiry_date,
-            COALESCE(s.services, '{}') AS services, invite.status AS onboarding_status,
+            COALESCE(s.services, '{}') AS services, COALESCE(rates.rate_cards, '[]'::jsonb) AS rate_cards,
+            invite.status AS onboarding_status,
             invite.expires_at::text AS invitation_expires_at, invite.email_delivery_status,
             t.business_name, t.trading_status, t.company_registration_number, t.vat_number,
             lead.id::text AS lead_id, lead.status AS lead_status, lead.created_at::text AS lead_created_at,
@@ -881,6 +911,25 @@ adminRouter.get("/traders", async (_req, res) => {
        SELECT array_agg(service_category ORDER BY service_category) AS services
        FROM trader.trader_services ts WHERE ts.trader_id = t.id AND ts.active
      ) s ON true
+     LEFT JOIN LATERAL (
+       SELECT jsonb_agg(jsonb_build_object(
+         'id', rc.id::text,
+         'serviceCategory', rc.service_category,
+         'postcodeArea', rc.postcode_area,
+         'callOutFee', rc.call_out_fee,
+         'hourlyRate', rc.hourly_rate,
+         'fixedPrice', rc.fixed_price,
+         'minimumHours', rc.minimum_hours,
+         'materialsRule', rc.materials_rule,
+         'materialsCap', rc.materials_cap,
+         'emergencyUpliftPercent', rc.emergency_uplift_percent,
+         'vatRegistered', rc.vat_registered,
+         'status', rc.status,
+         'adminNotes', rc.admin_notes,
+         'approvedAt', rc.approved_at
+       ) ORDER BY rc.status = 'approved' DESC, rc.service_category) AS rate_cards
+       FROM trader.trader_rate_cards rc WHERE rc.trader_id = t.id
+     ) rates ON true
      LEFT JOIN LATERAL (
        SELECT status, expires_at, email_delivery_status FROM trader.onboarding_invitations oi
        WHERE oi.trader_id = t.id ORDER BY oi.created_at DESC LIMIT 1
@@ -914,9 +963,47 @@ adminRouter.get("/traders", async (_req, res) => {
     leadStatus: row.lead_status,
     leadCreatedAt: row.lead_created_at,
     leadMessage: row.lead_message,
-    services: row.services
+    services: row.services,
+    rateCards: row.rate_cards
   })) });
 });
+
+adminRouter.post("/traders/:id/rate-cards", requireRoles("taskbridge_super_admin", "taskbridge_admin"), asyncHandler(async (req, res) => {
+  const parsed = rateCardSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid rate card" });
+  const data = parsed.data;
+  const trader = await query<{ id: string }>("SELECT id::text FROM trader.traders WHERE id = $1 AND deleted_at IS NULL", [req.params.id]);
+  if (!trader.rows[0]) return res.status(404).json({ error: "Handyman not found" });
+  const postcodeArea = data.postcodeArea?.trim().toUpperCase() || "ALL";
+  const status = data.status;
+  const result = await query<{ id: string }>(
+    `INSERT INTO trader.trader_rate_cards
+      (trader_id, service_category, postcode_area, call_out_fee, hourly_rate, fixed_price,
+       minimum_hours, materials_rule, materials_cap, emergency_uplift_percent, vat_registered,
+       status, admin_notes, approved_by_user_id, approved_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NULLIF($13, ''), $14,
+       CASE WHEN $12 = 'approved' THEN clock_timestamp() ELSE NULL END)
+     ON CONFLICT (trader_id, service_category, postcode_area) DO UPDATE SET
+       call_out_fee = EXCLUDED.call_out_fee,
+       hourly_rate = EXCLUDED.hourly_rate,
+       fixed_price = EXCLUDED.fixed_price,
+       minimum_hours = EXCLUDED.minimum_hours,
+       materials_rule = EXCLUDED.materials_rule,
+       materials_cap = EXCLUDED.materials_cap,
+       emergency_uplift_percent = EXCLUDED.emergency_uplift_percent,
+       vat_registered = EXCLUDED.vat_registered,
+       status = EXCLUDED.status,
+       admin_notes = EXCLUDED.admin_notes,
+       approved_by_user_id = CASE WHEN EXCLUDED.status = 'approved' THEN EXCLUDED.approved_by_user_id ELSE trader_rate_cards.approved_by_user_id END,
+       approved_at = CASE WHEN EXCLUDED.status = 'approved' THEN clock_timestamp() ELSE NULL END
+     RETURNING id::text`,
+    [req.params.id, data.serviceCategory, postcodeArea, data.callOutFee, data.hourlyRate ?? null,
+      data.fixedPrice ?? null, data.minimumHours, data.materialsRule, data.materialsCap ?? null,
+      data.emergencyUpliftPercent, data.vatRegistered, status, data.adminNotes, req.auth!.userId]
+  );
+  await audit(req, "admin.trader_rate_card.upserted", "trader", req.params.id, { rateCardId: result.rows[0].id, serviceCategory: data.serviceCategory, status });
+  res.status(201).json({ id: result.rows[0].id, status });
+}));
 
 adminRouter.get("/traders/:id/documents", asyncHandler(async (req, res) => {
   const traderResult = await query<{ id: string; display_name: string; services: string[] }>(
@@ -2168,6 +2255,8 @@ async function evaluateCandidates(publicTaskId: string) {
             COALESCE(dbs.enhanced_dbs_eligible, false) AS enhanced_dbs_eligible,
             COALESCE(ins.status::text, 'unverified') AS insurance_status, ins.expiry_date::text AS insurance_expiry_date,
             t.latitude::text, t.longitude::text, COALESCE(t.hourly_rate, 0)::text AS hourly_rate,
+            rate_card.agreed_quote::text, rate_card.id::text AS rate_card_id, rate_card.status AS rate_card_status,
+            rate_card.service_category AS rate_card_label, rate_card.materials_rule, rate_card.vat_registered,
             t.quality_score::text, availability.available, n.name AS network_name, t.external_trader_id,
             EXISTS (
               SELECT 1 FROM trader.qualifications q
@@ -2190,6 +2279,19 @@ async function evaluateCandidates(publicTaskId: string) {
        WHERE i.trader_id = t.id ORDER BY i.created_at DESC LIMIT 1
      ) ins ON true
      LEFT JOIN LATERAL (
+       SELECT rc.id, rc.status, rc.service_category, rc.materials_rule, rc.vat_registered,
+              COALESCE(rc.fixed_price, rc.call_out_fee + COALESCE(rc.hourly_rate, t.hourly_rate, 0) * rc.minimum_hours) AS agreed_quote
+       FROM trader.trader_rate_cards rc
+       WHERE rc.trader_id = t.id
+         AND rc.status = 'approved'
+         AND lower(rc.service_category) IN (lower($3), 'all services')
+         AND rc.postcode_area IN ('ALL', COALESCE(t.postcode_area, 'ALL'))
+       ORDER BY lower(rc.service_category) = lower($3) DESC,
+                rc.postcode_area = COALESCE(t.postcode_area, 'ALL') DESC,
+                rc.approved_at DESC NULLS LAST
+       LIMIT 1
+     ) rate_card ON true
+     LEFT JOIN LATERAL (
        SELECT CASE
          WHEN $1::timestamptz IS NULL THEN true
          ELSE EXISTS (
@@ -2200,7 +2302,7 @@ async function evaluateCandidates(publicTaskId: string) {
          ) END AS available
      ) availability ON true
      WHERE t.deleted_at IS NULL AND t.latitude IS NOT NULL AND t.longitude IS NOT NULL`,
-    [task.preferred_window_start, task.preferred_window_end]
+    [task.preferred_window_start, task.preferred_window_end, task.category]
   );
   const matchTask: MatchableTask = {
     category: task.category,
@@ -2228,7 +2330,13 @@ async function evaluateCandidates(publicTaskId: string) {
       available: trader.available,
       electricalQualificationActive: trader.electrical_qualification_active
     };
-    return { trader, evaluation: evaluateTrader(matchTask, matchTrader) };
+    const evaluation = evaluateTrader(matchTask, matchTrader);
+    if (!trader.rate_card_id || Number(trader.agreed_quote || 0) <= 0) {
+      evaluation.eligible = false;
+      evaluation.reasons = [...evaluation.reasons, "Approved pre-agreed rate card is missing for this service"];
+      evaluation.score = Math.max(0, Number((evaluation.score - 20).toFixed(2)));
+    }
+    return { trader, evaluation };
   }).sort((a, b) => Number(b.evaluation.eligible) - Number(a.evaluation.eligible) || b.evaluation.score - a.evaluation.score);
   return { task, evaluated };
 }
@@ -2252,7 +2360,7 @@ async function persistCandidates(task: CandidateTaskRow, candidates: EvaluatedCa
            created_at = clock_timestamp()`,
         [task.id, task.agency_id, candidate.trader.id, candidate.evaluation.eligible,
           candidate.evaluation.reasons, candidate.evaluation.score, candidate.evaluation.distanceMiles,
-          Number(candidate.trader.hourly_rate), task.preferred_window_start, task.preferred_window_end]
+          candidate.trader.agreed_quote ? Number(candidate.trader.agreed_quote) : null, task.preferred_window_start, task.preferred_window_end]
       );
     }
     await client.query(

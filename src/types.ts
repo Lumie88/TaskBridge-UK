@@ -72,6 +72,11 @@ export interface Candidate {
   displayName: string;
   network: string | null;
   hourlyRate: number;
+  agreedQuote: number | null;
+  rateCardStatus: string | null;
+  rateCardLabel: string | null;
+  materialsRule: string | null;
+  vatRegistered: boolean;
   qualityScore: number;
   dbsStatus: string;
   dbsExpiryDate: string | null;

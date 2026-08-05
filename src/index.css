@@ -920,6 +920,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shado
 .candidate-name p { margin: 2px 0 0; color: var(--muted); font-size: .72rem; }
 .candidate-facts, .candidate-checks { display: flex; flex-wrap: wrap; gap: 13px; margin-top: 13px; color: #4d6267; font-size: .72rem; }
 .candidate-facts span, .candidate-checks span { display: flex; align-items: center; gap: 5px; }
+.candidate-facts .agreed-quote { padding: 4px 8px; color: #047857; background: #dcfce7; border-radius: 999px; font-weight: 850; }
+.candidate-facts .missing-quote { padding: 4px 8px; color: #b4233d; background: #fff1f2; border-radius: 999px; font-weight: 850; }
+.candidate-price-note { margin-top: 10px; padding: 10px; display: grid; gap: 3px; color: #52636f; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: .72rem; }
+.candidate-price-note strong { color: #102a31; }
 .candidate-checks { padding-top: 12px; border-top: 1px solid var(--line); }
 .reason-list { margin: 12px 0; padding-left: 18px; color: #8a3944; font-size: .72rem; line-height: 1.5; }
 .candidate .button { margin-top: 14px; }
