@@ -1,19 +1,33 @@
 import { useState, type FormEvent, type PropsWithChildren, type ReactNode } from "react";
 import {
   ArrowRight,
+  BarChart3,
   Bell,
+  BriefcaseBusiness,
   Calendar,
+  CalendarDays,
   ChevronRight,
   CheckCircle,
+  ClipboardList,
+  ClipboardPlus,
+  Gauge,
+  Handshake,
+  Landmark,
   Mail,
   LogOut,
   Menu,
+  Plug,
+  ReceiptText,
   Send,
   ShieldAlert,
   ShieldCheck,
+  UserCog,
+  UserPlus,
   Users,
+  Wrench,
   X
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { User } from "./types";
 import { api } from "./api";
 
@@ -162,27 +176,28 @@ interface PortalShellProps extends PropsWithChildren {
 
 export function PortalShell({ user, area, active, onActive, onSignOut, workspaceName, children, actions, notificationCount = 0, onNotifications }: PortalShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const careItems = [
-    ["overview", "Dashboard"],
-    ["new-task", "Create task"],
-    ["tasks", "Status board"],
-    ["service-users", "Service users"],
-    ["analytics", "Care analytics"],
-    ["rota-planner", "Rota planner"],
-    ["billing", "Invoices"],
-    ["notifications", "Notifications"]
+  const careItems: Array<[string, string, LucideIcon]> = [
+    ["overview", "Dashboard", Gauge],
+    ["new-task", "Create task", ClipboardPlus],
+    ["tasks", "Status board", ClipboardList],
+    ["service-users", "Service users", Users],
+    ["analytics", "Care analytics", BarChart3],
+    ["rota-planner", "Rota planner", CalendarDays],
+    ["billing", "Invoices", ReceiptText],
+    ["notifications", "Notifications", Bell]
   ];
-  const adminItems = [
-    ["overview", "Control centre"],
-    ["demo-requests", "Demo requests"],
-    ["tasks", "Assignments"],
-    ["traders", "Handyman compliance"],
-    ["incidents", "Incidents"],
-    ["integrations", "Integrations"],
-    ["billing", "Finance controls"]
+  const adminItems: Array<[string, string, LucideIcon]> = [
+    ["overview", "Control centre", ShieldCheck],
+    ["demo-requests", "Demo requests", Handshake],
+    ["tasks", "Operations", BriefcaseBusiness],
+    ["traders", "Handyman", Wrench],
+    ["integrations", "Integrations", Plug],
+    ["billing", "Care Agency Finance", Landmark]
   ];
-  if (user.role === "taskbridge_super_admin") adminItems.push(["agencies", "Agency onboarding"]);
-  if (user.role === "taskbridge_super_admin") adminItems.push(["access", "Access control"]);
+  if (user.role === "taskbridge_super_admin") {
+    adminItems.push(["agencies", "Care agency onboarding", UserPlus]);
+    adminItems.push(["access", "People and privileges", UserCog]);
+  }
   const items = area === "care" ? careItems : adminItems;
   return (
     <div className="portal-frame">
@@ -190,8 +205,8 @@ export function PortalShell({ user, area, active, onActive, onSignOut, workspace
         <Brand compact />
         <div className="portal-area"><ShieldCheck size={17} /><span><strong>{area === "care" ? workspaceName || "Care workspace" : "Secure administration"}</strong>{area === "care" && workspaceName && <small>Care workspace</small>}</span></div>
         <nav aria-label="Portal navigation">
-          {items.map(([key, label]) => (
-            <button key={key} className={active === key ? "active" : ""} onClick={() => onActive(key)}>{label}</button>
+          {items.map(([key, label, Icon]) => (
+            <button key={key} className={active === key ? "active" : ""} onClick={() => onActive(key)}><Icon size={17} />{label}</button>
           ))}
         </nav>
         <div className="sidebar-user">
@@ -207,7 +222,7 @@ export function PortalShell({ user, area, active, onActive, onSignOut, workspace
           <div className="topbar-actions">{actions}<button className="icon-button notification-button" aria-label="Notifications" onClick={onNotifications}>{notificationCount > 0 && <span>{Math.min(notificationCount, 99)}</span>}<Bell size={19} /></button></div>
         </header>
         {mobileNavOpen && <nav className="portal-mobile-nav mobile-only" aria-label="Mobile portal navigation">
-          {items.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => { onActive(key); setMobileNavOpen(false); }}>{label}</button>)}
+          {items.map(([key, label, Icon]) => <button key={key} className={active === key ? "active" : ""} onClick={() => { onActive(key); setMobileNavOpen(false); }}><Icon size={16} />{label}</button>)}
         </nav>}
         <div className="portal-content">{children}</div>
       </main>
