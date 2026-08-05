@@ -5,7 +5,7 @@ import { asyncHandler } from "../async-handler.js";
 import { audit } from "../audit.js";
 import { query, withTransaction } from "../db.js";
 import { createComplianceDocumentUpload, verifyComplianceDocumentUpload } from "../media.js";
-import { encryptField, hashToken } from "../security.js";
+import { encryptField, hashToken, publicId } from "../security.js";
 
 const serviceOptions = [
   "Lawn mowing",
@@ -68,11 +68,37 @@ const completionSchema = z.object({
     updateServiceConsent: z.boolean().default(false),
     applicationRequested: z.boolean().default(false)
   }),
+  ddc: z.object({
+    title: z.enum(["Mr", "Mrs", "Miss", "Ms", "Mx", "Dr", "Other"]).optional().default("Mr"),
+    forename: z.string().trim().max(80).optional().default(""),
+    middleNames: z.string().trim().max(120).optional().default(""),
+    surname: z.string().trim().max(80).optional().default(""),
+    dateOfBirth: z.string().date().optional().nullable(),
+    nationalInsuranceNumber: z.string().trim().max(20).optional().default(""),
+    daytimeTelephone: z.string().trim().max(40).optional().default(""),
+    applicantEntryMode: z.enum(["applicant_present_admin_enters", "applicant_input_own_data"]).optional().default("applicant_input_own_data")
+  }).optional(),
   documents: z.array(submittedDocumentSchema).min(2).max(8),
   safeguardingDeclaration: z.literal(true),
   dataAccuracyConfirmation: z.literal(true),
   privacyNoticeAccepted: z.literal(true)
 }).superRefine((data, ctx) => {
+  if (data.dbs.route === "needs_application") {
+    const ddc = data.ddc;
+    if (!ddc?.forename || ddc.forename.length < 2) {
+      ctx.addIssue({ code: "custom", path: ["ddc", "forename"], message: "Enter your legal forename for the DDC DBS application" });
+    }
+    if (!ddc?.surname || ddc.surname.length < 2) {
+      ctx.addIssue({ code: "custom", path: ["ddc", "surname"], message: "Enter your legal surname for the DDC DBS application" });
+    }
+    if (!ddc?.dateOfBirth) {
+      ctx.addIssue({ code: "custom", path: ["ddc", "dateOfBirth"], message: "Enter your date of birth for the DDC DBS application" });
+    }
+    const ni = ddc?.nationalInsuranceNumber.replace(/\s+/g, "").toUpperCase() || "";
+    if (!/^[A-CEGHJ-PR-TW-Z]{2}\d{6}[A-D]$/.test(ni)) {
+      ctx.addIssue({ code: "custom", path: ["ddc", "nationalInsuranceNumber"], message: "Enter a valid National Insurance number for DDC" });
+    }
+  }
   if (data.dbs.route === "already_enhanced") {
     if (!data.dbs.certificateReference || data.dbs.certificateReference.length < 2) {
       ctx.addIssue({ code: "custom", path: ["dbs", "certificateReference"], message: "Enter the DBS certificate reference" });
@@ -235,6 +261,33 @@ handymanOnboardingRouter.post("/:token/complete", asyncHandler(async (req, res) 
         data.dbs.updateServiceConsent ? "consented_pending_check" : "not_checked"
       ]
     );
+    if (data.dbs.route === "needs_application" && data.ddc) {
+      const applicantReference = `TB-${publicId("ddc").toUpperCase().replace("_", "-")}`;
+      await client.query(
+        `INSERT INTO trader.ddc_dbs_registration_packs
+          (trader_id, title, forename_ciphertext, middle_names_ciphertext, surname_ciphertext,
+           date_of_birth_ciphertext, national_insurance_ciphertext, daytime_phone_ciphertext,
+           applicant_reference, location_reference, role, applicant_entry_mode, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'TaskBridge', 'Handyman / Tradesperson', $10, 'ready_to_enter')
+         ON CONFLICT (trader_id) DO UPDATE SET
+           title = EXCLUDED.title,
+           forename_ciphertext = EXCLUDED.forename_ciphertext,
+           middle_names_ciphertext = EXCLUDED.middle_names_ciphertext,
+           surname_ciphertext = EXCLUDED.surname_ciphertext,
+           date_of_birth_ciphertext = EXCLUDED.date_of_birth_ciphertext,
+           national_insurance_ciphertext = EXCLUDED.national_insurance_ciphertext,
+           daytime_phone_ciphertext = EXCLUDED.daytime_phone_ciphertext,
+           applicant_entry_mode = EXCLUDED.applicant_entry_mode,
+           status = 'ready_to_enter',
+           updated_at = clock_timestamp()`,
+        [invitation.trader_id, data.ddc.title, encryptField(data.ddc.forename),
+          data.ddc.middleNames ? encryptField(data.ddc.middleNames) : null,
+          encryptField(data.ddc.surname), encryptField(data.ddc.dateOfBirth || ""),
+          encryptField(data.ddc.nationalInsuranceNumber.replace(/\s+/g, "").toUpperCase()),
+          data.ddc.daytimeTelephone ? encryptField(data.ddc.daytimeTelephone) : null,
+          applicantReference, data.ddc.applicantEntryMode]
+      );
+    }
     const insuranceDocument = data.documents.find((document) => document.documentType === "public_liability_insurance")!;
     await client.query(
       `INSERT INTO trader.insurance_records

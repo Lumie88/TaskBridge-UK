@@ -141,6 +141,16 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
             updateServiceConsent: values.get("updateServiceConsent") === "on",
             applicationRequested: dbsRoute === "needs_application"
           },
+          ddc: {
+            title: values.get("ddcTitle") || "Mr",
+            forename: values.get("ddcForename") || "",
+            middleNames: values.get("ddcMiddleNames") || "",
+            surname: values.get("ddcSurname") || "",
+            dateOfBirth: values.get("ddcDateOfBirth") || null,
+            nationalInsuranceNumber: values.get("ddcNationalInsuranceNumber") || "",
+            daytimeTelephone: values.get("ddcDaytimeTelephone") || "",
+            applicantEntryMode: values.get("ddcApplicantEntryMode") || "applicant_input_own_data"
+          },
           documents,
           safeguardingDeclaration: values.get("safeguardingDeclaration") === "on",
           dataAccuracyConfirmation: values.get("dataAccuracyConfirmation") === "on",
@@ -193,6 +203,13 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
                       <div className="field-row"><label>Certificate reference<input required name="dbsReference" /></label><label>Certificate issue date<input required name="dbsIssueDate" type="date" /></label></div>
                       <div className="field-row"><label>Workforce type<select name="dbsWorkforceType" defaultValue="adult"><option value="adult">Adult workforce</option><option value="child">Child workforce</option><option value="adult_and_child">Adult and child workforce</option><option value="unknown">Not sure</option></select></label><label className="toggle-row compact-toggle"><input name="updateServiceConsent" type="checkbox" /><span><strong>Update Service consent</strong><small>I consent to TaskBridge checking my DBS Update Service status.</small></span></label></div>
                     </> : <div className="onboarding-advisory"><strong>{dbsRoute === "needs_application" ? "DBS route review requested" : "Limited access route"}</strong><p>{dbsRoute === "needs_application" ? "TaskBridge admin will review whether your proposed work is eligible for Enhanced DBS. If it is not, you can still be considered for non-vulnerable or supervised tasks once Basic DBS, identity and insurance checks are approved." : "You may be considered only for non-vulnerable or supervised tasks once Basic DBS, identity and insurance checks are approved. Lone vulnerable-adult work remains blocked unless Enhanced DBS eligibility is verified."}</p></div>}
+                    {dbsRoute === "needs_application" && <div className="document-block ddc-helper-block">
+                      <div className="onboarding-section-title compact-title"><span><BadgeCheck size={18} /></span><div><h3>DDC DBS application details</h3><p>These fields help TaskBridge prepare your DDC DBS registration. They are encrypted and visible only to authorised compliance admins.</p></div></div>
+                      <div className="field-row"><label>Title<select required name="ddcTitle" defaultValue="Mr"><option value="Mr">Mr</option><option value="Mrs">Mrs</option><option value="Miss">Miss</option><option value="Ms">Ms</option><option value="Mx">Mx</option><option value="Dr">Dr</option><option value="Other">Other</option></select></label><label>Legal forename<input required name="ddcForename" minLength={2} maxLength={80} autoComplete="given-name" /></label></div>
+                      <div className="field-row"><label>Middle name(s)<input name="ddcMiddleNames" maxLength={120} autoComplete="additional-name" /></label><label>Legal surname<input required name="ddcSurname" minLength={2} maxLength={80} autoComplete="family-name" /></label></div>
+                      <div className="field-row"><label>Date of birth<input required name="ddcDateOfBirth" type="date" /></label><label>National Insurance number<input required name="ddcNationalInsuranceNumber" placeholder="QQ123456C" maxLength={20} autoComplete="off" /></label></div>
+                      <div className="field-row"><label>Daytime telephone<input name="ddcDaytimeTelephone" type="tel" placeholder="Optional if different from mobile" /></label><label>DDC data-entry route<select name="ddcApplicantEntryMode" defaultValue="applicant_input_own_data"><option value="applicant_input_own_data">Applicant completes own data</option><option value="applicant_present_admin_enters">Applicant present: admin enters now</option></select></label></div>
+                    </div>}
                   </div>
                   <div className="document-block optional-document"><DocumentField label="Trade qualification" detail="Optional role-specific certificate" onFile={setQualificationFile} /><div className="field-row"><label>Qualification title<input name="qualificationTitle" disabled={!qualificationFile} /></label><label>Expiry date<input name="qualificationExpiry" type="date" disabled={!qualificationFile} /></label></div></div>
                 </section>

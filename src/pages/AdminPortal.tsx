@@ -109,6 +109,26 @@ interface ComplianceDocument {
   reviewUrl: string | null;
 }
 
+interface DdcPack {
+  title: string;
+  forename: string;
+  middleNames: string;
+  surname: string;
+  dateOfBirth: string;
+  nationalInsuranceNumber: string;
+  mobile: string;
+  daytimeTelephone: string;
+  email: string | null;
+  confirmEmail: string | null;
+  role: string;
+  applicantReference: string;
+  locationReference: string;
+  applicantEntryMode: string;
+  status: string;
+  adminNotes: string;
+  ddcComment: string;
+}
+
 interface Agency {
   id: string;
   public_id: string;
@@ -776,6 +796,8 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
   const [inviteResult, setInviteResult] = useState<{ invitationUrl: string; expiresAt: string; emailDeliveryStatus: string; smsDeliveryStatus?: string } | null>(null);
   const [reviewingTrader, setReviewingTrader] = useState<Trader | null>(null);
   const [documents, setDocuments] = useState<ComplianceDocument[]>([]);
+  const [ddcPack, setDdcPack] = useState<DdcPack | null>(null);
+  const [ddcMessage, setDdcMessage] = useState("");
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const openLeads = joinRequests.filter((item) => ["new", "reviewing"].includes(item.status));
   const invitedLeads = joinRequests.filter((item) => item.status === "invited");
@@ -809,8 +831,15 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
   async function openDocuments(trader: Trader) {
     setReviewingTrader(trader); setDocumentsLoading(true); setError("");
     try {
-      const result = await api<{ documents: ComplianceDocument[] }>(`/api/admin/traders/${trader.id}/documents`);
+      const [result, packResult] = await Promise.all([
+        api<{ documents: ComplianceDocument[] }>(`/api/admin/traders/${trader.id}/documents`),
+        user.role === "taskbridge_super_admin"
+          ? api<{ pack: DdcPack | null; message?: string }>(`/api/admin/traders/${trader.id}/ddc-pack`)
+          : Promise.resolve({ pack: null, message: "" })
+      ]);
       setDocuments(result.documents);
+      setDdcPack(packResult.pack);
+      setDdcMessage(packResult.message || "");
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load compliance documents"); setDocuments([]); }
     finally { setDocumentsLoading(false); }
   }
@@ -850,6 +879,18 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
       });
       await openDocuments(reviewingTrader); await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to record document review"); }
+    finally { setBusy(""); }
+  }
+  async function updateDdcStatus(status: string, adminNotes: string) {
+    if (!reviewingTrader) return;
+    setBusy(`ddc-${reviewingTrader.id}`); setError("");
+    try {
+      await api(`/api/admin/traders/${reviewingTrader.id}/ddc-pack`, { method: "PATCH", body: JSON.stringify({ status, adminNotes }) });
+      const result = await api<{ pack: DdcPack | null; message?: string }>(`/api/admin/traders/${reviewingTrader.id}/ddc-pack`);
+      setDdcPack(result.pack);
+      setDdcMessage(result.message || "");
+      await onChanged();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to update DDC status"); }
     finally { setBusy(""); }
   }
   async function inviteHandyman(event: React.FormEvent<HTMLFormElement>) {
@@ -917,7 +958,7 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
       {!filteredTraders.length && <EmptyState icon={<BadgeCheck />} title="No handymen in this view" detail="Choose another compliance filter to review the registry." />}
     </section>
     </>}
-    {reviewingTrader && <ComplianceDocumentReview trader={reviewingTrader} documents={documents} loading={documentsLoading} busy={busy} onClose={() => { setReviewingTrader(null); setDocuments([]); }} onReview={reviewDocument} />}
+    {reviewingTrader && <ComplianceDocumentReview trader={reviewingTrader} documents={documents} ddcPack={ddcPack} ddcMessage={ddcMessage} loading={documentsLoading} busy={busy} onClose={() => { setReviewingTrader(null); setDocuments([]); setDdcPack(null); setDdcMessage(""); }} onReview={reviewDocument} onDdcStatus={updateDdcStatus} />}
   </>;
 }
 
@@ -929,13 +970,16 @@ function dbsRouteLabel(trader: Trader) {
   return "No active expiry";
 }
 
-function ComplianceDocumentReview({ trader, documents, loading, busy, onClose, onReview }: {
+function ComplianceDocumentReview({ trader, documents, ddcPack, ddcMessage, loading, busy, onClose, onReview, onDdcStatus }: {
   trader: Trader;
   documents: ComplianceDocument[];
+  ddcPack: DdcPack | null;
+  ddcMessage: string;
   loading: boolean;
   busy: string;
   onClose: () => void;
   onReview: (document: ComplianceDocument, status: "approved" | "rejected") => Promise<void>;
+  onDdcStatus: (status: string, adminNotes: string) => Promise<void>;
 }) {
   const identity = documents.find((document) => document.documentType === "identity");
   const insurance = documents.find((document) => document.documentType === "public_liability_insurance");
@@ -947,6 +991,7 @@ function ComplianceDocumentReview({ trader, documents, loading, busy, onClose, o
       <article className="compliance-document-card"><div className="compliance-document-heading"><span><BadgeCheck size={19} /></span><div><h3>DBS route</h3><p>Approve submitted evidence or record a manual DBS decision</p></div><StatusBadge status={trader.dbsStatus}>{humanize(trader.dbsStatus)}</StatusBadge></div></article>
       <article className="compliance-document-card"><div className="compliance-document-heading"><span><FileCheck2 size={19} /></span><div><h3>Activation</h3><p>Active only after identity, insurance and DBS are approved</p></div><StatusBadge status={trader.status}>{humanize(trader.status)}</StatusBadge></div></article>
     </div>}
+    {!loading && <DdcRegistrationPack pack={ddcPack} message={ddcMessage} busy={busy} onStatus={onDdcStatus} />}
     {loading ? <div className="app-loading"><LoaderCircle className="spin" /> Loading secure documents...</div> : <div className="compliance-document-grid">{documents.map((document) => <article key={document.id} className="compliance-document-card">
       <div className="compliance-document-heading"><span><FileCheck2 size={19} /></span><div><h3>{humanize(document.documentType)}</h3><p>{document.originalFilename}</p></div><StatusBadge status={document.reviewStatus}>{humanize(document.reviewStatus)}</StatusBadge></div>
       <dl><div><dt>Submitted</dt><dd>{formatDate(document.createdAt, true)}</dd></div>{document.reference && <div><dt>Reference</dt><dd>{document.reference}</dd></div>}{document.issueDate && <div><dt>Issue date</dt><dd>{formatDate(document.issueDate)}</dd></div>}{document.expiryDate && <div><dt>Expiry date</dt><dd>{formatDate(document.expiryDate)}</dd></div>}<div><dt>File size</dt><dd>{Math.max(1, Math.round(document.sizeBytes / 1024))} KB</dd></div></dl>
@@ -954,6 +999,38 @@ function ComplianceDocumentReview({ trader, documents, loading, busy, onClose, o
       <div className="compliance-document-actions">{document.reviewUrl ? <a className="button button-secondary button-small" href={document.reviewUrl} target="_blank" rel="noreferrer">Open evidence <ExternalLink size={15} /></a> : <span className="document-unavailable">Secure preview unavailable</span>}{document.reviewStatus === "pending" && <><button className="button button-success button-small" disabled={busy === document.id || !document.reviewUrl} onClick={() => onReview(document, "approved")}>Approve</button><button className="button button-secondary button-small document-reject" disabled={busy === document.id} onClick={() => onReview(document, "rejected")}>Reject</button></>}</div>
     </article>)}</div>}
     {!loading && !documents.length && <EmptyState icon={<FileCheck2 />} title="No documents submitted" detail="The handyman has not completed document registration." />}
+  </section>;
+}
+
+function DdcRegistrationPack({ pack, message, busy, onStatus }: { pack: DdcPack | null; message: string; busy: string; onStatus: (status: string, adminNotes: string) => Promise<void> }) {
+  const [status, setStatus] = useState(pack?.status || "ready_to_enter");
+  const [adminNotes, setAdminNotes] = useState(pack?.adminNotes || "");
+  useEffect(() => {
+    setStatus(pack?.status || "ready_to_enter");
+    setAdminNotes(pack?.adminNotes || "");
+  }, [pack?.status, pack?.adminNotes]);
+  if (!pack) return <section className="ddc-pack-panel ddc-pack-empty"><div><BadgeCheck size={20} /><strong>DDC registration pack</strong></div><p>{message || "No DDC DBS application pack is available for this handyman."}</p></section>;
+  const fields = [
+    ["Title", pack.title],
+    ["Forename", pack.forename],
+    ["Middle", pack.middleNames],
+    ["Surname", pack.surname],
+    ["Date of birth", pack.dateOfBirth],
+    ["National Insurance Number", pack.nationalInsuranceNumber],
+    ["Contact telephone number", pack.mobile],
+    ["Daytime telephone number", pack.daytimeTelephone],
+    ["Email", pack.email || ""],
+    ["Confirm Applicant Contact Email", pack.confirmEmail || ""],
+    ["Role", pack.role],
+    ["Your reference: Applicant ID", pack.applicantReference],
+    ["Your reference: Location ID", pack.locationReference],
+    ["Any extra comments DDC should know", pack.ddcComment]
+  ].filter(([, value]) => value);
+  return <section className="ddc-pack-panel">
+    <div className="ddc-pack-heading"><div><span className="eyebrow">DDC manual DBS helper</span><h3>Copy-ready registration pack</h3><p>Use these fields to complete the DDC applicant screen while API integration is unavailable.</p></div><StatusBadge status={pack.status}>{humanize(pack.status)}</StatusBadge></div>
+    <div className="ddc-route-note"><strong>{pack.applicantEntryMode === "applicant_input_own_data" ? "Use: Applicant to input own data" : "Use: Applicant present, admin inputs data"}</strong><span>DDC role should remain {pack.role} unless eligibility guidance says otherwise.</span></div>
+    <div className="ddc-field-grid">{fields.map(([label, value]) => <div className="ddc-copy-field" key={label}><span>{label}</span><code>{value}</code><button className="icon-button" type="button" onClick={() => navigator.clipboard.writeText(value)} aria-label={`Copy ${label}`}><Copy size={16} /></button></div>)}</div>
+    <div className="ddc-status-row"><label>DDC status<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="not_started">Not started</option><option value="ready_to_enter">Ready to enter</option><option value="ddc_invite_sent">DDC invite sent</option><option value="applicant_submitted">Applicant submitted</option><option value="awaiting_result">Awaiting result</option><option value="approved">Approved</option><option value="query">Query</option><option value="rejected">Rejected</option></select></label><label>Admin notes<input value={adminNotes} maxLength={1000} onChange={(event) => setAdminNotes(event.target.value)} placeholder="Optional DDC tracking note" /></label><button className="button button-secondary button-small" disabled={busy.startsWith("ddc-")} onClick={() => onStatus(status, adminNotes)}>{busy.startsWith("ddc-") ? "Saving..." : "Save DDC status"}</button></div>
   </section>;
 }
 

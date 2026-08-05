@@ -91,6 +91,10 @@ const documentReviewSchema = z.object({
   reason: z.string().trim().min(5).max(500),
   dbsExpiryDate: z.string().date().nullable().optional()
 });
+const ddcPackStatusSchema = z.object({
+  status: z.enum(["not_started", "ready_to_enter", "ddc_invite_sent", "applicant_submitted", "awaiting_result", "approved", "query", "rejected"]),
+  adminNotes: z.string().trim().max(1000).optional().default("")
+});
 const demoRequestUpdateSchema = z.object({
   status: z.enum(["new", "contacted", "qualified", "closed"]),
   internalNotes: z.string().trim().max(2000).optional().default("")
@@ -956,6 +960,73 @@ adminRouter.get("/traders/:id/documents", asyncHandler(async (req, res) => {
     };
   }));
   res.json({ trader: { id: trader.id, displayName: trader.display_name, services: trader.services }, documents: mapped });
+}));
+
+adminRouter.get("/traders/:id/ddc-pack", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {
+  const result = await query<{
+    id: string; display_name: string; email: string | null; encrypted_mobile: string;
+    title: string | null; forename_ciphertext: string | null; middle_names_ciphertext: string | null;
+    surname_ciphertext: string | null; date_of_birth_ciphertext: string | null; national_insurance_ciphertext: string | null;
+    daytime_phone_ciphertext: string | null; applicant_reference: string | null; location_reference: string | null;
+    role: string | null; applicant_entry_mode: string | null; status: string | null; admin_notes: string | null;
+  }>(
+    `SELECT t.id::text, t.display_name, t.email::text, t.encrypted_mobile,
+            p.title, p.forename_ciphertext, p.middle_names_ciphertext, p.surname_ciphertext,
+            p.date_of_birth_ciphertext, p.national_insurance_ciphertext, p.daytime_phone_ciphertext,
+            p.applicant_reference, p.location_reference, p.role, p.applicant_entry_mode, p.status, p.admin_notes
+     FROM trader.traders t
+     LEFT JOIN trader.ddc_dbs_registration_packs p ON p.trader_id = t.id
+     WHERE t.id = $1 AND t.deleted_at IS NULL`,
+    [req.params.id]
+  );
+  const row = result.rows[0];
+  if (!row) return res.status(404).json({ error: "Handyman not found" });
+  if (!row.applicant_reference) return res.json({
+    pack: null,
+    message: "No DDC pack has been submitted. Ask the handyman to choose the DBS application route in onboarding."
+  });
+  const mobile = row.encrypted_mobile ? decryptField(row.encrypted_mobile) : "";
+  const ddcComment = [
+    "TaskBridge handyman applicant for supervised home-safety and minor maintenance work with vulnerable adults.",
+    "DBS route to be assessed under current eligibility guidance.",
+    `Applicant reference: ${row.applicant_reference}.`
+  ].join(" ");
+  res.json({
+    pack: {
+      title: row.title,
+      forename: row.forename_ciphertext ? decryptField(row.forename_ciphertext) : "",
+      middleNames: row.middle_names_ciphertext ? decryptField(row.middle_names_ciphertext) : "",
+      surname: row.surname_ciphertext ? decryptField(row.surname_ciphertext) : "",
+      dateOfBirth: row.date_of_birth_ciphertext ? decryptField(row.date_of_birth_ciphertext) : "",
+      nationalInsuranceNumber: row.national_insurance_ciphertext ? decryptField(row.national_insurance_ciphertext) : "",
+      mobile,
+      daytimeTelephone: row.daytime_phone_ciphertext ? decryptField(row.daytime_phone_ciphertext) : mobile,
+      email: row.email,
+      confirmEmail: row.email,
+      role: row.role || "Handyman / Tradesperson",
+      applicantReference: row.applicant_reference,
+      locationReference: row.location_reference || "TaskBridge",
+      applicantEntryMode: row.applicant_entry_mode || "applicant_input_own_data",
+      status: row.status || "ready_to_enter",
+      adminNotes: row.admin_notes || "",
+      ddcComment
+    }
+  });
+}));
+
+adminRouter.patch("/traders/:id/ddc-pack", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {
+  const parsed = ddcPackStatusSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid DDC status" });
+  const result = await query<{ id: string }>(
+    `UPDATE trader.ddc_dbs_registration_packs
+     SET status = $2, admin_notes = NULLIF($3, ''), updated_at = clock_timestamp()
+     WHERE trader_id = $1
+     RETURNING id::text`,
+    [req.params.id, parsed.data.status, parsed.data.adminNotes]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: "DDC pack not found" });
+  await audit(req, "super_admin.ddc_pack.updated", "trader", req.params.id, { status: parsed.data.status });
+  res.json({ traderId: req.params.id, status: parsed.data.status });
 }));
 
 adminRouter.get("/traders/:id/passport", asyncHandler(async (req, res) => {
