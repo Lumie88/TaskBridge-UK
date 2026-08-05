@@ -1028,6 +1028,21 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
     })));
     const deterioratingMetrics = allMetrics.filter((metric) => metric.trend === "deteriorating");
     const metricTypes = Array.from(new Set(allMetrics.map((metric) => metric.metricType))).sort();
+    const latestDates = selectedAnalyticsServiceUsers
+      .map((serviceUser) => new Date(`${serviceUser.latestObservationDate}T00:00:00Z`).getTime())
+      .filter(Number.isFinite);
+    const latestDatasetDate = latestDates.length ? new Date(Math.max(...latestDates)) : null;
+    const staleBefore = latestDatasetDate ? latestDatasetDate.getTime() - 28 * 24 * 60 * 60 * 1000 : null;
+    const serviceUsersWithObservations = new Set(analytics?.serviceUsers.map((serviceUser) => serviceUser.serviceUserId) || []);
+    const selectedDirectoryUsers = selectedAnalyticsServiceUserId === "all"
+      ? serviceUsers
+      : serviceUsers.filter((serviceUser) => serviceUser.id === selectedAnalyticsServiceUserId);
+    const missingObservationUsers = selectedDirectoryUsers.filter((serviceUser) => !serviceUsersWithObservations.has(serviceUser.id));
+    const highRiskMissingUsers = missingObservationUsers.filter((serviceUser) => serviceUser.riskLevel !== "standard");
+    const staleServiceUsers = staleBefore === null ? [] : selectedAnalyticsServiceUsers.filter((serviceUser) => {
+      const latest = new Date(`${serviceUser.latestObservationDate}T00:00:00Z`).getTime();
+      return Number.isFinite(latest) && latest < staleBefore;
+    });
     const latestServiceUser = [...selectedAnalyticsServiceUsers]
       .sort((left, right) => new Date(right.latestObservationDate).getTime() - new Date(left.latestObservationDate).getTime())[0] || null;
     const latestMetric = latestServiceUser?.metrics
@@ -1041,9 +1056,15 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
       metricTypes,
       latestServiceUser,
       latestMetric,
-      observationDensity
+      observationDensity,
+      latestDatasetDate,
+      missingObservationUsers,
+      highRiskMissingUsers,
+      staleServiceUsers,
+      selectedDirectoryUsers,
+      coveragePercent: selectedDirectoryUsers.length ? Math.round(((selectedDirectoryUsers.length - missingObservationUsers.length) / selectedDirectoryUsers.length) * 100) : 0
     };
-  }, [selectedAnalyticsServiceUsers, selectedSummary.observations, selectedSummary.serviceUsersTracked]);
+  }, [analytics?.serviceUsers, selectedAnalyticsServiceUserId, selectedAnalyticsServiceUsers, selectedSummary.observations, selectedSummary.serviceUsersTracked, serviceUsers]);
 
   const selectedServiceUserProfile = selectedAnalyticsServiceUserId === "all"
     ? null
@@ -1058,8 +1079,25 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
         tone: "red"
       });
     }
+    if (analyticsInsights.highRiskMissingUsers.length) {
+      actions.push({
+        title: "Close high-risk evidence gaps",
+        detail: `${analyticsInsights.highRiskMissingUsers.length} vulnerable or high-risk service user${analyticsInsights.highRiskMissingUsers.length === 1 ? "" : "s"} have no imported observations.`,
+        tone: "red"
+      });
+    }
+    if (analyticsInsights.staleServiceUsers.length) {
+      actions.push({
+        title: "Refresh stale observations",
+        detail: `${analyticsInsights.staleServiceUsers.length} service user${analyticsInsights.staleServiceUsers.length === 1 ? "" : "s"} have not had observations refreshed within the current 28-day review window.`,
+        tone: "amber"
+      });
+    }
     if (selectedSummary.observations === 0) {
       actions.push({ title: "Upload observations", detail: "Import a CSV file to activate trend visualisation.", tone: "blue" });
+    }
+    if (analyticsInsights.coveragePercent > 0 && analyticsInsights.coveragePercent < 90) {
+      actions.push({ title: "Improve dataset coverage", detail: `${analyticsInsights.coveragePercent}% of service users in this view have imported observations. Aim for at least 90% for stronger governance evidence.`, tone: "amber" });
     }
     if (selectedSummary.improving > 0) {
       actions.push({ title: "Capture positive outcomes", detail: `${selectedSummary.improving} service user${selectedSummary.improving === 1 ? "" : "s"} showing improvement can be used for outcome reporting.`, tone: "green" });
@@ -1068,45 +1106,47 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
       actions.push({ title: "Add more readings", detail: "Trend confidence improves after three or more observations per metric.", tone: "amber" });
     }
     return actions.length ? actions : [{ title: "No immediate analytics action", detail: "Current imported observations do not show deterioration signals.", tone: "green" }];
-  }, [analyticsInsights.deterioratingMetrics.length, analyticsInsights.observationDensity, selectedSummary.improving, selectedSummary.observations]);
+  }, [analyticsInsights.coveragePercent, analyticsInsights.deterioratingMetrics.length, analyticsInsights.highRiskMissingUsers.length, analyticsInsights.observationDensity, analyticsInsights.staleServiceUsers.length, selectedSummary.improving, selectedSummary.observations]);
 
   const analyticsUploadCount = analytics?.uploads.length || 0;
   const cqcIntelligence = useMemo(() => {
     const safeScore = selectedSummary.serviceUsersTracked
       ? Math.max(0, Math.round(((selectedSummary.serviceUsersTracked - selectedSummary.deteriorating) / selectedSummary.serviceUsersTracked) * 100))
       : 0;
-    const evidenceReadiness = Math.min(100, Math.round((analyticsInsights.observationDensity / 4) * 100));
+    const densityScore = Math.min(100, Math.round((analyticsInsights.observationDensity / 4) * 100));
+    const evidenceReadiness = Math.round((densityScore * 0.4) + (analyticsInsights.coveragePercent * 0.35) + (analyticsUploadCount ? 25 : 0));
     const responsiveScore = selectedSummary.observations
       ? Math.max(0, 100 - Math.round((analyticsInsights.deterioratingMetrics.length / Math.max(1, selectedSummary.observations)) * 100))
       : 0;
+    const safeAdjustedScore = Math.max(0, safeScore - (analyticsInsights.highRiskMissingUsers.length * 15) - (analyticsInsights.staleServiceUsers.length * 5));
     const milestones = [
       {
         title: "Safe",
-        detail: `${selectedSummary.deteriorating} service user${selectedSummary.deteriorating === 1 ? "" : "s"} currently show deterioration signals.`,
-        score: safeScore,
-        status: selectedSummary.deteriorating ? "action_needed" : "ready"
+        detail: `${selectedSummary.deteriorating} deterioration signal${selectedSummary.deteriorating === 1 ? "" : "s"}, ${analyticsInsights.highRiskMissingUsers.length} high-risk evidence gap${analyticsInsights.highRiskMissingUsers.length === 1 ? "" : "s"}.`,
+        score: safeAdjustedScore,
+        status: selectedSummary.deteriorating || analyticsInsights.highRiskMissingUsers.length ? "action_needed" : "ready"
       },
       {
         title: "Effective",
-        detail: `${analyticsInsights.metricTypes.length} monitored outcome area${analyticsInsights.metricTypes.length === 1 ? "" : "s"} across the selected scope.`,
-        score: analyticsInsights.metricTypes.length >= 3 ? 85 : analyticsInsights.metricTypes.length ? 55 : 15,
-        status: analyticsInsights.metricTypes.length >= 3 ? "ready" : "building"
+        detail: `${analyticsInsights.metricTypes.length} outcome area${analyticsInsights.metricTypes.length === 1 ? "" : "s"} monitored, ${analyticsInsights.coveragePercent}% service-user coverage.`,
+        score: Math.round(((analyticsInsights.metricTypes.length >= 3 ? 85 : analyticsInsights.metricTypes.length ? 55 : 15) + analyticsInsights.coveragePercent) / 2),
+        status: analyticsInsights.metricTypes.length >= 3 && analyticsInsights.coveragePercent >= 90 ? "ready" : "building"
       },
       {
         title: "Responsive",
-        detail: `${analyticsInsights.deterioratingMetrics.length} deteriorating metric${analyticsInsights.deterioratingMetrics.length === 1 ? "" : "s"} require review evidence.`,
-        score: responsiveScore,
-        status: analyticsInsights.deterioratingMetrics.length ? "action_needed" : "ready"
+        detail: `${analyticsInsights.deterioratingMetrics.length} deteriorating metric${analyticsInsights.deterioratingMetrics.length === 1 ? "" : "s"} and ${analyticsInsights.staleServiceUsers.length} stale review${analyticsInsights.staleServiceUsers.length === 1 ? "" : "s"} require action evidence.`,
+        score: Math.max(0, responsiveScore - (analyticsInsights.staleServiceUsers.length * 8)),
+        status: analyticsInsights.deterioratingMetrics.length || analyticsInsights.staleServiceUsers.length ? "action_needed" : "ready"
       },
       {
         title: "Well-led",
-        detail: `${analyticsUploadCount} recent upload${analyticsUploadCount === 1 ? "" : "s"} available for audit traceability.`,
-        score: analyticsUploadCount ? 80 : 20,
-        status: analyticsUploadCount ? "ready" : "building"
+        detail: `${analyticsUploadCount} upload${analyticsUploadCount === 1 ? "" : "s"}, ${analyticsInsights.missingObservationUsers.length} missing service-user observation set${analyticsInsights.missingObservationUsers.length === 1 ? "" : "s"}.`,
+        score: Math.round(((analyticsUploadCount ? 80 : 20) + analyticsInsights.coveragePercent) / 2),
+        status: analyticsUploadCount && analyticsInsights.coveragePercent >= 90 ? "ready" : "building"
       }
     ];
     return { safeScore, evidenceReadiness, responsiveScore, milestones };
-  }, [analyticsInsights.deterioratingMetrics.length, analyticsInsights.metricTypes.length, analyticsInsights.observationDensity, analyticsUploadCount, selectedSummary.deteriorating, selectedSummary.observations, selectedSummary.serviceUsersTracked]);
+  }, [analyticsInsights.coveragePercent, analyticsInsights.deterioratingMetrics.length, analyticsInsights.highRiskMissingUsers.length, analyticsInsights.metricTypes.length, analyticsInsights.missingObservationUsers.length, analyticsInsights.observationDensity, analyticsInsights.staleServiceUsers.length, analyticsUploadCount, selectedSummary.deteriorating, selectedSummary.observations, selectedSummary.serviceUsersTracked]);
   const dashboardViews = [
     { id: "overview", label: "Overview", detail: "Live performance summary" },
     { id: "safe", label: "Safe", detail: "Deterioration and risk" },
@@ -1179,6 +1219,13 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
       ["CQC area", "Readiness score", "Status", "Evidence note"],
       ...cqcIntelligence.milestones.map((milestone) => [milestone.title, `${milestone.score}%`, humanize(milestone.status), milestone.detail]),
       [],
+      ["Dataset assurance"],
+      ["Service-user coverage", `${analyticsInsights.coveragePercent}%`],
+      ["Missing observation records", analyticsInsights.missingObservationUsers.length],
+      ["High-risk evidence gaps", analyticsInsights.highRiskMissingUsers.length],
+      ["Stale observation reviews", analyticsInsights.staleServiceUsers.length],
+      ["Latest dataset date", analyticsInsights.latestDatasetDate?.toISOString().slice(0, 10) || ""],
+      [],
       ["Service user", "Reference", "Overall trend", "Latest observation", "Metric", "Metric trend", "First", "Latest", "Unit"],
       ...selectedAnalyticsServiceUsers.flatMap((serviceUser) => serviceUser.metrics.map((metric) => [
         serviceUser.name,
@@ -1197,7 +1244,7 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "taskbridge-premium-cqc-evidence-pack.csv";
+    link.download = "taskbridge-cqc-care-intelligence-pack.csv";
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -1205,7 +1252,7 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
   if (loading && !analytics) return <Loading />;
   if (!analytics?.enabled) return <AnalyticsLocked />;
   return <>
-    <div className="page-title-row analytics-title-row"><div><span className="eyebrow">Premium care intelligence</span><h1>CQC-ready analytics dashboard</h1><p>Turn service-user observations into deterioration insight, outcome evidence, audit milestones and leadership-ready CQC reporting.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Premium unlocked</span></div>
+    <div className="page-title-row analytics-title-row"><div><span className="eyebrow">Included care intelligence</span><h1>CQC-ready analytics dashboard</h1><p>Turn service-user observations into deterioration insight, outcome evidence, audit milestones and leadership-ready CQC reporting.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Included feature</span></div>
     {error && <div className="alert alert-danger">{error}<button onClick={loadAnalytics}><RefreshCw size={16} /> Retry</button></div>}
     <section className="panel analytics-workspace">
       <div className="analytics-toolbar">
@@ -1265,6 +1312,25 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
             </article>
           </div>
 
+          <section className="analytics-assurance-grid">
+            <article>
+              <span><UsersRound size={18} /></span>
+              <div><strong>{analyticsInsights.coveragePercent}%</strong><small>Directory coverage</small><p>{analyticsInsights.missingObservationUsers.length} service user{analyticsInsights.missingObservationUsers.length === 1 ? "" : "s"} still need observation data.</p></div>
+            </article>
+            <article>
+              <span><ShieldAlert size={18} /></span>
+              <div><strong>{analyticsInsights.highRiskMissingUsers.length}</strong><small>High-risk gaps</small><p>Vulnerable or high-risk people without imported observations should be prioritised.</p></div>
+            </article>
+            <article>
+              <span><Clock3 size={18} /></span>
+              <div><strong>{analyticsInsights.staleServiceUsers.length}</strong><small>Stale reviews</small><p>Observation records older than the 28-day review window need refreshing.</p></div>
+            </article>
+            <article>
+              <span><CalendarDays size={18} /></span>
+              <div><strong>{analyticsInsights.latestDatasetDate ? formatDate(analyticsInsights.latestDatasetDate.toISOString()) : "None"}</strong><small>Latest dataset date</small><p>Use this as the audit anchor for governance and provider review meetings.</p></div>
+            </article>
+          </section>
+
           <section className="analytics-cqc-grid">
             {cqcIntelligence.milestones.map((milestone) => <article key={milestone.title} className={`panel cqc-milestone cqc-${milestone.status}`}>
               <div>
@@ -1317,6 +1383,15 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
         <article><span><ClipboardList size={18} /></span><strong>Monthly evidence review</strong><p>Confirm each high-risk service user has recent health observations and action notes.</p></article>
         <article><span><TrendingDown size={18} /></span><strong>Deterioration escalation</strong><p>Review deteriorating metrics against care notes, family feedback and recent home-safety tasks.</p></article>
         <article><span><CheckCircle2 size={18} /></span><strong>Outcome confirmation</strong><p>Record where interventions reduce falls risk, improve mobility or support independence.</p></article>
+      </div>
+    </section>
+    <section className="panel analytics-evidence-map">
+      <div className="panel-heading"><div><h2>CQC evidence map</h2><p>What this free dashboard should help a care owner prove without manual spreadsheet work.</p></div></div>
+      <div>
+        <article><strong>Safe</strong><p>Deterioration, high-risk evidence gaps and overdue observation reviews are visible before work is approved.</p><span>{selectedSummary.deteriorating + analyticsInsights.highRiskMissingUsers.length} current prompt{selectedSummary.deteriorating + analyticsInsights.highRiskMissingUsers.length === 1 ? "" : "s"}</span></article>
+        <article><strong>Effective</strong><p>Outcome coverage shows whether falls risk, mobility, nutrition, hydration and independence data are actually being captured.</p><span>{analyticsInsights.metricTypes.length} outcome area{analyticsInsights.metricTypes.length === 1 ? "" : "s"}</span></article>
+        <article><strong>Responsive</strong><p>The action queue converts trend changes into follow-up prompts for coordinator review.</p><span>{coordinatorActions.length} next action{coordinatorActions.length === 1 ? "" : "s"}</span></article>
+        <article><strong>Well-led</strong><p>Upload traceability, coverage percentage and exportable evidence packs support governance meetings.</p><span>{analyticsUploadCount} upload{analyticsUploadCount === 1 ? "" : "s"}</span></article>
       </div>
     </section>
     <div className="analytics-layout">
@@ -1378,8 +1453,8 @@ function AnalyticsMetric({ icon, label, value, tone, filter, active, onSelect }:
 function AnalyticsLocked() {
   return <section className="panel analytics-locked">
     <span><BarChart3 size={30} /></span>
-    <h1>Premium care intelligence is locked for this agency</h1>
-    <p>This premium CQC analytics module can be unlocked by a TaskBridge super admin from Agency onboarding settings.</p>
+    <h1>Care intelligence is not enabled for this agency</h1>
+    <p>This included CQC-ready analytics module can be enabled by a TaskBridge super admin from Agency onboarding settings.</p>
   </section>;
 }
 
