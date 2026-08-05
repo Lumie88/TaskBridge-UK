@@ -1114,11 +1114,21 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
       ? Math.max(0, Math.round(((selectedSummary.serviceUsersTracked - selectedSummary.deteriorating) / selectedSummary.serviceUsersTracked) * 100))
       : 0;
     const densityScore = Math.min(100, Math.round((analyticsInsights.observationDensity / 4) * 100));
-    const evidenceReadiness = Math.round((densityScore * 0.4) + (analyticsInsights.coveragePercent * 0.35) + (analyticsUploadCount ? 25 : 0));
+    const uploadScore = analyticsUploadCount ? 100 : 0;
+    const freshnessScore = selectedSummary.serviceUsersTracked
+      ? Math.max(0, Math.round(((selectedSummary.serviceUsersTracked - analyticsInsights.staleServiceUsers.length) / selectedSummary.serviceUsersTracked) * 100))
+      : 0;
+    const highRiskScore = analyticsInsights.selectedDirectoryUsers.filter((serviceUser) => serviceUser.riskLevel !== "standard").length
+      ? Math.max(0, Math.round(((analyticsInsights.selectedDirectoryUsers.filter((serviceUser) => serviceUser.riskLevel !== "standard").length - analyticsInsights.highRiskMissingUsers.length) / Math.max(1, analyticsInsights.selectedDirectoryUsers.filter((serviceUser) => serviceUser.riskLevel !== "standard").length)) * 100))
+      : analyticsInsights.coveragePercent;
+    const evidenceReadiness = Math.round((densityScore * 0.25) + (analyticsInsights.coveragePercent * 0.25) + (freshnessScore * 0.2) + (highRiskScore * 0.15) + (uploadScore * 0.15));
     const responsiveScore = selectedSummary.observations
       ? Math.max(0, 100 - Math.round((analyticsInsights.deterioratingMetrics.length / Math.max(1, selectedSummary.observations)) * 100))
       : 0;
     const safeAdjustedScore = Math.max(0, safeScore - (analyticsInsights.highRiskMissingUsers.length * 15) - (analyticsInsights.staleServiceUsers.length * 5));
+    const caringScore = selectedSummary.serviceUsersTracked
+      ? Math.round(((selectedSummary.improving / selectedSummary.serviceUsersTracked) * 45) + (analyticsInsights.metricTypes.length ? 35 : 0) + (analyticsInsights.coveragePercent * 0.2))
+      : 0;
     const milestones = [
       {
         title: "Safe",
@@ -1133,6 +1143,12 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
         status: analyticsInsights.metricTypes.length >= 3 && analyticsInsights.coveragePercent >= 90 ? "ready" : "building"
       },
       {
+        title: "Caring",
+        detail: `${selectedSummary.improving} improving outcome${selectedSummary.improving === 1 ? "" : "s"} and ${analyticsInsights.metricTypes.length} person-centred outcome area${analyticsInsights.metricTypes.length === 1 ? "" : "s"} tracked.`,
+        score: Math.min(100, caringScore),
+        status: selectedSummary.improving || analyticsInsights.metricTypes.length >= 3 ? "ready" : "building"
+      },
+      {
         title: "Responsive",
         detail: `${analyticsInsights.deterioratingMetrics.length} deteriorating metric${analyticsInsights.deterioratingMetrics.length === 1 ? "" : "s"} and ${analyticsInsights.staleServiceUsers.length} stale review${analyticsInsights.staleServiceUsers.length === 1 ? "" : "s"} require action evidence.`,
         score: Math.max(0, responsiveScore - (analyticsInsights.staleServiceUsers.length * 8)),
@@ -1145,12 +1161,21 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
         status: analyticsUploadCount && analyticsInsights.coveragePercent >= 90 ? "ready" : "building"
       }
     ];
-    return { safeScore, evidenceReadiness, responsiveScore, milestones };
-  }, [analyticsInsights.coveragePercent, analyticsInsights.deterioratingMetrics.length, analyticsInsights.highRiskMissingUsers.length, analyticsInsights.metricTypes.length, analyticsInsights.missingObservationUsers.length, analyticsInsights.observationDensity, analyticsInsights.staleServiceUsers.length, analyticsUploadCount, selectedSummary.deteriorating, selectedSummary.observations, selectedSummary.serviceUsersTracked]);
+    const readinessFactors = [
+      { label: "Observation depth", score: densityScore, detail: `${analyticsInsights.observationDensity} average readings per tracked person` },
+      { label: "Directory coverage", score: analyticsInsights.coveragePercent, detail: `${analyticsInsights.missingObservationUsers.length} missing observation set${analyticsInsights.missingObservationUsers.length === 1 ? "" : "s"}` },
+      { label: "Freshness", score: freshnessScore, detail: `${analyticsInsights.staleServiceUsers.length} stale review${analyticsInsights.staleServiceUsers.length === 1 ? "" : "s"}` },
+      { label: "High-risk coverage", score: highRiskScore, detail: `${analyticsInsights.highRiskMissingUsers.length} vulnerable/high-risk gap${analyticsInsights.highRiskMissingUsers.length === 1 ? "" : "s"}` },
+      { label: "Upload traceability", score: uploadScore, detail: `${analyticsUploadCount} imported file${analyticsUploadCount === 1 ? "" : "s"} logged` }
+    ];
+    const readinessStatus = evidenceReadiness >= 85 ? "Inspection strong" : evidenceReadiness >= 65 ? "Needs targeted evidence" : "Evidence gaps need action";
+    return { safeScore, evidenceReadiness, responsiveScore, milestones, readinessFactors, readinessStatus };
+  }, [analyticsInsights.coveragePercent, analyticsInsights.deterioratingMetrics.length, analyticsInsights.highRiskMissingUsers.length, analyticsInsights.metricTypes.length, analyticsInsights.missingObservationUsers.length, analyticsInsights.observationDensity, analyticsInsights.selectedDirectoryUsers, analyticsInsights.staleServiceUsers.length, analyticsUploadCount, selectedSummary.deteriorating, selectedSummary.improving, selectedSummary.observations, selectedSummary.serviceUsersTracked]);
   const dashboardViews = [
     { id: "overview", label: "Overview", detail: "Live performance summary" },
     { id: "safe", label: "Safe", detail: "Deterioration and risk" },
     { id: "effective", label: "Effective", detail: "Outcome coverage" },
+    { id: "caring", label: "Caring", detail: "Person-centred outcomes" },
     { id: "responsive", label: "Responsive", detail: "Actions needed" },
     { id: "well-led", label: "Well-led", detail: "Audit readiness" }
   ];
@@ -1158,6 +1183,50 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
   const canvasSubtitle = activeMilestone
     ? `${activeMilestone.title}: ${activeMilestone.detail}`
     : "A live care-intelligence canvas for spotting deterioration, proving action and preparing evidence.";
+  const inspectionRisks = useMemo(() => {
+    const risks: Array<{ title: string; detail: string; owner: string; due: string; severity: "high" | "medium" | "low" }> = [];
+    analyticsInsights.highRiskMissingUsers.slice(0, 3).forEach((serviceUser) => risks.push({
+      title: `${serviceUser.name} has no observation evidence`,
+      detail: `${humanize(serviceUser.riskLevel)} / ${serviceUser.reference}. Import recent observations before the next governance review.`,
+      owner: "Care coordinator",
+      due: "Next 7 days",
+      severity: "high"
+    }));
+    analyticsInsights.deterioratingMetrics.slice(0, 4).forEach((metric) => risks.push({
+      title: `${metric.serviceUserName}: ${humanize(metric.metricType)} deteriorating`,
+      detail: `${metric.first ?? "n/a"} to ${metric.latest ?? "n/a"}${metric.unit ? ` ${metric.unit}` : ""}. Check the care note and record follow-up action.`,
+      owner: "Registered manager",
+      due: "Today",
+      severity: "high"
+    }));
+    analyticsInsights.staleServiceUsers.slice(0, 3).forEach((serviceUser) => risks.push({
+      title: `${serviceUser.name} needs refreshed observations`,
+      detail: `Latest dataset is ${formatDate(serviceUser.latestObservationDate)}. Refresh within the 28-day evidence window.`,
+      owner: "Care coordinator",
+      due: "This week",
+      severity: "medium"
+    }));
+    if (!risks.length) {
+      risks.push({
+        title: "No priority CQC evidence gap in this view",
+        detail: "Current observations do not show high-risk missing coverage, deterioration, or stale review prompts.",
+        owner: "Quality lead",
+        due: "Monitor",
+        severity: "low"
+      });
+    }
+    return risks.slice(0, 6);
+  }, [analyticsInsights.deterioratingMetrics, analyticsInsights.highRiskMissingUsers, analyticsInsights.staleServiceUsers]);
+  const inspectionSummary = useMemo(() => {
+    const high = inspectionRisks.filter((risk) => risk.severity === "high").length;
+    const medium = inspectionRisks.filter((risk) => risk.severity === "medium").length;
+    return {
+      high,
+      medium,
+      label: high ? "High priority" : medium ? "Watchlist active" : "No urgent gaps",
+      detail: high ? `${high} high-priority evidence gap${high === 1 ? "" : "s"} need named owner follow-up.` : medium ? `${medium} medium-priority refresh action${medium === 1 ? "" : "s"} should be scheduled.` : "Keep the dataset current and export the pack for governance."
+    };
+  }, [inspectionRisks]);
 
   function selectAnalyticsServiceUser(value: string) {
     setSelectedAnalyticsServiceUserId(value);
@@ -1225,6 +1294,13 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
       ["High-risk evidence gaps", analyticsInsights.highRiskMissingUsers.length],
       ["Stale observation reviews", analyticsInsights.staleServiceUsers.length],
       ["Latest dataset date", analyticsInsights.latestDatasetDate?.toISOString().slice(0, 10) || ""],
+      [],
+      ["Readiness factor", "Score", "Detail"],
+      ...cqcIntelligence.readinessFactors.map((factor) => [factor.label, `${factor.score}%`, factor.detail]),
+      [],
+      ["Inspection priority register"],
+      ["Priority", "Severity", "Owner", "Due", "Detail"],
+      ...inspectionRisks.map((risk) => [risk.title, humanize(risk.severity), risk.owner, risk.due, risk.detail]),
       [],
       ["Service user", "Reference", "Overall trend", "Latest observation", "Metric", "Metric trend", "First", "Latest", "Unit"],
       ...selectedAnalyticsServiceUsers.flatMap((serviceUser) => serviceUser.metrics.map((metric) => [
@@ -1312,6 +1388,37 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
             </article>
           </div>
 
+          <section className="analytics-inspection-cockpit">
+            <article className="analytics-inspection-summary">
+              <span className={`inspection-severity inspection-${inspectionSummary.high ? "high" : inspectionSummary.medium ? "medium" : "low"}`}>{inspectionSummary.label}</span>
+              <h3>{cqcIntelligence.readinessStatus}</h3>
+              <p>{inspectionSummary.detail}</p>
+              <div>
+                <strong>{inspectionRisks.length}</strong><small>priority prompt{inspectionRisks.length === 1 ? "" : "s"}</small>
+                <strong>{cqcIntelligence.milestones.filter((milestone) => milestone.status === "ready").length}/{cqcIntelligence.milestones.length}</strong><small>CQC themes ready</small>
+              </div>
+            </article>
+            <article className="analytics-readiness-breakdown">
+              <header><h3>Readiness breakdown</h3><p>What drives the inspection score.</p></header>
+              {cqcIntelligence.readinessFactors.map((factor) => <div key={factor.label} className="readiness-factor">
+                <div><strong>{factor.label}</strong><span>{factor.score}%</span></div>
+                <i><b style={{ width: `${factor.score}%` }} /></i>
+                <p>{factor.detail}</p>
+              </div>)}
+            </article>
+          </section>
+
+          <section className="panel analytics-risk-register">
+            <div className="panel-heading"><div><h2>Inspection priority register</h2><p>Named follow-ups for evidence gaps, deterioration and stale review prompts.</p></div></div>
+            <div>
+              {inspectionRisks.map((risk) => <article key={`${risk.title}-${risk.detail}`} className={`inspection-risk inspection-risk-${risk.severity}`}>
+                <span>{risk.severity === "high" ? <ShieldAlert size={18} /> : risk.severity === "medium" ? <Clock3 size={18} /> : <CheckCircle2 size={18} />}</span>
+                <div><strong>{risk.title}</strong><p>{risk.detail}</p></div>
+                <small>{risk.owner}<b>{risk.due}</b></small>
+              </article>)}
+            </div>
+          </section>
+
           <section className="analytics-assurance-grid">
             <article>
               <span><UsersRound size={18} /></span>
@@ -1390,6 +1497,7 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
       <div>
         <article><strong>Safe</strong><p>Deterioration, high-risk evidence gaps and overdue observation reviews are visible before work is approved.</p><span>{selectedSummary.deteriorating + analyticsInsights.highRiskMissingUsers.length} current prompt{selectedSummary.deteriorating + analyticsInsights.highRiskMissingUsers.length === 1 ? "" : "s"}</span></article>
         <article><strong>Effective</strong><p>Outcome coverage shows whether falls risk, mobility, nutrition, hydration and independence data are actually being captured.</p><span>{analyticsInsights.metricTypes.length} outcome area{analyticsInsights.metricTypes.length === 1 ? "" : "s"}</span></article>
+        <article><strong>Caring</strong><p>Improving outcomes and person-centred observations show whether support is making daily life safer and more independent.</p><span>{selectedSummary.improving} improving profile{selectedSummary.improving === 1 ? "" : "s"}</span></article>
         <article><strong>Responsive</strong><p>The action queue converts trend changes into follow-up prompts for coordinator review.</p><span>{coordinatorActions.length} next action{coordinatorActions.length === 1 ? "" : "s"}</span></article>
         <article><strong>Well-led</strong><p>Upload traceability, coverage percentage and exportable evidence packs support governance meetings.</p><span>{analyticsUploadCount} upload{analyticsUploadCount === 1 ? "" : "s"}</span></article>
       </div>
