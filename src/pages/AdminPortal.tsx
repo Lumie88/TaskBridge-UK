@@ -42,28 +42,6 @@ interface AdminDashboard {
   paymentHolds: number;
 }
 
-interface IntegrationFailure {
-  id: string;
-  agencyName: string | null;
-  direction: string;
-  endpoint: string;
-  eventType: string;
-  status: string;
-  responseStatus: number | null;
-  errorMessage: string | null;
-  retryCount: number;
-  nextRetryAt: string | null;
-  createdAt: string;
-}
-
-interface CarePlatformProviderStatus {
-  provider: "birdie" | "pass" | "cera";
-  configured: boolean;
-  apiBaseUrlSet: boolean;
-  apiKeySet: boolean;
-  healthPath: string;
-}
-
 interface Trader {
   id: string;
   displayName: string;
@@ -355,8 +333,6 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   const [accessInvitations, setAccessInvitations] = useState<AccessInvitation[]>([]);
-  const [integrationFailures, setIntegrationFailures] = useState<IntegrationFailure[]>([]);
-  const [providerStatuses, setProviderStatuses] = useState<CarePlatformProviderStatus[]>([]);
   const [demoRequests, setDemoRequests] = useState<DemoRequest[]>([]);
   const [handymanJoinRequests, setHandymanJoinRequests] = useState<HandymanJoinRequest[]>([]);
   const [billingCharges, setBillingCharges] = useState<BillingCharge[]>([]);
@@ -372,14 +348,12 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
     setLoading(true);
     setError("");
     try {
-      const [summary, taskResult, traderResult, agencyResult, accessResult, integrationResult, providerResult, demoResult, handymanJoinResult, billingResult, invoiceResult, incidentResult] = await Promise.all([
+      const [summary, taskResult, traderResult, agencyResult, accessResult, demoResult, handymanJoinResult, billingResult, invoiceResult, incidentResult] = await Promise.all([
         api<AdminDashboard>("/api/admin/dashboard"),
         api<{ tasks: AdminTask[] }>("/api/admin/tasks"),
         api<{ traders: Trader[] }>("/api/admin/traders"),
         user.role === "taskbridge_super_admin" ? api<{ agencies: Agency[] }>("/api/admin/agencies") : Promise.resolve({ agencies: [] }),
         user.role === "taskbridge_super_admin" ? api<{ users: AccessUser[]; invitations: AccessInvitation[] }>("/api/admin/access/users") : Promise.resolve({ users: [], invitations: [] }),
-        api<{ failures: IntegrationFailure[] }>("/api/admin/integrations/failures"),
-        user.role === "taskbridge_super_admin" ? api<{ providers: CarePlatformProviderStatus[] }>("/api/admin/integrations/providers/status") : Promise.resolve({ providers: [] }),
         api<{ requests: DemoRequest[] }>("/api/admin/demo-requests"),
         api<{ requests: HandymanJoinRequest[] }>("/api/admin/handyman-join-requests"),
         api<{ charges: BillingCharge[] }>("/api/admin/billing/task-charges"),
@@ -388,8 +362,6 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
       ]);
       setDashboard(summary); setTasks(taskResult.tasks); setTraders(traderResult.traders); setAgencies(agencyResult.agencies);
       setAccessUsers(accessResult.users); setAccessInvitations(accessResult.invitations);
-      setIntegrationFailures(integrationResult.failures);
-      setProviderStatuses(providerResult.providers);
       setDemoRequests(demoResult.requests);
       setHandymanJoinRequests(handymanJoinResult.requests);
       setBillingCharges(billingResult.charges);
@@ -450,8 +422,6 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
         ? <DemoRequestDesk requests={demoRequests} onChanged={load} />
         : active === "tasks"
         ? <AssignmentDesk tasks={tasks} incidents={incidents} filter={taskFilter} onFilter={setTaskFilter} selectedTask={selectedTask} onSelect={setSelectedTask} onChanged={load} />
-        : active === "integrations"
-          ? <IntegrationMonitor failures={integrationFailures} providerStatuses={providerStatuses} isSuperAdmin={user.role === "taskbridge_super_admin"} onRefresh={load} />
         : active === "billing"
           ? <FinanceControls charges={billingCharges} invoices={invoices} onChanged={load} />
         : active === "agencies" && user.role === "taskbridge_super_admin"
@@ -476,7 +446,6 @@ function AdminOverview({ dashboard, tasks, onReview, onOpenView }: {
       <MetricAdmin icon={<ClipboardCheck />} label="Awaiting assignment" value={pending} tone="amber" onClick={() => onOpenView("tasks", "awaiting")} />
       <MetricAdmin icon={<BadgeCheck />} label="DBS approved" value={dashboard?.traders.approved || 0} tone="green" onClick={() => onOpenView("traders", "approved")} />
       <MetricAdmin icon={<FileWarning />} label="DBS action needed" value={(dashboard?.traders.pending || 0) + (dashboard?.traders.unclear || 0) + (dashboard?.traders.rejected || 0) + (dashboard?.traders.not_started || 0)} tone="blue" onClick={() => onOpenView("traders", "action-needed")} />
-      <MetricAdmin icon={<CircleAlert />} label="Integration failures" value={dashboard?.integrationFailures || 0} tone="red" onClick={() => onOpenView("integrations")} />
       <MetricAdmin icon={<Mail />} label="Demo follow-ups" value={dashboard?.demoRequests || 0} tone="blue" onClick={() => onOpenView("demo-requests")} />
       <MetricAdmin icon={<Wrench />} label="Handyman" value={dashboard?.handymanJoinRequests || 0} tone="green" onClick={() => onOpenView("traders", "leads")} />
       <MetricAdmin icon={<FileWarning />} label="Payout holds" value={dashboard?.paymentHolds || 0} tone="amber" onClick={() => onOpenView("billing")} />
@@ -697,42 +666,6 @@ function IncidentDesk({ incidents, tasks, onChanged, embedded = false }: { incid
     {error && <div className="alert alert-danger">{error}</div>}
     {createOpen && <section className="panel inline-admin-form"><form className="stack" onSubmit={createIncident}><div className="field-row"><label>Linked task<select name="taskPublicId" defaultValue=""><option value="">No linked task</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.id} - {task.category}</option>)}</select></label><label>Incident type<select name="type" defaultValue="safeguarding_concern">{INCIDENT_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></div><div className="field-row"><label>Severity<select name="severity" defaultValue="medium">{INCIDENT_SEVERITY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><label>Short incident title<input required name="title" minLength={3} /></label></div><label>What happened and what needs to be done<textarea required name="description" rows={3} minLength={5} /></label><div className="row-actions"><button className="button button-primary button-small" disabled={busy === "create"} type="submit">{busy === "create" ? "Creating..." : "Create incident"}</button><button className="button button-secondary button-small" type="button" onClick={() => setCreateOpen(false)}>Cancel</button></div></form></section>}
     <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Incident</th><th>Task / Agency</th><th>Severity</th><th>Status</th><th>Owner</th><th>Actions</th></tr></thead><tbody>{incidents.map((incident) => <tr key={incident.id}><td><strong>{incident.title}</strong><small>{incident.publicId} · {humanize(incident.type)} · {formatDate(incident.createdAt, true)}</small><p className="table-note">{incident.description}</p></td><td><strong>{incident.taskId || "Unlinked"}</strong><small>{incident.agencyName || "Platform"}</small></td><td><StatusBadge status={incident.severity}>{humanize(incident.severity)}</StatusBadge></td><td><StatusBadge status={incident.status}>{humanize(incident.status)}</StatusBadge>{incident.resolvedAt && <small>Resolved {formatDate(incident.resolvedAt, true)}</small>}</td><td>{incident.ownerName || "TaskBridge operations"}</td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === incident.id} onClick={() => updateIncident(incident, "investigating")}>Investigate</button><button className="button button-secondary button-small" disabled={busy === incident.id} onClick={() => updateIncident(incident, "escalated")}>Escalate</button><button className="button button-secondary button-small" disabled={busy === incident.id} onClick={() => updateIncident(incident, "resolved")}>Resolve</button></div></td></tr>)}</tbody></table></div>{!incidents.length && <EmptyState icon={<FileWarning />} title="No incidents recorded" detail="Operational exceptions and complaints will appear here." />}</section>
-  </>;
-}
-
-function IntegrationMonitor({ failures, providerStatuses, isSuperAdmin, onRefresh }: {
-  failures: IntegrationFailure[];
-  providerStatuses: CarePlatformProviderStatus[];
-  isSuperAdmin: boolean;
-  onRefresh: () => Promise<void>;
-}) {
-  const [refreshing, setRefreshing] = useState(false);
-  const [running, setRunning] = useState(false);
-  const [checking, setChecking] = useState("");
-  const [healthMessage, setHealthMessage] = useState("");
-  async function refresh() {
-    setRefreshing(true);
-    try { await onRefresh(); } finally { setRefreshing(false); }
-  }
-  async function runRetries() {
-    setRunning(true);
-    try {
-      await api("/api/admin/integrations/retry/run", { method: "POST", body: JSON.stringify({ limit: 10 }) });
-      await onRefresh();
-    } finally { setRunning(false); }
-  }
-  async function checkProvider(provider: CarePlatformProviderStatus["provider"]) {
-    setChecking(provider); setHealthMessage("");
-    try {
-      const result = await api<{ ok?: boolean; status: string | number; durationMs?: number }>(`/api/admin/integrations/providers/${provider}/health`, { method: "POST" });
-      setHealthMessage(`${provider.toUpperCase()} responded with ${result.status}${result.durationMs !== undefined ? ` in ${result.durationMs}ms` : ""}.`);
-    } catch (caught) { setHealthMessage(caught instanceof Error ? caught.message : "Provider health check failed"); }
-    finally { setChecking(""); }
-  }
-  return <>
-    <div className="page-title-row"><div><span className="eyebrow">Integration operations</span><h1>Delivery failures</h1><p>Review failed and retrying care-platform callbacks and inbound events.</p></div><div className="row-actions"><button className="button button-secondary" onClick={runRetries} disabled={running}>{running ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />} Run retries</button><button className="button button-secondary" onClick={refresh} disabled={refreshing}>{refreshing ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />} Refresh</button></div></div>
-    {isSuperAdmin && <section className="panel provider-status-panel"><div className="panel-heading"><div><h2>Global fallback care-platform credentials</h2><p>Care-management integrations are configured per care agency. These Railway credentials are fallback defaults only; agency-specific tokens and URLs are managed under Care Agency Onboarding.</p></div></div><div className="compliance-document-grid">{providerStatuses.map((provider) => <article key={provider.provider} className="compliance-document-card"><div className="compliance-document-heading"><span><Activity size={19} /></span><div><h3>{provider.provider.toUpperCase()}</h3><p>Health path: {provider.healthPath}</p></div><StatusBadge status={provider.configured ? "approved" : "pending"}>{provider.configured ? "Fallback set" : "No fallback"}</StatusBadge></div><dl><div><dt>Fallback base URL</dt><dd>{provider.apiBaseUrlSet ? "Set" : "Not set"}</dd></div><div><dt>Fallback API key</dt><dd>{provider.apiKeySet ? "Set" : "Not set"}</dd></div></dl><button className="button button-secondary button-small" disabled={!provider.configured || checking === provider.provider} onClick={() => checkProvider(provider.provider)}>{checking === provider.provider ? <><LoaderCircle className="spin" size={15} /> Checking...</> : "Test fallback"}</button></article>)}</div>{healthMessage && <p className="form-success">{healthMessage}</p>}</section>}
-    <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Care agency</th><th>Event</th><th>Endpoint</th><th>Status</th><th>Attempts</th><th>Received</th></tr></thead><tbody>{failures.map((failure) => <tr key={failure.id}><td><strong>{failure.agencyName || "Platform"}</strong><small>{humanize(failure.direction)}</small></td><td><strong>{humanize(failure.eventType)}</strong><small>{failure.errorMessage || (failure.responseStatus ? `HTTP ${failure.responseStatus}` : "Provider response unavailable")}</small></td><td><span className="integration-endpoint">{failure.endpoint}</span></td><td><StatusBadge status={failure.status}>{humanize(failure.status)}</StatusBadge>{failure.nextRetryAt && <small>Next retry {formatDate(failure.nextRetryAt, true)}</small>}</td><td>{failure.retryCount}</td><td>{formatDate(failure.createdAt, true)}</td></tr>)}</tbody></table></div>{!failures.length && <EmptyState icon={<BadgeCheck />} title="No integration failures" detail="Inbound events and care-platform callbacks are currently clear." />}</section>
   </>;
 }
 

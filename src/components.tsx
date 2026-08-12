@@ -16,7 +16,6 @@ import {
   Mail,
   LogOut,
   Menu,
-  Plug,
   ReceiptText,
   Send,
   ShieldAlert,
@@ -191,7 +190,6 @@ export function PortalShell({ user, area, active, onActive, onSignOut, workspace
     ["demo-requests", "Demo requests", Handshake],
     ["tasks", "Operations", BriefcaseBusiness],
     ["traders", "Handyman", Wrench],
-    ["integrations", "Integrations", Plug],
     ["billing", "Care Agency Finance", Landmark]
   ];
   if (user.role === "taskbridge_super_admin") {
