@@ -8,7 +8,7 @@ import { carePlatformCredentialStatus, carePlatformHealthCheck } from "../care-p
 import { normalizeCarePlatformEvent } from "../care-platform-adapters.js";
 import { config } from "../config.js";
 import { query, withTransaction } from "../db.js";
-import { dispatchToHandymanNetwork, sendFamilyPaymentSms, sendHandymanOnboardingInvite, sendHandymanOnboardingSms, sendSecureVisitLink, sendStaffOnboardingInvite, startDbsVerification } from "../integrations.js";
+import { dispatchToHandymanNetwork, sendCareIntegrationRequirementsEmail, sendFamilyPaymentSms, sendHandymanOnboardingInvite, sendHandymanOnboardingSms, sendSecureVisitLink, sendStaffOnboardingInvite, startDbsVerification } from "../integrations.js";
 import { evaluateTrader, requiresElectricalQualification, type MatchableTask, type MatchableTrader } from "../matching.js";
 import { createComplianceDocumentReviewUrl } from "../media.js";
 import { processRetryQueue } from "../retry-worker.js";
@@ -92,7 +92,8 @@ const createAgencySchema = z.object({
   name: z.string().min(2).max(160),
   primaryContactName: z.string().min(2).max(120),
   primaryContactEmail: z.string().email(),
-  workEmailDomain: z.string().min(3).max(200)
+  workEmailDomain: z.string().min(3).max(200),
+  careManagementIntegrationRequested: z.boolean().optional().default(false)
 });
 const createHandymanInvitationSchema = z.object({
   fullName: z.string().trim().min(2).max(160),
@@ -1636,10 +1637,19 @@ adminRouter.post("/agencies", requireRoles("taskbridge_super_admin"), async (req
        sent_at = CASE WHEN $2 = 'sent' THEN clock_timestamp() ELSE sent_at END WHERE id = $1`,
     [result.invitationId, delivery.status, delivery.providerMessageId]
   );
-  await audit(req, "super_admin.agency.created", "agency", result.id);
+  const careIntegrationDelivery = data.careManagementIntegrationRequested ? await sendCareIntegrationRequirementsEmail({
+    email: data.primaryContactEmail.toLowerCase(),
+    contactName: data.primaryContactName,
+    organisationName: data.name
+  }) : null;
+  await audit(req, "super_admin.agency.created", "agency", result.id, {
+    careManagementIntegrationRequested: data.careManagementIntegrationRequested,
+    careIntegrationEmailDeliveryStatus: careIntegrationDelivery?.status || null
+  });
   res.status(201).json({
     id: result.public_id, status: "onboarding", apiKey: rawApiKey, invitationUrl,
-    invitationExpiresAt: invitationExpiresAt.toISOString(), emailDeliveryStatus: delivery.status
+    invitationExpiresAt: invitationExpiresAt.toISOString(), emailDeliveryStatus: delivery.status,
+    careIntegrationEmailDeliveryStatus: careIntegrationDelivery?.status || null
   });
 });
 

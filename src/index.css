@@ -658,6 +658,30 @@ textarea { padding: 12px 13px; resize: vertical; line-height: 1.5; }
 input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(18,105,232,.12); }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .field-hint { color: #718185; font-weight: 500; line-height: 1.4; }
+.integration-request-option {
+  padding: 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid #dbeafe;
+  border-radius: 7px;
+  background: #f8fbff;
+}
+.integration-request-option input {
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+}
+.integration-request-option span {
+  display: grid;
+  gap: 3px;
+}
+.integration-request-option small {
+  color: #5f6f7d;
+  font-weight: 600;
+  line-height: 1.35;
+}
 .form-error { margin: 0; padding: 11px 13px; color: #8b1f2c; background: #fff0f2; border-left: 3px solid #d44a5a; border-radius: 4px; font-size: .85rem; }
 .form-success { margin: 0; padding: 11px 13px; color: #075f55; background: #e5f6ef; border-left: 3px solid #0f9f84; border-radius: 4px; font-size: .85rem; }
 

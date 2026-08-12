@@ -537,6 +537,33 @@ export async function sendStaffOnboardingInvite(input: {
   });
 }
 
+export async function sendCareIntegrationRequirementsEmail(input: {
+  email: string;
+  contactName: string;
+  organisationName: string;
+}) {
+  const checklist = [
+    "Care-management provider: Birdie / PASS / Cera / Other",
+    "Environment: sandbox/test or production",
+    "API base URL",
+    "Agency, workspace, branch, or account ID",
+    "API access token or API key",
+    "Webhook signing secret for inbound events sent to TaskBridge",
+    "Callback URL requirements for TaskBridge status/completion updates",
+    "Allowed IPs or allowlisting requirements",
+    "OpenAPI/Swagger docs or provider integration guide",
+    "Supported event types, such as care note created, risk/hazard logged, service user updated, visit/task completed"
+  ];
+  const textChecklist = checklist.map((item, index) => `${index + 1}. ${item}`).join("\n");
+  const htmlChecklist = checklist.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  return sendEmail({
+    to: input.email,
+    subject: `TaskBridge care-management integration details for ${input.organisationName}`,
+    text: `Hello ${input.contactName},\n\nThank you for onboarding ${input.organisationName} with TaskBridge.\n\nYou indicated that you want to connect your care-management system to TaskBridge. Please reply with the details below, or forward this to your care-management provider or integration contact.\n\nRequired details:\n${textChecklist}\n\nTaskBridge supports per-agency credentials, so each care agency can use its own provider workspace, token, webhook secret and callback settings.\n\nTaskBridge Support`,
+    html: `<div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827"><p>Hello ${escapeHtml(input.contactName)},</p><p>Thank you for onboarding <strong>${escapeHtml(input.organisationName)}</strong> with TaskBridge.</p><p>You indicated that you want to connect your care-management system to TaskBridge. Please reply with the details below, or forward this to your care-management provider or integration contact.</p><p><strong>Required details</strong></p><ol>${htmlChecklist}</ol><p>TaskBridge supports per-agency credentials, so each care agency can use its own provider workspace, token, webhook secret and callback settings.</p><p>TaskBridge Support</p></div>`
+  });
+}
+
 export async function sendDemoRequestReceipt(input: { email: string; fullName: string; organisationName: string }) {
   return sendEmail({
     to: input.email,
