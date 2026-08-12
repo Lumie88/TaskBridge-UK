@@ -92,6 +92,10 @@ Use a private write policy. Upload links expire after five minutes and accept on
 
 ## Production provider integrations
 
+Care-management integrations are configured per care agency. Two agencies can both use Birdie, PASS, Cera, or a generic webhook adapter while still having different workspace IDs, API base URLs, access tokens, webhook signing secrets, callback URLs, and callback secrets. Configure those agency-specific values in the super-admin Care Agency Onboarding screen.
+
+The `CARE_PLATFORM_*` Railway variables below are optional global fallback credentials only. Do not treat them as the main production model unless every agency genuinely shares the same provider workspace and authorisation, which is uncommon.
+
 ### DDC DBS checks
 
 Set `DBS_PROVIDER_KIND=ddc` and add the DDC sandbox or production values supplied by Due Diligence Checking:
