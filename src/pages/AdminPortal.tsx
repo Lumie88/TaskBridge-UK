@@ -26,7 +26,8 @@ import {
   UserCheck,
   UserPlus,
   UsersRound,
-  Wrench
+  Wrench,
+  X
 } from "lucide-react";
 import { api, formatDate, humanize } from "../api";
 import { EmptyState, PortalShell, StatusBadge } from "../components";
@@ -188,6 +189,20 @@ interface Agency {
     updatedAt: string;
   }>;
 }
+
+const CARE_INTEGRATION_PROVIDERS: Array<{ value: "birdie" | "pass" | "cera" | "generic"; label: string }> = [
+  { value: "birdie", label: "Birdie" },
+  { value: "pass", label: "PASS" },
+  { value: "cera", label: "Cera" },
+  { value: "generic", label: "Other / generic API" }
+];
+
+const CARE_INTEGRATION_SANDBOX_EVENTS = [
+  { value: "risk_hazard.logged", label: "Risk or hazard logged" },
+  { value: "care_note.created", label: "Care note created" },
+  { value: "service_user.updated", label: "Service user updated" },
+  { value: "visit.completed", label: "Visit completed" }
+];
 
 interface DemoRequest {
   id: string;
@@ -1222,6 +1237,7 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
   const [success, setSuccess] = useState("");
   const [issuedKey, setIssuedKey] = useState("");
   const [staffInvitation, setStaffInvitation] = useState<{ url: string; delivery: string } | null>(null);
+  const [activeIntegrationAgencyId, setActiveIntegrationAgencyId] = useState("");
   async function createAgency(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true); setError(""); setSuccess(""); setIssuedKey(""); setStaffInvitation(null);
@@ -1277,52 +1293,40 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to update agency settings"); }
     finally { setSettingsBusy(""); }
   }
-  async function configureIntegration(agency: Agency) {
-    const provider = window.prompt("Care-platform provider: birdie, pass, cera or generic", agency.integrations?.find((item) => item.enabled)?.provider || "generic");
-    if (!provider || !["birdie", "pass", "cera", "generic"].includes(provider.trim().toLowerCase())) return;
-    const existing = agency.integrations?.find((item) => item.provider === provider.trim().toLowerCase());
-    const externalAccountId = window.prompt("Provider workspace/account ID", existing?.externalAccountId || agency.public_id);
-    const providerApiBaseUrl = window.prompt("This agency's provider API base URL (leave blank only if using global fallback)", existing?.providerApiBaseUrl || "");
-    const providerAccessToken = window.prompt(existing?.providerAccessTokenSet ? "This agency's authorised provider access token (leave blank to keep existing)" : "This agency's authorised provider access token");
-    const callbackUrl = window.prompt("Outbound completion callback URL", existing?.callbackUrl || "");
-    const webhookSigningSecret = window.prompt(existing?.webhookSigningSecretSet ? "Inbound webhook signing secret (leave blank to keep existing)" : "Inbound webhook signing secret");
-    const callbackSigningSecret = window.prompt(existing?.callbackSigningSecretSet ? "Outbound callback signing secret (leave blank to keep existing)" : "Outbound callback signing secret");
+  async function configureIntegration(event: React.FormEvent<HTMLFormElement>, agency: Agency) {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    const provider = String(values.get("provider") || "generic");
     setSettingsBusy(`${agency.id}-integration`); setError(""); setSuccess("");
     try {
       await api(`/api/admin/agencies/${agency.id}/integrations`, { method: "PATCH", body: JSON.stringify({
-        provider: provider.trim().toLowerCase(),
+        provider,
         enabled: true,
-        externalAccountId,
-        providerApiBaseUrl,
-        providerAccessToken,
-        callbackUrl,
-        webhookSigningSecret,
-        callbackSigningSecret
+        externalAccountId: values.get("externalAccountId"),
+        providerApiBaseUrl: values.get("providerApiBaseUrl"),
+        providerAccessToken: values.get("providerAccessToken"),
+        callbackUrl: values.get("callbackUrl"),
+        webhookSigningSecret: values.get("webhookSigningSecret"),
+        callbackSigningSecret: values.get("callbackSigningSecret")
       }) });
       setSuccess(`${agency.name} integration settings updated.`);
       await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to update integration settings"); }
     finally { setSettingsBusy(""); }
   }
-  async function healthCheckAgencyIntegration(agency: Agency) {
-    const provider = window.prompt("Provider health check: birdie, pass, cera or generic", agency.integrations?.find((item) => item.enabled)?.provider || "generic");
-    if (!provider || !["birdie", "pass", "cera", "generic"].includes(provider.trim().toLowerCase())) return;
+  async function healthCheckAgencyIntegration(agency: Agency, provider: string) {
     setSettingsBusy(`${agency.id}-health`); setError(""); setSuccess("");
     try {
-      const result = await api<{ status: string | number; durationMs?: number; credentialScope?: string }>(`/api/admin/agencies/${agency.id}/integrations/${provider.trim().toLowerCase()}/health`, { method: "POST" });
+      const result = await api<{ status: string | number; durationMs?: number; credentialScope?: string }>(`/api/admin/agencies/${agency.id}/integrations/${provider}/health`, { method: "POST" });
       setSuccess(`${provider.toUpperCase()} health check returned ${result.status}${result.durationMs !== undefined ? ` in ${result.durationMs}ms` : ""} using ${humanize(result.credentialScope || "configured")} credentials.`);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Agency integration health check failed"); }
     finally { setSettingsBusy(""); }
   }
-  async function sandboxIntegration(agency: Agency) {
-    const provider = window.prompt("Test provider: birdie, pass, cera or generic", agency.integrations?.find((item) => item.enabled)?.provider || "generic");
-    if (!provider || !["birdie", "pass", "cera", "generic"].includes(provider.trim().toLowerCase())) return;
-    const eventType = window.prompt("Test event: care_note.created, risk_hazard.logged, service_user.updated or visit.completed", "risk_hazard.logged");
-    if (!eventType) return;
+  async function sandboxIntegration(agency: Agency, provider: string, eventType: string) {
     setSettingsBusy(`${agency.id}-sandbox`); setError(""); setSuccess("");
     try {
       const result = await api<{ normalized: { eventType: string; taskWouldBeCreated: boolean; visitCompletionWouldBeAccepted: boolean } }>(`/api/admin/agencies/${agency.id}/integrations/sandbox`, { method: "POST", body: JSON.stringify({
-        provider: provider.trim().toLowerCase(),
+        provider,
         payload: {
           event_type: eventType,
           event_id: `sandbox-${Date.now()}`,
@@ -1338,10 +1342,42 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Sandbox test failed"); }
     finally { setSettingsBusy(""); }
   }
+  function renderIntegrationPanel(agency: Agency) {
+    const enabledIntegration = agency.integrations?.find((item) => item.enabled);
+    const defaultProvider = enabledIntegration?.provider || "generic";
+    const existing = agency.integrations?.find((item) => item.provider === defaultProvider) || enabledIntegration;
+    return <form className="agency-integration-panel" onSubmit={(event) => configureIntegration(event, agency)}>
+      <div className="agency-integration-heading"><div><strong>Care-management integration</strong><small>Configure this agency's own provider credentials. Blank secret fields keep existing saved secrets.</small></div><button className="icon-button" type="button" onClick={() => setActiveIntegrationAgencyId("")} aria-label="Close integration setup"><X size={16} /></button></div>
+      <div className="agency-integration-grid">
+        <label>Provider<select name="provider" defaultValue={defaultProvider}>{CARE_INTEGRATION_PROVIDERS.map((provider) => <option key={provider.value} value={provider.value}>{provider.label}</option>)}</select></label>
+        <label>Workspace / account ID<input name="externalAccountId" defaultValue={existing?.externalAccountId || agency.public_id} /></label>
+        <label>API base URL<input name="providerApiBaseUrl" defaultValue={existing?.providerApiBaseUrl || ""} placeholder="https://api.provider.example" /></label>
+        <label>Outbound callback URL<input name="callbackUrl" defaultValue={existing?.callbackUrl || ""} placeholder="https://provider.example/taskbridge/callback" /></label>
+        <label>Provider API token<input name="providerAccessToken" type="password" placeholder={existing?.providerAccessTokenSet ? "Saved. Leave blank to keep." : "Paste token from provider"} /></label>
+        <label>Inbound webhook secret<input name="webhookSigningSecret" type="password" placeholder={existing?.webhookSigningSecretSet ? "Saved. Leave blank to keep." : "Paste webhook secret"} /></label>
+        <label>Outbound callback secret<input name="callbackSigningSecret" type="password" placeholder={existing?.callbackSigningSecretSet ? "Saved. Leave blank to keep." : "Paste callback signing secret"} /></label>
+        <label>Sandbox event<select name="sandboxEvent" defaultValue="risk_hazard.logged">{CARE_INTEGRATION_SANDBOX_EVENTS.map((event) => <option key={event.value} value={event.value}>{event.label}</option>)}</select></label>
+      </div>
+      <div className="agency-integration-actions">
+        <button className="button button-primary button-small" disabled={settingsBusy === `${agency.id}-integration`} type="submit">{settingsBusy === `${agency.id}-integration` ? "Saving..." : "Save integration"}</button>
+        <button className="button button-secondary button-small" disabled={settingsBusy === `${agency.id}-health`} type="button" onClick={(event) => {
+          const form = event.currentTarget.form;
+          if (!form) return;
+          healthCheckAgencyIntegration(agency, String(new FormData(form).get("provider") || defaultProvider));
+        }}>{settingsBusy === `${agency.id}-health` ? "Checking..." : "Run health check"}</button>
+        <button className="button button-secondary button-small" disabled={settingsBusy === `${agency.id}-sandbox`} type="button" onClick={(event) => {
+          const form = event.currentTarget.form;
+          if (!form) return;
+          const values = new FormData(form);
+          sandboxIntegration(agency, String(values.get("provider") || defaultProvider), String(values.get("sandboxEvent") || "risk_hazard.logged"));
+        }}>{settingsBusy === `${agency.id}-sandbox` ? "Testing..." : "Run sandbox test"}</button>
+      </div>
+    </form>;
+  }
   return <>
     <div className="page-title-row"><div><span className="eyebrow">Super-admin control</span><h1>Care agency onboarding</h1><p>Only TaskBridge super administrators can create a care-organisation workspace.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Super admin only</span></div>
     <div className="agency-onboarding-layout">
-      <section className="panel"><div className="panel-heading"><div><h2>Care agencies</h2><p>{agencies.length} organisation{agencies.length === 1 ? "" : "s"} registered.</p></div></div><div className="agency-list agency-key-list">{agencies.map((agency) => <article key={agency.id}><span><Building2 size={19} /></span><div><h3>{agency.name}</h3><p><Mail size={14} /> {agency.primary_contact_email}</p><small>{agency.public_id} / {agency.work_email_domain}</small><div className="agency-operational-meta"><span><ClipboardCheck size={14} /> {agency.activeWorkorders} active workorder{agency.activeWorkorders === 1 ? "" : "s"}</span><span><ShieldCheck size={14} /> {humanize(agency.settings?.goLiveStatus || "pilot_setup")} · £{(agency.settings?.monthlyCap || 500).toFixed(0)} cap</span><span><Activity size={14} /> {(agency.integrations || []).filter((item) => item.enabled).map((item) => `${item.provider.toUpperCase()}${item.providerAccessTokenSet ? " agency token" : " fallback"}`).join(", ") || "No care-platform integration"}</span>{agency.secretApiKey ? <span title={agency.secretApiKey.encryptionRepresentation}><KeyRound size={14} /> {agency.secretApiKey.masked} / {agency.secretApiKey.length} characters / {agency.secretApiKey.encryptionRepresentation}</span> : <span><KeyRound size={14} /> Integration key not issued</span>}</div></div><div className="row-actions"><StatusBadge status={agency.status}>{humanize(agency.status)}</StatusBadge><button className="button button-secondary button-small" disabled={settingsBusy === `${agency.id}-integration`} onClick={() => configureIntegration(agency)}>Integration</button><button className="button button-secondary button-small" disabled={settingsBusy === `${agency.id}-health`} onClick={() => healthCheckAgencyIntegration(agency)}>Health</button><button className="button button-secondary button-small" disabled={settingsBusy === `${agency.id}-sandbox`} onClick={() => sandboxIntegration(agency)}>Sandbox</button><button className="button button-secondary button-small" disabled={settingsBusy === agency.id} onClick={() => updateSettings(agency)}>Settings</button></div></article>)}</div></section>
+      <section className="panel"><div className="panel-heading"><div><h2>Care agencies</h2><p>{agencies.length} organisation{agencies.length === 1 ? "" : "s"} registered.</p></div></div><div className="agency-list agency-key-list">{agencies.map((agency) => <article key={agency.id}><span><Building2 size={19} /></span><div><h3>{agency.name}</h3><p><Mail size={14} /> {agency.primary_contact_email}</p><small>{agency.public_id} / {agency.work_email_domain}</small><div className="agency-operational-meta"><span><ClipboardCheck size={14} /> {agency.activeWorkorders} active workorder{agency.activeWorkorders === 1 ? "" : "s"}</span><span><ShieldCheck size={14} /> {humanize(agency.settings?.goLiveStatus || "pilot_setup")} · £{(agency.settings?.monthlyCap || 500).toFixed(0)} cap</span><span><Activity size={14} /> {(agency.integrations || []).filter((item) => item.enabled).map((item) => `${item.provider.toUpperCase()}${item.providerAccessTokenSet ? " agency token" : " fallback"}`).join(", ") || "No care-platform integration"}</span>{agency.secretApiKey ? <span title={agency.secretApiKey.encryptionRepresentation}><KeyRound size={14} /> {agency.secretApiKey.masked} / {agency.secretApiKey.length} characters / {agency.secretApiKey.encryptionRepresentation}</span> : <span><KeyRound size={14} /> Integration key not issued</span>}</div></div><div className="row-actions"><StatusBadge status={agency.status}>{humanize(agency.status)}</StatusBadge><button className="button button-secondary button-small" onClick={() => setActiveIntegrationAgencyId(activeIntegrationAgencyId === agency.id ? "" : agency.id)}>{activeIntegrationAgencyId === agency.id ? "Close integration" : "Integration"}</button><button className="button button-secondary button-small" disabled={settingsBusy === agency.id} onClick={() => updateSettings(agency)}>Settings</button></div>{activeIntegrationAgencyId === agency.id && renderIntegrationPanel(agency)}</article>)}</div></section>
       <aside className="agency-create-panel"><div className="resident-create-heading"><span><Plus size={20} /></span><div><h2>Onboard a care agency</h2><p>Create the tenant and invite its first care manager.</p></div></div><form className="stack" onSubmit={createAgency}><label>Agency name<input required name="name" minLength={2} /></label><label>Primary contact name<input required name="primaryContactName" minLength={2} /></label><label>Primary contact work email<input required name="primaryContactEmail" type="email" /></label><label>Approved work email domain<input required name="workEmailDomain" placeholder="careagency.co.uk" /></label><label className="integration-request-option"><input name="careManagementIntegrationRequested" type="checkbox" /><span><strong>Send care-management API requirements email</strong><small>Use this when the agency wants Birdie, PASS, Cera or another care-management system connected.</small></span></label>{error && <p className="form-error">{error}</p>}{success && <p className="form-success">{success}</p>}{staffInvitation && <div className="invitation-link"><input readOnly value={staffInvitation.url} aria-label="Care manager invitation URL" /><button className="icon-button" type="button" onClick={() => navigator.clipboard.writeText(staffInvitation.url)} aria-label="Copy manager invitation"><Copy size={18} /></button></div>}{issuedKey && <div className="issued-api-key"><strong>Copy the integration key now</strong><p>For security, the full secret is shown only once.</p><div><input readOnly value={issuedKey} aria-label="New agency API key" /><button className="icon-button" type="button" onClick={() => navigator.clipboard.writeText(issuedKey)} aria-label="Copy API key"><Copy size={18} /></button></div></div>}<button className="button button-primary button-full" disabled={busy} type="submit">{busy ? <><LoaderCircle className="spin" size={17} /> Creating...</> : <><Building2 size={17} /> Create agency workspace</>}</button></form></aside>
     </div>
   </>;

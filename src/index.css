@@ -910,6 +910,41 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shado
 .agency-list h3 { margin: 0; font-size: .95rem; }
 .agency-list p { margin: 5px 0 3px; display: flex; align-items: center; gap: 6px; color: #4f6469; font-size: .76rem; }
 .agency-list small { color: #829095; font-size: .68rem; }
+.agency-integration-panel {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+  background: #f8fafc;
+  border: 1px solid #dbe4ea;
+  border-radius: 8px;
+}
+.agency-integration-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+.agency-integration-heading strong,
+.agency-integration-heading small {
+  display: block;
+}
+.agency-integration-heading small {
+  margin-top: 3px;
+  color: #64748b;
+  line-height: 1.4;
+}
+.agency-integration-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.agency-integration-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .agency-create-panel { padding: 23px; background: white; border: 1px solid #e2e8f0; border-radius: 16px; box-shadow: 0 8px 24px rgba(15,23,42,.05); position: sticky; top: 90px; }
 .alert { margin-bottom: 20px; padding: 13px 15px; border-radius: 6px; display: flex; justify-content: space-between; gap: 15px; align-items: center; font-size: .84rem; }
 .alert button, .alert a { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; font-weight: 750; }
@@ -1295,7 +1330,7 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .studio-demo-modal { width: min(450px, 100%); grid-template-columns: 1fr; }
   .studio-demo-insight { display: none; }
   .studio-demo-content { padding: 31px 22px 24px; }
-  .field-row { grid-template-columns: 1fr; }
+  .field-row, .agency-integration-grid { grid-template-columns: 1fr; }
   .auth-page { display: block; min-height: 100vh; padding: 22px 14px; background: #f8fafc; }
   .auth-aside { min-height: auto; padding: 26px 22px 38px; }
   .auth-message { margin-top: 60px; }
