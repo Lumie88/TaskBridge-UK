@@ -204,6 +204,42 @@ const CARE_INTEGRATION_SANDBOX_EVENTS = [
   { value: "visit.completed", label: "Visit completed" }
 ];
 
+const AGENCY_GO_LIVE_OPTIONS = [
+  { value: "pilot_setup", label: "Pilot setup" },
+  { value: "pilot_live", label: "Pilot live" },
+  { value: "paused", label: "Paused" },
+  { value: "suspended", label: "Suspended" }
+];
+
+const ACCESS_STATE_OPTIONS = [
+  { value: "unlocked", label: "Unlocked" },
+  { value: "locked", label: "Locked" }
+];
+
+const INCIDENT_TYPE_OPTIONS = [
+  { value: "failed_visit", label: "Failed visit" },
+  { value: "handyman_declined", label: "Handyman declined" },
+  { value: "family_complaint", label: "Family complaint" },
+  { value: "missing_evidence", label: "Missing evidence" },
+  { value: "safeguarding_concern", label: "Safeguarding concern" },
+  { value: "payment_dispute", label: "Payment dispute" }
+];
+
+const INCIDENT_SEVERITY_OPTIONS = [
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "critical", label: "Critical" }
+];
+
+const SETTLEMENT_STATUS_OPTIONS = [
+  { value: "not_invoiced", label: "Not invoiced" },
+  { value: "invoiced", label: "Invoiced" },
+  { value: "agency_paid", label: "Agency paid" },
+  { value: "disputed", label: "Disputed" },
+  { value: "written_off", label: "Written off" }
+];
+
 interface DemoRequest {
   id: string;
   fullName: string;
@@ -625,12 +661,15 @@ function CandidatePanel({ task, onChanged }: { task: AdminTask | null; onChanged
 function IncidentDesk({ incidents, tasks, onChanged, embedded = false }: { incidents: Incident[]; tasks: AdminTask[]; onChanged: () => Promise<void>; embedded?: boolean }) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  async function createIncident() {
-    const taskPublicId = window.prompt("Task ID, if linked to a task", tasks[0]?.id || "") || "";
-    const type = window.prompt("Type: failed_visit, handyman_declined, family_complaint, missing_evidence, safeguarding_concern, payment_dispute", "safeguarding_concern");
-    const severity = window.prompt("Severity: low, medium, high, critical", "medium");
-    const title = window.prompt("Short incident title");
-    const description = window.prompt("Describe what happened and what needs to be done");
+  const [createOpen, setCreateOpen] = useState(false);
+  async function createIncident(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    const taskPublicId = String(values.get("taskPublicId") || "");
+    const type = String(values.get("type") || "");
+    const severity = String(values.get("severity") || "");
+    const title = String(values.get("title") || "");
+    const description = String(values.get("description") || "");
     if (!type || !severity || !title || !description) return;
     setBusy("create"); setError("");
     try {
@@ -638,6 +677,8 @@ function IncidentDesk({ incidents, tasks, onChanged, embedded = false }: { incid
         method: "POST",
         body: JSON.stringify({ taskPublicId: taskPublicId || null, type, severity, title, description })
       });
+      event.currentTarget.reset();
+      setCreateOpen(false);
       await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to create incident"); }
     finally { setBusy(""); }
@@ -652,8 +693,9 @@ function IncidentDesk({ incidents, tasks, onChanged, embedded = false }: { incid
     finally { setBusy(""); }
   }
   return <>
-    {embedded ? <div className="panel-heading"><div><h2>Incident and complaint workflow</h2><p>Track failed visits, family complaints, evidence gaps, safeguarding concerns and payment disputes.</p></div><button className="button button-primary" disabled={busy === "create"} onClick={createIncident}><Plus size={17} /> New incident</button></div> : <div className="page-title-row"><div><span className="eyebrow">Safeguarding operations</span><h1>Incident and complaint workflow</h1><p>Track failed visits, family complaints, evidence gaps, safeguarding concerns and payment disputes.</p></div><button className="button button-primary" disabled={busy === "create"} onClick={createIncident}><Plus size={17} /> New incident</button></div>}
+    {embedded ? <div className="panel-heading"><div><h2>Incident and complaint workflow</h2><p>Track failed visits, family complaints, evidence gaps, safeguarding concerns and payment disputes.</p></div><button className="button button-primary" disabled={busy === "create"} onClick={() => setCreateOpen((open) => !open)}><Plus size={17} /> New incident</button></div> : <div className="page-title-row"><div><span className="eyebrow">Safeguarding operations</span><h1>Incident and complaint workflow</h1><p>Track failed visits, family complaints, evidence gaps, safeguarding concerns and payment disputes.</p></div><button className="button button-primary" disabled={busy === "create"} onClick={() => setCreateOpen((open) => !open)}><Plus size={17} /> New incident</button></div>}
     {error && <div className="alert alert-danger">{error}</div>}
+    {createOpen && <section className="panel inline-admin-form"><form className="stack" onSubmit={createIncident}><div className="field-row"><label>Linked task<select name="taskPublicId" defaultValue=""><option value="">No linked task</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.id} - {task.category}</option>)}</select></label><label>Incident type<select name="type" defaultValue="safeguarding_concern">{INCIDENT_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></div><div className="field-row"><label>Severity<select name="severity" defaultValue="medium">{INCIDENT_SEVERITY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><label>Short incident title<input required name="title" minLength={3} /></label></div><label>What happened and what needs to be done<textarea required name="description" rows={3} minLength={5} /></label><div className="row-actions"><button className="button button-primary button-small" disabled={busy === "create"} type="submit">{busy === "create" ? "Creating..." : "Create incident"}</button><button className="button button-secondary button-small" type="button" onClick={() => setCreateOpen(false)}>Cancel</button></div></form></section>}
     <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Incident</th><th>Task / Agency</th><th>Severity</th><th>Status</th><th>Owner</th><th>Actions</th></tr></thead><tbody>{incidents.map((incident) => <tr key={incident.id}><td><strong>{incident.title}</strong><small>{incident.publicId} · {humanize(incident.type)} · {formatDate(incident.createdAt, true)}</small><p className="table-note">{incident.description}</p></td><td><strong>{incident.taskId || "Unlinked"}</strong><small>{incident.agencyName || "Platform"}</small></td><td><StatusBadge status={incident.severity}>{humanize(incident.severity)}</StatusBadge></td><td><StatusBadge status={incident.status}>{humanize(incident.status)}</StatusBadge>{incident.resolvedAt && <small>Resolved {formatDate(incident.resolvedAt, true)}</small>}</td><td>{incident.ownerName || "TaskBridge operations"}</td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === incident.id} onClick={() => updateIncident(incident, "investigating")}>Investigate</button><button className="button button-secondary button-small" disabled={busy === incident.id} onClick={() => updateIncident(incident, "escalated")}>Escalate</button><button className="button button-secondary button-small" disabled={busy === incident.id} onClick={() => updateIncident(incident, "resolved")}>Resolve</button></div></td></tr>)}</tbody></table></div>{!incidents.length && <EmptyState icon={<FileWarning />} title="No incidents recorded" detail="Operational exceptions and complaints will appear here." />}</section>
   </>;
 }
@@ -793,6 +835,7 @@ function HandymanJoinRequestDesk({ requests, onChanged, embedded = false }: { re
 
 function FinanceControls({ charges, invoices, onChanged }: { charges: BillingCharge[]; invoices: AdminInvoice[]; onChanged: () => Promise<void> }) {
   const [busy, setBusy] = useState("");
+  const [settlementEditing, setSettlementEditing] = useState("");
   const defaultStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
   const defaultEnd = new Date().toISOString().slice(0, 10);
   const agencies = Array.from(new Map(charges.map((charge) => [charge.agencyId, charge.agencyName])).entries()).map(([id, name]) => ({ id, name }));
@@ -800,16 +843,18 @@ function FinanceControls({ charges, invoices, onChanged }: { charges: BillingCha
   useEffect(() => {
     if (!invoiceForm.agencyId && agencies[0]?.id) setInvoiceForm((current) => ({ ...current, agencyId: agencies[0].id }));
   }, [agencies.map((agency) => agency.id).join("|")]);
-  async function settlement(charge: BillingCharge) {
-    const settlementStatus = window.prompt("Settlement status: not_invoiced, invoiced, agency_paid, disputed, written_off", charge.settlementStatus);
-    if (!settlementStatus) return;
-    const settlementReference = window.prompt("Invoice or settlement reference", charge.settlementReference || "");
+  async function settlement(event: React.FormEvent<HTMLFormElement>, charge: BillingCharge) {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    const settlementStatus = String(values.get("settlementStatus") || charge.settlementStatus);
+    const settlementReference = String(values.get("settlementReference") || "");
     setBusy(charge.id);
     try {
       await api(`/api/admin/billing/task-charges/${charge.id}/settlement`, {
         method: "PATCH",
         body: JSON.stringify({ settlementStatus, settlementReference, settlementDueAt: charge.settlementDueAt, settlementNotes: charge.settlementNotes })
       });
+      setSettlementEditing("");
       await onChanged();
     } finally { setBusy(""); }
   }
@@ -854,7 +899,7 @@ function FinanceControls({ charges, invoices, onChanged }: { charges: BillingCha
       </div>
     </section>
     <section className="panel table-panel"><div className="panel-heading"><div><h2>Invoice exports</h2><p>Issued invoice batches grouped by agency and period.</p></div></div><div className="responsive-table"><table><thead><tr><th>Invoice</th><th>Agency</th><th>Period</th><th>Lines</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead><tbody>{invoices.map((invoice) => <tr key={invoice.id}><td><strong>{invoice.invoiceNumber}</strong><small>{invoice.issuedAt ? `Issued ${formatDate(invoice.issuedAt, true)}` : "Draft"}</small></td><td>{invoice.agencyName}</td><td><strong>{formatDate(invoice.periodStart)}</strong><small>to {formatDate(invoice.periodEnd)}</small></td><td>{invoice.lineCount}</td><td><strong>{invoice.currency} {invoice.totalAmount.toFixed(2)}</strong></td><td><StatusBadge status={invoice.status}>{humanize(invoice.status)}</StatusBadge>{invoice.paidAt && <small>Paid {formatDate(invoice.paidAt, true)}</small>}</td><td><div className="row-actions"><a className="button button-secondary button-small" href={`/api/admin/billing/invoices/${invoice.id}/export.csv`}>CSV</a><button className="button button-secondary button-small" disabled={busy === invoice.id || invoice.status === "paid"} onClick={() => updateInvoiceStatus(invoice, "paid")}>Mark paid</button><button className="button button-secondary button-small document-reject" disabled={busy === invoice.id || invoice.status === "void" || invoice.status === "paid"} onClick={() => updateInvoiceStatus(invoice, "void")}>Void</button></div></td></tr>)}</tbody></table></div>{!invoices.length && <EmptyState icon={<FileCheck2 />} title="No invoices generated yet" detail="Create an invoice export from uninvoiced task charges." />}</section>
-    <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Task</th><th>Agency</th><th>Amounts</th><th>Settlement</th><th>Payout</th><th>Actions</th></tr></thead><tbody>{charges.map((charge) => <tr key={charge.id}><td><strong>{charge.taskId}</strong><small>{formatDate(charge.createdAt, true)}</small></td><td><strong>{charge.agencyName}</strong><small>{charge.handymanName || "No handyman"}</small></td><td><strong>£{charge.totalAmount.toFixed(2)}</strong><small>Handyman £{charge.handymanAmount.toFixed(2)} · Agency £{charge.agencyCoordinationFee.toFixed(2)} · Platform £{charge.platformFee.toFixed(2)}</small></td><td><StatusBadge status={charge.settlementStatus}>{humanize(charge.settlementStatus)}</StatusBadge>{charge.settlementReference && <small>{charge.settlementReference}</small>}</td><td><StatusBadge status={charge.payoutStatus || "pending"}>{humanize(charge.payoutStatus || "pending")}</StatusBadge>{charge.payableAfter && <small>Eligible {formatDate(charge.payableAfter, true)}</small>}</td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === charge.id} onClick={() => settlement(charge)}>Settlement</button><button className="button button-secondary button-small document-reject" disabled={busy === charge.id} onClick={() => dispute(charge)}>Dispute / hold</button></div></td></tr>)}</tbody></table></div>{!charges.length && <EmptyState icon={<FileCheck2 />} title="No charge records yet" detail="Charges are created when a TaskBridge admin dispatches a handyman." />}</section>
+    <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Task</th><th>Agency</th><th>Amounts</th><th>Settlement</th><th>Payout</th><th>Actions</th></tr></thead><tbody>{charges.map((charge) => <tr key={charge.id}><td><strong>{charge.taskId}</strong><small>{formatDate(charge.createdAt, true)}</small></td><td><strong>{charge.agencyName}</strong><small>{charge.handymanName || "No handyman"}</small></td><td><strong>£{charge.totalAmount.toFixed(2)}</strong><small>Handyman £{charge.handymanAmount.toFixed(2)} · Agency £{charge.agencyCoordinationFee.toFixed(2)} · Platform £{charge.platformFee.toFixed(2)}</small></td><td>{settlementEditing === charge.id ? <form className="settlement-inline-form" onSubmit={(event) => settlement(event, charge)}><select name="settlementStatus" defaultValue={charge.settlementStatus}>{SETTLEMENT_STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><input name="settlementReference" defaultValue={charge.settlementReference || ""} placeholder="Invoice/reference" /><div className="row-actions"><button className="button button-primary button-small" disabled={busy === charge.id} type="submit">{busy === charge.id ? "Saving..." : "Save"}</button><button className="button button-secondary button-small" type="button" onClick={() => setSettlementEditing("")}>Cancel</button></div></form> : <><StatusBadge status={charge.settlementStatus}>{humanize(charge.settlementStatus)}</StatusBadge>{charge.settlementReference && <small>{charge.settlementReference}</small>}</>}</td><td><StatusBadge status={charge.payoutStatus || "pending"}>{humanize(charge.payoutStatus || "pending")}</StatusBadge>{charge.payableAfter && <small>Eligible {formatDate(charge.payableAfter, true)}</small>}</td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === charge.id} onClick={() => setSettlementEditing(settlementEditing === charge.id ? "" : charge.id)}>Settlement</button><button className="button button-secondary button-small document-reject" disabled={busy === charge.id} onClick={() => dispute(charge)}>Dispute / hold</button></div></td></tr>)}</tbody></table></div>{!charges.length && <EmptyState icon={<FileCheck2 />} title="No charge records yet" detail="Charges are created when a TaskBridge admin dispatches a handyman." />}</section>
   </>;
 }
 
@@ -1238,6 +1283,7 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
   const [issuedKey, setIssuedKey] = useState("");
   const [staffInvitation, setStaffInvitation] = useState<{ url: string; delivery: string } | null>(null);
   const [activeIntegrationAgencyId, setActiveIntegrationAgencyId] = useState("");
+  const [activeSettingsAgencyId, setActiveSettingsAgencyId] = useState("");
   async function createAgency(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true); setError(""); setSuccess(""); setIssuedKey(""); setStaffInvitation(null);
@@ -1264,18 +1310,15 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to onboard care agency"); }
     finally { setBusy(false); }
   }
-  async function updateSettings(agency: Agency) {
+  async function updateSettings(event: React.FormEvent<HTMLFormElement>, agency: Agency) {
+    event.preventDefault();
     const current = agency.settings;
-    const monthlyCap = Number(window.prompt("Monthly cap in GBP", String(current?.monthlyCap || 500)));
+    const values = new FormData(event.currentTarget);
+    const monthlyCap = Number(values.get("monthlyCap") || current?.monthlyCap || 500);
     if (!Number.isFinite(monthlyCap)) return;
-    const goLiveStatus = window.prompt("Go-live status: pilot_setup, pilot_live, paused, suspended", current?.goLiveStatus || "pilot_setup");
-    if (!goLiveStatus) return;
-    const analytics = window.prompt("Free care analytics access: unlocked or locked", current?.healthAnalyticsEnabled ? "unlocked" : "locked");
-    if (!analytics) return;
-    const healthAnalyticsEnabled = analytics.trim().toLowerCase() === "unlocked";
-    const rotaPlanner = window.prompt("Premium AI rota planner access: unlocked or locked", current?.rotaPlannerEnabled ? "unlocked" : "locked");
-    if (!rotaPlanner) return;
-    const rotaPlannerEnabled = rotaPlanner.trim().toLowerCase() === "unlocked";
+    const goLiveStatus = String(values.get("goLiveStatus") || current?.goLiveStatus || "pilot_setup");
+    const healthAnalyticsEnabled = values.get("healthAnalytics") === "unlocked";
+    const rotaPlannerEnabled = values.get("rotaPlanner") === "unlocked";
     setSettingsBusy(agency.id); setError("");
     try {
       await api(`/api/admin/agencies/${agency.id}/settings`, { method: "PATCH", body: JSON.stringify({
@@ -1342,11 +1385,24 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Sandbox test failed"); }
     finally { setSettingsBusy(""); }
   }
+  function renderSettingsPanel(agency: Agency) {
+    const current = agency.settings;
+    return <form className="agency-inline-panel" onSubmit={(event) => updateSettings(event, agency)}>
+      <div className="agency-integration-heading"><div><strong>Agency controls</strong><small>Update go-live status and feature access without leaving this workspace.</small></div><button className="icon-button" type="button" onClick={() => setActiveSettingsAgencyId("")} aria-label="Close agency settings"><X size={16} /></button></div>
+      <div className="agency-integration-grid">
+        <label>Monthly cap in GBP<input name="monthlyCap" type="number" min={0} step={1} defaultValue={current?.monthlyCap || 500} /></label>
+        <label>Go-live status<select name="goLiveStatus" defaultValue={current?.goLiveStatus || "pilot_setup"}>{AGENCY_GO_LIVE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label>Free care analytics access<select name="healthAnalytics" defaultValue={current?.healthAnalyticsEnabled ? "unlocked" : "locked"}>{ACCESS_STATE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label>Premium AI rota planner access<select name="rotaPlanner" defaultValue={current?.rotaPlannerEnabled ? "unlocked" : "locked"}>{ACCESS_STATE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+      </div>
+      <div className="agency-integration-actions"><button className="button button-primary button-small" disabled={settingsBusy === agency.id} type="submit">{settingsBusy === agency.id ? "Saving..." : "Save settings"}</button></div>
+    </form>;
+  }
   function renderIntegrationPanel(agency: Agency) {
     const enabledIntegration = agency.integrations?.find((item) => item.enabled);
     const defaultProvider = enabledIntegration?.provider || "generic";
     const existing = agency.integrations?.find((item) => item.provider === defaultProvider) || enabledIntegration;
-    return <form className="agency-integration-panel" onSubmit={(event) => configureIntegration(event, agency)}>
+    return <form className="agency-inline-panel" onSubmit={(event) => configureIntegration(event, agency)}>
       <div className="agency-integration-heading"><div><strong>Care-management integration</strong><small>Configure this agency's own provider credentials. Blank secret fields keep existing saved secrets.</small></div><button className="icon-button" type="button" onClick={() => setActiveIntegrationAgencyId("")} aria-label="Close integration setup"><X size={16} /></button></div>
       <div className="agency-integration-grid">
         <label>Provider<select name="provider" defaultValue={defaultProvider}>{CARE_INTEGRATION_PROVIDERS.map((provider) => <option key={provider.value} value={provider.value}>{provider.label}</option>)}</select></label>
@@ -1377,7 +1433,7 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
   return <>
     <div className="page-title-row"><div><span className="eyebrow">Super-admin control</span><h1>Care agency onboarding</h1><p>Only TaskBridge super administrators can create a care-organisation workspace.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Super admin only</span></div>
     <div className="agency-onboarding-layout">
-      <section className="panel"><div className="panel-heading"><div><h2>Care agencies</h2><p>{agencies.length} organisation{agencies.length === 1 ? "" : "s"} registered.</p></div></div><div className="agency-list agency-key-list">{agencies.map((agency) => <article key={agency.id}><span><Building2 size={19} /></span><div><h3>{agency.name}</h3><p><Mail size={14} /> {agency.primary_contact_email}</p><small>{agency.public_id} / {agency.work_email_domain}</small><div className="agency-operational-meta"><span><ClipboardCheck size={14} /> {agency.activeWorkorders} active workorder{agency.activeWorkorders === 1 ? "" : "s"}</span><span><ShieldCheck size={14} /> {humanize(agency.settings?.goLiveStatus || "pilot_setup")} · £{(agency.settings?.monthlyCap || 500).toFixed(0)} cap</span><span><Activity size={14} /> {(agency.integrations || []).filter((item) => item.enabled).map((item) => `${item.provider.toUpperCase()}${item.providerAccessTokenSet ? " agency token" : " fallback"}`).join(", ") || "No care-platform integration"}</span>{agency.secretApiKey ? <span title={agency.secretApiKey.encryptionRepresentation}><KeyRound size={14} /> {agency.secretApiKey.masked} / {agency.secretApiKey.length} characters / {agency.secretApiKey.encryptionRepresentation}</span> : <span><KeyRound size={14} /> Integration key not issued</span>}</div></div><div className="row-actions"><StatusBadge status={agency.status}>{humanize(agency.status)}</StatusBadge><button className="button button-secondary button-small" onClick={() => setActiveIntegrationAgencyId(activeIntegrationAgencyId === agency.id ? "" : agency.id)}>{activeIntegrationAgencyId === agency.id ? "Close integration" : "Integration"}</button><button className="button button-secondary button-small" disabled={settingsBusy === agency.id} onClick={() => updateSettings(agency)}>Settings</button></div>{activeIntegrationAgencyId === agency.id && renderIntegrationPanel(agency)}</article>)}</div></section>
+      <section className="panel"><div className="panel-heading"><div><h2>Care agencies</h2><p>{agencies.length} organisation{agencies.length === 1 ? "" : "s"} registered.</p></div></div><div className="agency-list agency-key-list">{agencies.map((agency) => <article key={agency.id}><span><Building2 size={19} /></span><div><h3>{agency.name}</h3><p><Mail size={14} /> {agency.primary_contact_email}</p><small>{agency.public_id} / {agency.work_email_domain}</small><div className="agency-operational-meta"><span><ClipboardCheck size={14} /> {agency.activeWorkorders} active workorder{agency.activeWorkorders === 1 ? "" : "s"}</span><span><ShieldCheck size={14} /> {humanize(agency.settings?.goLiveStatus || "pilot_setup")} · £{(agency.settings?.monthlyCap || 500).toFixed(0)} cap</span><span><Activity size={14} /> {(agency.integrations || []).filter((item) => item.enabled).map((item) => `${item.provider.toUpperCase()}${item.providerAccessTokenSet ? " agency token" : " fallback"}`).join(", ") || "No care-platform integration"}</span>{agency.secretApiKey ? <span title={agency.secretApiKey.encryptionRepresentation}><KeyRound size={14} /> {agency.secretApiKey.masked} / {agency.secretApiKey.length} characters / {agency.secretApiKey.encryptionRepresentation}</span> : <span><KeyRound size={14} /> Integration key not issued</span>}</div></div><div className="row-actions"><StatusBadge status={agency.status}>{humanize(agency.status)}</StatusBadge><button className="button button-secondary button-small" onClick={() => { setActiveSettingsAgencyId(""); setActiveIntegrationAgencyId(activeIntegrationAgencyId === agency.id ? "" : agency.id); }}>{activeIntegrationAgencyId === agency.id ? "Close integration" : "Integration"}</button><button className="button button-secondary button-small" onClick={() => { setActiveIntegrationAgencyId(""); setActiveSettingsAgencyId(activeSettingsAgencyId === agency.id ? "" : agency.id); }}>{activeSettingsAgencyId === agency.id ? "Close settings" : "Settings"}</button></div>{activeIntegrationAgencyId === agency.id && renderIntegrationPanel(agency)}{activeSettingsAgencyId === agency.id && renderSettingsPanel(agency)}</article>)}</div></section>
       <aside className="agency-create-panel"><div className="resident-create-heading"><span><Plus size={20} /></span><div><h2>Onboard a care agency</h2><p>Create the tenant and invite its first care manager.</p></div></div><form className="stack" onSubmit={createAgency}><label>Agency name<input required name="name" minLength={2} /></label><label>Primary contact name<input required name="primaryContactName" minLength={2} /></label><label>Primary contact work email<input required name="primaryContactEmail" type="email" /></label><label>Approved work email domain<input required name="workEmailDomain" placeholder="careagency.co.uk" /></label><label className="integration-request-option"><input name="careManagementIntegrationRequested" type="checkbox" /><span><strong>Send care-management API requirements email</strong><small>Use this when the agency wants Birdie, PASS, Cera or another care-management system connected.</small></span></label>{error && <p className="form-error">{error}</p>}{success && <p className="form-success">{success}</p>}{staffInvitation && <div className="invitation-link"><input readOnly value={staffInvitation.url} aria-label="Care manager invitation URL" /><button className="icon-button" type="button" onClick={() => navigator.clipboard.writeText(staffInvitation.url)} aria-label="Copy manager invitation"><Copy size={18} /></button></div>}{issuedKey && <div className="issued-api-key"><strong>Copy the integration key now</strong><p>For security, the full secret is shown only once.</p><div><input readOnly value={issuedKey} aria-label="New agency API key" /><button className="icon-button" type="button" onClick={() => navigator.clipboard.writeText(issuedKey)} aria-label="Copy API key"><Copy size={18} /></button></div></div>}<button className="button button-primary button-full" disabled={busy} type="submit">{busy ? <><LoaderCircle className="spin" size={17} /> Creating...</> : <><Building2 size={17} /> Create agency workspace</>}</button></form></aside>
     </div>
   </>;

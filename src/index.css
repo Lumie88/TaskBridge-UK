@@ -910,7 +910,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shado
 .agency-list h3 { margin: 0; font-size: .95rem; }
 .agency-list p { margin: 5px 0 3px; display: flex; align-items: center; gap: 6px; color: #4f6469; font-size: .76rem; }
 .agency-list small { color: #829095; font-size: .68rem; }
-.agency-integration-panel {
+.agency-inline-panel {
   grid-column: 1 / -1;
   margin-top: 6px;
   padding: 16px;
@@ -944,6 +944,20 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shado
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+.inline-admin-form {
+  margin-bottom: 14px;
+  padding: 16px;
+}
+.settlement-inline-form {
+  min-width: 240px;
+  display: grid;
+  gap: 8px;
+}
+.settlement-inline-form select,
+.settlement-inline-form input {
+  min-height: 36px;
+  padding: 8px 10px;
 }
 .agency-create-panel { padding: 23px; background: white; border: 1px solid #e2e8f0; border-radius: 16px; box-shadow: 0 8px 24px rgba(15,23,42,.05); position: sticky; top: 90px; }
 .alert { margin-bottom: 20px; padding: 13px 15px; border-radius: 6px; display: flex; justify-content: space-between; gap: 15px; align-items: center; font-size: .84rem; }
