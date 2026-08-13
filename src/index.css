@@ -1838,6 +1838,34 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 .rota-evidence-view { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 .rota-evidence-view article { grid-template-columns: 24px minmax(0, 1fr); align-items: start; }
 .rota-evidence-view svg { color: #0d6370; }
+.rota-manual-scheduler { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 14px; align-items: start; }
+.rota-manual-pool { padding: 14px; display: grid; gap: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
+.rota-manual-pool header { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.rota-manual-pool header strong { color: #0f172a; font-size: .84rem; }
+.rota-manual-pool header span { color: #0d6370; font-size: .68rem; font-weight: 900; }
+.rota-manual-pool > div { display: grid; gap: 9px; }
+.rota-manual-pool p { margin: 0; color: #64748b; font-size: .75rem; line-height: 1.5; }
+.rota-draggable-visit { padding: 12px; display: grid; gap: 5px; background: white; border: 1px solid #dbe5e3; border-left: 4px solid #0d6370; border-radius: 8px; box-shadow: 0 8px 18px rgba(15,23,42,.05); cursor: grab; }
+.rota-draggable-visit:active, .rota-slot-card:active { cursor: grabbing; }
+.rota-draggable-visit.urgency-high, .rota-slot-card.urgency-high { border-left-color: #e11d48; }
+.rota-draggable-visit.urgency-medium, .rota-slot-card.urgency-medium { border-left-color: #f59e0b; }
+.rota-draggable-visit strong, .rota-slot-card strong { color: #0f172a; font-size: .76rem; }
+.rota-draggable-visit small, .rota-slot-card small { color: #64748b; font-size: .66rem; line-height: 1.35; }
+.rota-manual-grid { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 8px; }
+.rota-manual-header, .rota-manual-row { min-width: 980px; display: grid; grid-template-columns: 170px repeat(10, minmax(82px, 1fr)); }
+.rota-manual-header { background: #f1f5f9; border-bottom: 1px solid #e2e8f0; }
+.rota-manual-header span { padding: 10px; color: #64748b; border-right: 1px solid #e2e8f0; font-size: .65rem; font-weight: 900; text-transform: uppercase; }
+.rota-manual-row { min-height: 104px; background: white; border-bottom: 1px solid #edf2f7; }
+.rota-manual-row:last-child { border-bottom: 0; }
+.rota-manual-carer { padding: 12px; display: grid; align-content: center; gap: 3px; background: #fbfdfd; border-right: 1px solid #e2e8f0; }
+.rota-manual-carer strong { color: #0f172a; font-size: .78rem; }
+.rota-manual-carer span, .rota-manual-carer small { color: #64748b; font-size: .66rem; }
+.rota-manual-slot { min-height: 104px; padding: 7px; display: grid; place-items: center; color: #94a3b8; background: linear-gradient(135deg, #fff, #fbfdff); border-right: 1px solid #edf2f7; font-size: .64rem; font-weight: 850; }
+.rota-manual-slot.filled { place-items: stretch; background: #f8fafc; }
+.rota-manual-slot:hover { background: #eff6ff; outline: 1px dashed #93c5fd; outline-offset: -5px; }
+.rota-slot-card { min-height: 86px; padding: 10px; display: grid; align-content: start; gap: 4px; position: relative; background: white; border: 1px solid #dbe5e3; border-left: 4px solid #0d6370; border-radius: 7px; box-shadow: 0 8px 18px rgba(15,23,42,.06); cursor: grab; }
+.rota-slot-card button { position: absolute; top: 5px; right: 5px; width: 20px; height: 20px; padding: 0; display: grid; place-items: center; color: #64748b; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 999px; cursor: pointer; }
+.rota-slot-card button:hover { color: #be123c; background: #fff1f2; border-color: #fecdd3; }
 .rota-how-strip { margin-bottom: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .rota-how-strip button { min-height: 88px; padding: 16px; display: grid; grid-template-columns: 42px 1fr; gap: 12px; align-items: center; background: white; border: 1px solid #dfe7e5; border-radius: 11px; box-shadow: 0 10px 26px rgba(7,43,50,.05); text-align: left; transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
 .rota-how-strip button:hover { transform: translateY(-2px); border-color: #0d6370; }
@@ -1959,7 +1987,7 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
   .analytics-focus-panel, .analytics-owner-value { grid-template-columns: 1fr; align-items: stretch; }
   .premium-score-ring { width: 132px; }
   .analytics-insight-grid, .analytics-decision-grid, .analytics-milestone-board > div:last-child, .analytics-assurance-grid, .analytics-evidence-map > div:last-child { grid-template-columns: 1fr; }
-  .rota-planday-hero, .rota-command-centre, .rota-layer-grid, .rota-capacity-view, .rota-conflict-view, .rota-continuity-view, .rota-how-strip, .rota-board-toolbar, .rota-planday-layout, .rota-premium-hero, .rota-premium-controls, .rota-planner-grid, .rota-schedule-list, .rota-value-grid { grid-template-columns: 1fr; }
+  .rota-planday-hero, .rota-command-centre, .rota-layer-grid, .rota-capacity-view, .rota-conflict-view, .rota-continuity-view, .rota-manual-scheduler, .rota-how-strip, .rota-board-toolbar, .rota-planday-layout, .rota-premium-hero, .rota-premium-controls, .rota-planner-grid, .rota-schedule-list, .rota-value-grid { grid-template-columns: 1fr; }
   .rota-live-preview, .rota-internal-menu { position: static; }
   .rota-approval-flow, .rota-evidence-view { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
