@@ -734,6 +734,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shado
 .portal-area small { color: #6b7280; font-size: .62rem; font-weight: 700; text-transform: uppercase; }
 .portal-sidebar nav { padding: 0 16px 18px; display: grid; gap: 2px; overflow-y: auto; }
 .portal-sidebar nav button { min-height: 42px; padding: 0 12px; display: flex; align-items: center; gap: 11px; border: 0; border-radius: 8px; color: #1f2937; background: transparent; text-align: left; font-size: .89rem; font-weight: 620; cursor: pointer; }
+.portal-nav-label { min-width: 0; flex: 1; }
+.portal-nav-badge { min-width: 21px; height: 21px; padding-inline: 6px; display: inline-grid; place-items: center; color: white; background: #e11d48; border-radius: 999px; font-size: .62rem; font-weight: 900; line-height: 1; }
 .portal-sidebar nav button svg { flex: 0 0 auto; color: #6b7280; stroke-width: 2; }
 .portal-sidebar nav button:hover { color: #111827; background: #f4f4f5; }
 .portal-sidebar nav button:hover svg { color: #374151; }

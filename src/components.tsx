@@ -171,10 +171,11 @@ interface PortalShellProps extends PropsWithChildren {
   workspaceName?: string;
   actions?: ReactNode;
   notificationCount?: number;
+  navBadges?: Record<string, number>;
   onNotifications?: () => void;
 }
 
-export function PortalShell({ user, area, active, onActive, onSignOut, workspaceName, children, actions, notificationCount = 0, onNotifications }: PortalShellProps) {
+export function PortalShell({ user, area, active, onActive, onSignOut, workspaceName, children, actions, notificationCount = 0, navBadges = {}, onNotifications }: PortalShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const careItems: Array<[string, string, LucideIcon]> = [
     ["overview", "Dashboard", Gauge],
@@ -205,9 +206,10 @@ export function PortalShell({ user, area, active, onActive, onSignOut, workspace
         <Brand compact />
         <div className="portal-area"><ShieldCheck size={17} /><span><strong>{area === "care" ? workspaceName || "Care workspace" : "Secure administration"}</strong>{area === "care" && workspaceName && <small>Care workspace</small>}</span></div>
         <nav aria-label="Portal navigation">
-          {items.map(([key, label, Icon]) => (
-            <button key={key} className={active === key ? "active" : ""} onClick={() => onActive(key)}><Icon size={17} />{label}</button>
-          ))}
+          {items.map(([key, label, Icon]) => {
+            const badge = navBadges[key] || 0;
+            return <button key={key} className={active === key ? "active" : ""} onClick={() => onActive(key)}><Icon size={17} /><span className="portal-nav-label">{label}</span>{badge > 0 && <span className="portal-nav-badge">{Math.min(badge, 99)}</span>}</button>;
+          })}
         </nav>
         <div className="sidebar-user">
           <span className="avatar">{user.fullName.split(" ").map((part) => part[0]).slice(0, 2).join("")}</span>
@@ -222,7 +224,10 @@ export function PortalShell({ user, area, active, onActive, onSignOut, workspace
           <div className="topbar-actions">{actions}<button className="icon-button notification-button" aria-label="Notifications" onClick={onNotifications}>{notificationCount > 0 && <span>{Math.min(notificationCount, 99)}</span>}<Bell size={19} /></button></div>
         </header>
         {mobileNavOpen && <nav className="portal-mobile-nav mobile-only" aria-label="Mobile portal navigation">
-          {items.map(([key, label, Icon]) => <button key={key} className={active === key ? "active" : ""} onClick={() => { onActive(key); setMobileNavOpen(false); }}><Icon size={16} />{label}</button>)}
+          {items.map(([key, label, Icon]) => {
+            const badge = navBadges[key] || 0;
+            return <button key={key} className={active === key ? "active" : ""} onClick={() => { onActive(key); setMobileNavOpen(false); }}><Icon size={16} /><span className="portal-nav-label">{label}</span>{badge > 0 && <span className="portal-nav-badge">{Math.min(badge, 99)}</span>}</button>;
+          })}
         </nav>}
         <div className="portal-content">{children}</div>
       </main>

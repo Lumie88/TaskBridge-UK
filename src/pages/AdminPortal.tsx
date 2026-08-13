@@ -419,7 +419,7 @@ export function AdminPortal({ user, onSignOut }: { user: User; onSignOut: () => 
     setActive(view);
   }
 
-  return <PortalShell user={user} area="admin" active={active} onActive={changeActive} onSignOut={onSignOut}>
+  return <PortalShell user={user} area="admin" active={active} onActive={changeActive} onSignOut={onSignOut} navBadges={{ "demo-requests": dashboard?.demoRequests || 0 }}>
     {error && <div className="alert alert-danger">{error}<button onClick={load}><RefreshCw size={16} /> Retry</button></div>}
     {loading && !dashboard ? <div className="app-loading"><LoaderCircle className="spin" /> Loading secure operations...</div> : active === "overview"
       ? <AdminOverview dashboard={dashboard} tasks={tasks} onOpenView={openOperationalView} onReview={(task) => { setSelectedTask(task); setTaskFilter("awaiting"); setActive("tasks"); }} />
