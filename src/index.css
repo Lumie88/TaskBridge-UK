@@ -1959,6 +1959,14 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 .rota-planner-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
 .rota-input-list { display: grid; gap: 12px; }
 .rota-input-list article { padding: 14px; display: grid; gap: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
+.rota-added-carers-panel { align-self: start; position: sticky; top: 86px; }
+.rota-added-carers-list { display: grid; gap: 10px; }
+.rota-added-carers-list article { padding: 13px; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: start; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
+.rota-added-carers-list article > span { width: 34px; height: 34px; display: grid; place-items: center; color: #0d6370; background: #e4f4f0; border-radius: 8px; }
+.rota-added-carers-list strong { display: block; color: #0f172a; font-size: .84rem; }
+.rota-added-carers-list small { display: block; margin-top: 3px; color: #64748b; font-size: .68rem; line-height: 1.4; }
+.rota-added-carers-list p { margin: 7px 0 0; color: #334155; font-size: .72rem; line-height: 1.45; }
+.rota-added-carers-list em { width: fit-content; margin-top: 8px; padding: 3px 8px; display: inline-block; color: #2563eb; background: #eff6ff; border-radius: 999px; font-size: .64rem; font-style: normal; font-weight: 900; }
 .rota-carer-records { grid-column: 1 / -1; }
 .rota-carer-directory { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .rota-carer-directory article { padding: 14px; display: grid; gap: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }

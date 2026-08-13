@@ -1210,6 +1210,21 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
               <label>Skills<input value={caregiver.skills} onChange={(event) => updateCaregiver(index, "skills", event.target.value)} placeholder="personal care, medication" /></label>
             </article>)}</div>
           </section>}
+          {activeRotaPage === "carers" && <aside className="panel rota-added-carers-panel">
+            <div className="panel-heading"><div><h2>Added carers</h2><p>{caregivers.length} carer{caregivers.length === 1 ? "" : "s"} ready for rota planning.</p></div></div>
+            <div className="rota-added-carers-list">{caregivers.map((caregiver, index) => {
+              const visits = carerPublishedViews[index]?.visits || [];
+              return <article key={`${caregiver.name}-${index}`}>
+                <span><UsersRound size={16} /></span>
+                <div>
+                  <strong>{caregiver.name || `Carer ${index + 1}`}</strong>
+                  <small>{caregiver.availableFrom}-{caregiver.availableTo} / {caregiver.startPostcode || branchPostcode || "No postcode"}</small>
+                  <p>{caregiver.skills || "No skills added yet"}</p>
+                  <em>{visits.length} planned call{visits.length === 1 ? "" : "s"}</em>
+                </div>
+              </article>;
+            })}</div>
+          </aside>}
           {activeRotaPage === "carers" && <section className="panel rota-carer-records">
             <div className="panel-heading"><div><h2>Carer call records</h2><p>See today&apos;s calls, previous call context and notes by carer.</p></div></div>
             <div className="rota-carer-directory">{carerPublishedViews.map(({ caregiver, visits }) => <article key={caregiver.name}>
