@@ -834,6 +834,8 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
   const [activeRotaLayer, setActiveRotaLayer] = useState("manual-board");
   const [manualAssignments, setManualAssignments] = useState<Record<string, string>>({});
   const [caregivers, setCaregivers] = useState([{ name: "Morning carer", startPostcode: serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "14:00", skills: "personal care, medication" }]);
+  const [draftCaregiver, setDraftCaregiver] = useState({ name: "", startPostcode: serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "18:00", skills: "" });
+  const [editingCaregiverIndex, setEditingCaregiverIndex] = useState<number | null>(null);
   const [calls, setCalls] = useState([
     { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "11:00", durationMinutes: 30, priority: "medium", requiredSkill: "personal care", carersRequired: 1 }
   ]);
@@ -875,6 +877,48 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
 
   function updateCaregiver(index: number, key: keyof typeof caregivers[number], value: string) {
     setCaregivers((current) => current.map((caregiver, itemIndex) => itemIndex === index ? { ...caregiver, [key]: value } : caregiver));
+  }
+
+  function updateDraftCaregiver(key: keyof typeof draftCaregiver, value: string) {
+    setDraftCaregiver((current) => ({ ...current, [key]: value }));
+  }
+
+  function resetDraftCaregiver() {
+    setDraftCaregiver({ name: "", startPostcode: branchPostcode || serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "18:00", skills: "" });
+    setEditingCaregiverIndex(null);
+  }
+
+  function saveDraftCaregiver() {
+    const caregiver = {
+      ...draftCaregiver,
+      name: draftCaregiver.name.trim() || `Carer ${editingCaregiverIndex === null ? caregivers.length + 1 : editingCaregiverIndex + 1}`,
+      startPostcode: draftCaregiver.startPostcode.trim().toUpperCase()
+    };
+    if (editingCaregiverIndex === null) {
+      setCaregivers((current) => [...current, caregiver]);
+    } else {
+      setCaregivers((current) => current.map((item, index) => index === editingCaregiverIndex ? caregiver : item));
+    }
+    resetDraftCaregiver();
+  }
+
+  function editCaregiver(index: number) {
+    setDraftCaregiver(caregivers[index]);
+    setEditingCaregiverIndex(index);
+    document.getElementById("rota-caregivers")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function deleteCaregiver(index: number) {
+    setCaregivers((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setManualAssignments((current) => Object.fromEntries(Object.entries(current).flatMap(([slotKey, callId]) => {
+      const [caregiverIndexValue, timeSlot] = slotKey.split("-");
+      const caregiverIndex = Number(caregiverIndexValue);
+      if (caregiverIndex === index) return [];
+      const nextIndex = caregiverIndex > index ? caregiverIndex - 1 : caregiverIndex;
+      return [[`${nextIndex}-${timeSlot}`, callId]];
+    })));
+    if (editingCaregiverIndex === index) resetDraftCaregiver();
+    else if (editingCaregiverIndex !== null && editingCaregiverIndex > index) setEditingCaregiverIndex(editingCaregiverIndex - 1);
   }
 
   function updateCall(index: number, key: keyof typeof calls[number], value: string | number) {
@@ -1202,13 +1246,17 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
         </section>}
         <div className="rota-planner-grid">
           {activeRotaPage === "carers" && <section className="panel" id="rota-caregivers">
-            <div className="panel-heading"><div><h2>Caregivers</h2><p>Add the carers available for this planning run.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setCaregivers((current) => [...current, { name: `Carer ${current.length + 1}`, startPostcode: branchPostcode, availableFrom: "08:00", availableTo: "18:00", skills: "" }])}><Plus size={15} /> Add</button></div>
-            <div className="rota-input-list">{caregivers.map((caregiver, index) => <article key={index}>
-              <label>Name<input value={caregiver.name} onChange={(event) => updateCaregiver(index, "name", event.target.value)} /></label>
-              <label>Start postcode<input value={caregiver.startPostcode} onChange={(event) => updateCaregiver(index, "startPostcode", event.target.value.toUpperCase())} /></label>
-              <div className="field-row"><label>From<input type="time" value={caregiver.availableFrom} onChange={(event) => updateCaregiver(index, "availableFrom", event.target.value)} /></label><label>To<input type="time" value={caregiver.availableTo} onChange={(event) => updateCaregiver(index, "availableTo", event.target.value)} /></label></div>
-              <label>Skills<input value={caregiver.skills} onChange={(event) => updateCaregiver(index, "skills", event.target.value)} placeholder="personal care, medication" /></label>
-            </article>)}</div>
+            <div className="panel-heading"><div><h2>{editingCaregiverIndex === null ? "Add carer" : "Edit carer"}</h2><p>Use one entry point, then manage carers from the list on the right.</p></div></div>
+            <div className="rota-single-carer-form">
+              <label>Name<input value={draftCaregiver.name} onChange={(event) => updateDraftCaregiver("name", event.target.value)} placeholder="Carer name" /></label>
+              <label>Start postcode<input value={draftCaregiver.startPostcode} onChange={(event) => updateDraftCaregiver("startPostcode", event.target.value.toUpperCase())} placeholder="PE2 6XU" /></label>
+              <div className="field-row"><label>From<input type="time" value={draftCaregiver.availableFrom} onChange={(event) => updateDraftCaregiver("availableFrom", event.target.value)} /></label><label>To<input type="time" value={draftCaregiver.availableTo} onChange={(event) => updateDraftCaregiver("availableTo", event.target.value)} /></label></div>
+              <label>Skills<input value={draftCaregiver.skills} onChange={(event) => updateDraftCaregiver("skills", event.target.value)} placeholder="personal care, medication" /></label>
+              <div className="rota-form-actions">
+                <button className="button button-primary" type="button" onClick={saveDraftCaregiver}><Plus size={15} /> {editingCaregiverIndex === null ? "Add carer" : "Update carer"}</button>
+                {editingCaregiverIndex !== null && <button className="button button-secondary" type="button" onClick={resetDraftCaregiver}>Cancel edit</button>}
+              </div>
+            </div>
           </section>}
           {activeRotaPage === "carers" && <aside className="panel rota-added-carers-panel">
             <div className="panel-heading"><div><h2>Added carers</h2><p>{caregivers.length} carer{caregivers.length === 1 ? "" : "s"} ready for rota planning.</p></div></div>
@@ -1221,6 +1269,10 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
                   <small>{caregiver.availableFrom}-{caregiver.availableTo} / {caregiver.startPostcode || branchPostcode || "No postcode"}</small>
                   <p>{caregiver.skills || "No skills added yet"}</p>
                   <em>{visits.length} planned call{visits.length === 1 ? "" : "s"}</em>
+                  <div className="rota-carer-actions">
+                    <button type="button" onClick={() => editCaregiver(index)}><Pencil size={13} /> Edit</button>
+                    <button type="button" onClick={() => deleteCaregiver(index)}><Trash2 size={13} /> Delete</button>
+                  </div>
                 </div>
               </article>;
             })}</div>
