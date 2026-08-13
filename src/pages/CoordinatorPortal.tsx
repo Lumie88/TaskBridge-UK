@@ -776,7 +776,7 @@ function CareOsIntelligenceDashboard() {
   if (!dashboard?.enabled) return <section className="panel analytics-locked">
     <span><Sparkles size={30} /></span>
     <h1>CareOS Intelligence is locked for this agency</h1>
-    <p>This AI-supported care coordination and deterioration review layer can be unlocked by a TaskBridge super admin from Care agency onboarding settings.</p>
+    <p>This AI-supported care coordination and deterioration review layer must be unlocked by TaskBridge. Please contact TaskBridge Admin for support.</p>
   </section>;
 
   const signals = dashboard.signals || [];
