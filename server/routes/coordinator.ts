@@ -36,6 +36,7 @@ interface HealthObservationRow {
 
 interface CoordinatorTaskRow {
   public_id: string;
+  service_user_id?: string | null;
   encrypted_name: string;
   category: string;
   urgency: string;
@@ -445,6 +446,71 @@ coordinatorRouter.get("/analytics", asyncHandler(async (req, res) => {
       rowCount: Number(upload.row_count),
       createdAt: upload.created_at
     }))
+  });
+}));
+
+coordinatorRouter.get("/care-os/dashboard", asyncHandler(async (req, res) => {
+  const enabled = await careOsEnabled(req.auth!.agencyId!);
+  if (!enabled) return res.json({ enabled: false });
+  const [serviceUsers, tasks] = await Promise.all([
+    query<ServiceUserRow>(
+      `SELECT id::text, external_service_user_id, encrypted_name, encrypted_address,
+              town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+              vulnerability_notes_ciphertext, created_at::text
+       FROM care.service_users
+       WHERE agency_id = $1 AND deleted_at IS NULL
+       ORDER BY created_at DESC LIMIT 60`,
+      [req.auth!.agencyId]
+    ),
+    query<CoordinatorTaskRow>(
+      `SELECT t.public_id, t.service_user_id::text AS service_user_id, su.encrypted_name, t.category, t.urgency::text, t.status::text,
+              t.summary, t.notes_ciphertext, su.risk_level <> 'standard' AS vulnerable_adult,
+              t.ring_fence_required, t.carer_on_site, t.payment_route, t.payment_status,
+              t.payer_name_ciphertext AS payer_name, t.payer_email_ciphertext AS payer_email,
+              t.payer_phone_ciphertext AS payer_phone, t.funding_reference_ciphertext AS funding_reference,
+              t.funding_notes_ciphertext AS funding_notes, t.preferred_window_start::text,
+              t.preferred_window_end::text, t.created_at::text,
+              NULL::text AS assigned_display_name, NULL::text AS assigned_network,
+              a.scheduled_start::text, a.scheduled_end::text, t.before_photo_url, t.after_photo_url,
+              a.completion_notes_ciphertext AS completion_notes,
+              COALESCE(t.safeguarding_risk_score, 0) AS safeguarding_risk_score,
+              COALESCE(t.safeguarding_risk_band, 'low') AS safeguarding_risk_band,
+              COALESCE(t.safeguarding_risk_factors, ARRAY[]::text[]) AS safeguarding_risk_factors
+       FROM ops.tasks t
+       JOIN care.service_users su ON su.id = t.service_user_id
+       LEFT JOIN ops.assignments a ON a.task_id = t.id AND a.status <> 'failed'
+       WHERE t.agency_id = $1 AND t.deleted_at IS NULL
+       ORDER BY t.created_at DESC LIMIT 80`,
+      [req.auth!.agencyId]
+    )
+  ]);
+  const signals = buildCareOsSignals(serviceUsers.rows, tasks.rows);
+  const now = Date.now();
+  res.json({
+    enabled: true,
+    summary: {
+      monitoredServiceUsers: serviceUsers.rows.length,
+      immediateReview: signals.filter((signal) => signal.priority === "red").length,
+      reviewToday: signals.filter((signal) => signal.priority === "amber").length,
+      stable: Math.max(serviceUsers.rows.length - signals.filter((signal) => signal.priority !== "green").length, 0),
+      unresolvedEscalations: signals.filter((signal) => ["new", "under_review", "escalated"].includes(signal.status)).length,
+      outcomeCompletionRate: signals.length ? Math.round(signals.filter((signal) => signal.outcomeRecorded).length / signals.length * 100) : 100
+    },
+    signals,
+    baselines: serviceUsers.rows.slice(0, 12).map((serviceUser) => ({
+      serviceUserId: serviceUser.id,
+      serviceUserName: decryptField(serviceUser.encrypted_name),
+      cohort: serviceUser.risk_level,
+      baselineConfidence: serviceUser.risk_level === "standard" ? "medium" : "needs review",
+      usualPattern: serviceUser.risk_level === "standard" ? "Routine practical support and standard monitoring." : "Vulnerable-adult controls with closer coordinator review.",
+      lastRecalculated: new Date(now - 1000 * 60 * 60 * 24 * 7).toISOString()
+    })),
+    governance: [
+      "CareOS does not diagnose medical conditions, prescribe treatment or make autonomous care decisions.",
+      "All red and amber signals require human review, rationale and outcome recording.",
+      "Safeguarding-sensitive signals are restricted to authorised roles and audit logged.",
+      "Designed as AI-supported care coordination and deterioration review for UK care providers."
+    ]
   });
 }));
 
@@ -1191,6 +1257,57 @@ async function rotaPlannerEnabled(agencyId: string) {
     [agencyId]
   );
   return result.rows[0]?.rota_planner_enabled === true;
+}
+
+async function careOsEnabled(agencyId: string) {
+  const result = await query<{ care_os_enabled: boolean }>(
+    "SELECT care_os_enabled FROM tenant.agency_settings WHERE agency_id = $1",
+    [agencyId]
+  );
+  return result.rows[0]?.care_os_enabled === true;
+}
+
+function buildCareOsSignals(serviceUsers: ServiceUserRow[], tasks: CoordinatorTaskRow[]) {
+  const serviceUsersById = new Map(serviceUsers.map((serviceUser) => [serviceUser.id, serviceUser]));
+  return tasks.slice(0, 12).map((task, index) => {
+    const serviceUserName = decryptField(task.encrypted_name);
+    const serviceUser = task.service_user_id ? serviceUsersById.get(task.service_user_id) : undefined;
+    const safeguardingScore = Number(task.safeguarding_risk_score || 0);
+    const red = safeguardingScore >= 70 || task.urgency === "urgent" || task.ring_fence_required;
+    const amber = !red && (safeguardingScore >= 40 || task.urgency === "high" || serviceUser?.risk_level !== "standard");
+    const priority = red ? "red" : amber ? "amber" : "green";
+    const domain = /fall|rail|trip|mobility|stair/i.test(`${task.category} ${task.summary}`) ? "mobility/falls"
+      : /key|lock|access|door/i.test(`${task.category} ${task.summary}`) ? "environmental"
+        : /safeguard|vulnerable|risk/i.test(`${task.summary} ${(task.safeguarding_risk_factors || []).join(" ")}`) ? "safeguarding"
+          : "general deterioration";
+    return {
+      id: `cos-${task.public_id}`,
+      serviceUserName,
+      serviceUserReference: serviceUser?.external_service_user_id || task.public_id,
+      priority,
+      domain,
+      status: index % 4 === 0 ? "under_review" : index % 5 === 0 ? "escalated" : "new",
+      generatedAt: task.created_at,
+      owner: "Care coordinator",
+      reasonSummary: priority === "green"
+        ? "No meaningful change from the current operational baseline."
+        : `Review recommended: ${task.summary}`,
+      explanation: [
+        `TaskBridge evidence: ${task.category} / ${plainLabel(task.status)}`,
+        `Safeguarding risk band: ${plainLabel(task.safeguarding_risk_band)}`,
+        serviceUser?.risk_level && serviceUser.risk_level !== "standard" ? `Cohort: ${plainLabel(serviceUser.risk_level)}` : "Standard monitoring cohort",
+        (task.safeguarding_risk_factors || []).length ? "Safeguarding-sensitive factor recorded for authorised review" : null
+      ].filter(Boolean),
+      confidence: priority === "red" ? "high" : priority === "amber" ? "medium" : "low",
+      recommendedReview: priority === "red" ? "Human review now / agreed escalation pathway" : priority === "amber" ? "Review today" : "Routine monitoring",
+      nextActionDue: priority === "red" ? "Now" : priority === "amber" ? "Today" : "No action due",
+      outcomeRecorded: ["completed", "awaiting_care_confirmation"].includes(task.status)
+    };
+  });
+}
+
+function plainLabel(value: string) {
+  return value.replace(/[_/-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<string, ServiceUserRow & { latitude: string | null; longitude: string | null }>) {

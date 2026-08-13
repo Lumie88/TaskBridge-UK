@@ -4,6 +4,7 @@ import {
   BarChart3,
   Bell,
   BriefcaseBusiness,
+  BrainCircuit,
   Calendar,
   CalendarDays,
   ChevronRight,
@@ -181,6 +182,7 @@ export function PortalShell({ user, area, active, onActive, onSignOut, workspace
     ["tasks", "Status board", ClipboardList],
     ["service-users", "Service users", Users],
     ["analytics", "Care analytics", BarChart3],
+    ["care-os", "CareOS Intelligence", BrainCircuit],
     ["rota-planner", "Rota planner", CalendarDays],
     ["billing", "Invoices", ReceiptText],
     ["notifications", "Notifications", Bell]

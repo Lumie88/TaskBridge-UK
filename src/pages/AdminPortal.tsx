@@ -144,6 +144,7 @@ interface Agency {
     taskbridgeAssignmentRequiresAdminReview: boolean;
     healthAnalyticsEnabled: boolean;
     rotaPlannerEnabled: boolean;
+    careOsEnabled: boolean;
     defaultVisitRadiusMiles: number;
     goLiveStatus: string;
     monthlyCap: number;
@@ -1252,6 +1253,7 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
     const goLiveStatus = String(values.get("goLiveStatus") || current?.goLiveStatus || "pilot_setup");
     const healthAnalyticsEnabled = values.get("healthAnalytics") === "unlocked";
     const rotaPlannerEnabled = values.get("rotaPlanner") === "unlocked";
+    const careOsEnabled = values.get("careOs") === "unlocked";
     setSettingsBusy(agency.id); setError("");
     try {
       await api(`/api/admin/agencies/${agency.id}/settings`, { method: "PATCH", body: JSON.stringify({
@@ -1261,6 +1263,7 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
         taskbridgeAssignmentRequiresAdminReview: current?.taskbridgeAssignmentRequiresAdminReview ?? true,
         healthAnalyticsEnabled,
         rotaPlannerEnabled,
+        careOsEnabled,
         defaultVisitRadiusMiles: current?.defaultVisitRadiusMiles ?? 15,
         goLiveStatus,
         monthlyCap
@@ -1327,6 +1330,7 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
         <label>Go-live status<select name="goLiveStatus" defaultValue={current?.goLiveStatus || "pilot_setup"}>{AGENCY_GO_LIVE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label>Free care analytics access<select name="healthAnalytics" defaultValue={current?.healthAnalyticsEnabled ? "unlocked" : "locked"}>{ACCESS_STATE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label>Premium AI rota planner access<select name="rotaPlanner" defaultValue={current?.rotaPlannerEnabled ? "unlocked" : "locked"}>{ACCESS_STATE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label>CareOS Intelligence access<select name="careOs" defaultValue={current?.careOsEnabled ? "unlocked" : "locked"}>{ACCESS_STATE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       </div>
       <div className="agency-integration-actions"><button className="button button-primary button-small" disabled={settingsBusy === agency.id} type="submit">{settingsBusy === agency.id ? "Saving..." : "Save settings"}</button></div>
     </form>;

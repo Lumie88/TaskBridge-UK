@@ -101,6 +101,43 @@ interface AnalyticsDashboard {
   }>;
 }
 
+interface CareOsDashboard {
+  enabled: boolean;
+  summary?: {
+    monitoredServiceUsers: number;
+    immediateReview: number;
+    reviewToday: number;
+    stable: number;
+    unresolvedEscalations: number;
+    outcomeCompletionRate: number;
+  };
+  signals?: Array<{
+    id: string;
+    serviceUserName: string;
+    serviceUserReference: string;
+    priority: "green" | "amber" | "red";
+    domain: string;
+    status: string;
+    generatedAt: string;
+    owner: string;
+    reasonSummary: string;
+    explanation: string[];
+    confidence: string;
+    recommendedReview: string;
+    nextActionDue: string;
+    outcomeRecorded: boolean;
+  }>;
+  baselines?: Array<{
+    serviceUserId: string;
+    serviceUserName: string;
+    cohort: string;
+    baselineConfidence: string;
+    usualPattern: string;
+    lastRecalculated: string;
+  }>;
+  governance?: string[];
+}
+
 interface AgencyInvoiceDashboard {
   pending: { count: number; totalAmount: number };
   summary: { totalCharges: number; invoicedAmount: number; disputedAmount: number; familyOrFundedAmount: number };
@@ -141,7 +178,7 @@ interface AgencyInvoiceDashboard {
 type AnalyticsFilter = "all" | "deteriorating" | "improving" | "observations";
 
 type TaskFilter = "all" | "open" | "pending" | "assigned" | "confirmation" | "completed";
-type CoordinatorSection = "overview" | "new-task" | "tasks" | "service-users" | "analytics" | "rota-planner" | "billing" | "notifications";
+type CoordinatorSection = "overview" | "new-task" | "tasks" | "service-users" | "analytics" | "care-os" | "rota-planner" | "billing" | "notifications";
 
 const taskFilterLabels: Record<TaskFilter, string> = {
   all: "All tasks",
@@ -159,7 +196,7 @@ const analyticsFilterLabels: Record<AnalyticsFilter, string> = {
   observations: "All health observations"
 };
 
-const coordinatorSections: CoordinatorSection[] = ["overview", "new-task", "tasks", "service-users", "analytics", "rota-planner", "billing", "notifications"];
+const coordinatorSections: CoordinatorSection[] = ["overview", "new-task", "tasks", "service-users", "analytics", "care-os", "rota-planner", "billing", "notifications"];
 
 function initialTaskFilter(): TaskFilter {
   const value = new URLSearchParams(window.location.search).get("taskFilter");
@@ -226,7 +263,7 @@ export function CoordinatorPortal({ user, onSignOut }: { user: User; onSignOut: 
         return;
       }
       if (isTyping || event.ctrlKey || event.metaKey || event.altKey) return;
-      const destinations: Record<string, string> = { d: "overview", c: "new-task", s: "tasks", r: "rota-planner", n: "notifications" };
+      const destinations: Record<string, string> = { d: "overview", c: "new-task", s: "tasks", i: "care-os", r: "rota-planner", n: "notifications" };
       const destination = destinations[event.key.toLowerCase()];
       if (destination) openSection(destination);
     }
@@ -288,13 +325,15 @@ export function CoordinatorPortal({ user, onSignOut }: { user: User; onSignOut: 
             ? <ServiceUserDirectory serviceUsers={serviceUsers} onChanged={load} />
             : active === "analytics"
               ? <CareAnalyticsDashboard serviceUsers={serviceUsers} />
-              : active === "rota-planner"
-                ? <RotaPlannerDashboard serviceUsers={serviceUsers} />
-                : active === "billing"
-                  ? <AgencyInvoices />
-                  : active === "notifications"
-                    ? <NotificationsHub notifications={notifications} onOpen={openNotification} />
-                    : <StatusBoard tasks={tasks} filter={taskFilter} onFilter={openTaskFilter} onOpenTask={openTask} />}
+              : active === "care-os"
+                ? <CareOsIntelligenceDashboard />
+                : active === "rota-planner"
+                  ? <RotaPlannerDashboard serviceUsers={serviceUsers} />
+                  : active === "billing"
+                    ? <AgencyInvoices />
+                    : active === "notifications"
+                      ? <NotificationsHub notifications={notifications} onOpen={openNotification} />
+                      : <StatusBoard tasks={tasks} filter={taskFilter} onFilter={openTaskFilter} onOpenTask={openTask} />}
       {notificationDrawerOpen && <NotificationDrawer notifications={notifications} onClose={() => setNotificationDrawerOpen(false)} onOpen={openNotification} onViewAll={() => openSection("notifications")} />}
       {selectedTask && <TaskDetailsDrawer task={selectedTask} detail={taskDetail} loading={detailLoading} onClose={() => { setSelectedTask(null); setTaskDetail(null); }} onChanged={async () => { setSelectedTask(null); setTaskDetail(null); await load(); }} />}
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} onChoose={openSection} />}
@@ -709,6 +748,78 @@ interface RotaPlan {
   unassigned: Array<{ serviceUserName: string; reference: string; reason: string }>;
   recommendations: string[];
   method: string;
+}
+
+function CareOsIntelligenceDashboard() {
+  const [dashboard, setDashboard] = useState<CareOsDashboard | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [layer, setLayer] = useState("signals");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [domainFilter, setDomainFilter] = useState("all");
+  const [timeFilter, setTimeFilter] = useState("48h");
+
+  async function loadCareOs() {
+    setLoading(true); setError("");
+    try {
+      setDashboard(await api<CareOsDashboard>("/api/coordinator/care-os/dashboard"));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to load CareOS Intelligence");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void loadCareOs(); }, []);
+
+  if (loading) return <div className="app-loading"><LoaderCircle className="spin" /> Loading CareOS Intelligence...</div>;
+  if (!dashboard?.enabled) return <section className="panel analytics-locked">
+    <span><Sparkles size={30} /></span>
+    <h1>CareOS Intelligence is locked for this agency</h1>
+    <p>This AI-supported care coordination and deterioration review layer can be unlocked by a TaskBridge super admin from Care agency onboarding settings.</p>
+  </section>;
+
+  const signals = dashboard.signals || [];
+  const domains = Array.from(new Set(signals.map((signal) => signal.domain)));
+  const filteredSignals = signals.filter((signal) => (priorityFilter === "all" || signal.priority === priorityFilter) && (domainFilter === "all" || signal.domain === domainFilter));
+  const layers = [
+    { key: "signals", label: "Signal queue", detail: `${filteredSignals.length} visible`, icon: ShieldAlert },
+    { key: "baselines", label: "Baselines", detail: `${dashboard.baselines?.length || 0} profiles`, icon: TrendingUp },
+    { key: "workflow", label: "Escalation workflow", detail: "Human review", icon: ClipboardList },
+    { key: "outcomes", label: "Actions and outcomes", detail: `${dashboard.summary?.outcomeCompletionRate || 0}% complete`, icon: CheckCircle2 },
+    { key: "governance", label: "Governance", detail: "UK care controls", icon: ShieldCheck }
+  ];
+
+  return <div className="careos-page">
+    <section className="careos-hero">
+      <div><span className="eyebrow">CareOS Intelligence</span><h1>AI-supported care coordination and deterioration review.</h1><p>CareOS sits above TaskBridge care records to highlight possible changes, explain the evidence, and keep every important signal tied to a human decision and outcome.</p></div>
+      <aside><strong>{dashboard.summary?.immediateReview || 0}</strong><span>Immediate reviews</span><small>This is not diagnosis or autonomous care decision-making.</small></aside>
+    </section>
+    {error && <div className="alert alert-danger">{error}<button onClick={loadCareOs}><RefreshCw size={16} /> Retry</button></div>}
+    <section className="careos-metrics">
+      <div><strong>{dashboard.summary?.monitoredServiceUsers || 0}</strong><span>Monitored service users</span></div>
+      <div><strong>{dashboard.summary?.reviewToday || 0}</strong><span>Review today</span></div>
+      <div><strong>{dashboard.summary?.stable || 0}</strong><span>Stable baseline</span></div>
+      <div><strong>{dashboard.summary?.unresolvedEscalations || 0}</strong><span>Open escalations</span></div>
+      <div><strong>{dashboard.summary?.outcomeCompletionRate || 0}%</strong><span>Outcome recorded</span></div>
+    </section>
+    <section className="careos-workspace">
+      <aside className="careos-layer-menu">
+        <label>CareOS layer<select value={layer} onChange={(event) => setLayer(event.target.value)}>{layers.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>
+        {layers.map((item) => {
+          const Icon = item.icon;
+          return <button key={item.key} className={layer === item.key ? "active" : ""} onClick={() => setLayer(item.key)}><Icon size={18} /><span><strong>{item.label}</strong><small>{item.detail}</small></span></button>;
+        })}
+      </aside>
+      <main className="careos-layer-content">
+        {layer === "signals" && <><div className="careos-toolbar"><label>Priority<select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}><option value="all">All priorities</option><option value="red">Red</option><option value="amber">Amber</option><option value="green">Green</option></select></label><label>Risk domain<select value={domainFilter} onChange={(event) => setDomainFilter(event.target.value)}><option value="all">All domains</option>{domains.map((domain) => <option key={domain} value={domain}>{humanize(domain)}</option>)}</select></label><label>Period<select value={timeFilter} onChange={(event) => setTimeFilter(event.target.value)}><option value="24h">Last 24 hours</option><option value="48h">Last 48 hours</option><option value="7d">Last 7 days</option><option value="pilot">Pilot period</option></select></label></div><div className="careos-signal-list">{filteredSignals.map((signal) => <article key={signal.id} className={`careos-signal careos-${signal.priority}`}><header><div><span>{signal.priority.toUpperCase()}</span><h3>{signal.serviceUserName}</h3><p>{signal.reasonSummary}</p></div><StatusBadge status={signal.status}>{humanize(signal.status)}</StatusBadge></header><dl><div><dt>Domain</dt><dd>{humanize(signal.domain)}</dd></div><div><dt>Review</dt><dd>{signal.recommendedReview}</dd></div><div><dt>Owner</dt><dd>{signal.owner}</dd></div><div><dt>Confidence</dt><dd>{humanize(signal.confidence)}</dd></div></dl><ul>{signal.explanation.map((item) => <li key={item}>{item}</li>)}</ul><footer><button className="button button-secondary button-small">Acknowledge</button><button className="button button-secondary button-small">Escalate</button><button className="button button-primary button-small">Record outcome</button></footer></article>)}</div>{!filteredSignals.length && <EmptyState icon={<ShieldCheck />} title="No signals in this view" detail="Adjust the filters or import more care observations." />}</>}
+        {layer === "baselines" && <div className="careos-card-grid">{(dashboard.baselines || []).map((baseline) => <article key={baseline.serviceUserId}><h3>{baseline.serviceUserName}</h3><p>{baseline.usualPattern}</p><dl><div><dt>Risk cohort</dt><dd>{humanize(baseline.cohort)}</dd></div><div><dt>Confidence</dt><dd>{humanize(baseline.baselineConfidence)}</dd></div><div><dt>Last recalculated</dt><dd>{formatDate(baseline.lastRecalculated)}</dd></div></dl></article>)}</div>}
+        {layer === "workflow" && <div className="careos-flow">{["Ingest note or observation", "Extract structured observations", "Compare against personal baseline", "Generate explainable signal", "Human reviewer decides action", "Record outcome and learning"].map((step, index) => <article key={step}><span>{index + 1}</span><strong>{step}</strong><small>{index < 4 ? "System support" : "Human-in-the-loop control"}</small></article>)}</div>}
+        {layer === "outcomes" && <div className="careos-card-grid">{filteredSignals.slice(0, 6).map((signal) => <article key={signal.id}><h3>{signal.serviceUserName}</h3><p>{signal.outcomeRecorded ? "Outcome recorded from TaskBridge workflow evidence." : "Outcome required before this signal can be closed."}</p><dl><div><dt>Decision</dt><dd>{signal.outcomeRecorded ? "Valid concern / action completed" : "Awaiting reviewer decision"}</dd></div><div><dt>Follow-up</dt><dd>{signal.nextActionDue}</dd></div></dl></article>)}</div>}
+        {layer === "governance" && <div className="careos-governance">{(dashboard.governance || []).map((item) => <article key={item}><ShieldCheck size={18} /><p>{item}</p></article>)}<article><FileText size={18} /><p>Evidence pack areas: DPIA, DCB0129/DCB0160 readiness, audit logs, data minimisation, access review and safeguarding escalation evidence.</p></article></div>}
+      </main>
+    </section>
+  </div>;
 }
 
 function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] }) {
@@ -1688,6 +1799,7 @@ function CommandPalette({ onClose, onChoose }: { onClose: () => void; onChoose: 
     { section: "tasks", label: "Open status board", icon: <ClipboardList size={18} /> },
     { section: "service-users", label: "Manage service users", icon: <UsersRound size={18} /> },
     { section: "analytics", label: "Open care analytics", icon: <BarChart3 size={18} /> },
+    { section: "care-os", label: "Open CareOS Intelligence", icon: <Sparkles size={18} /> },
     { section: "rota-planner", label: "Open AI rota planner", icon: <Navigation size={18} /> },
     { section: "billing", label: "Open invoices and billing", icon: <CreditCard size={18} /> },
     { section: "notifications", label: "Review notifications", icon: <BellRing size={18} /> }
