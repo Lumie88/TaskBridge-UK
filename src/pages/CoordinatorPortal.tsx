@@ -812,7 +812,7 @@ function CareOsIntelligenceDashboard() {
         })}
       </aside>
       <main className="careos-layer-content">
-        {layer === "signals" && <><div className="careos-toolbar"><label>Priority<select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}><option value="all">All priorities</option><option value="red">Red</option><option value="amber">Amber</option><option value="green">Green</option></select></label><label>Risk domain<select value={domainFilter} onChange={(event) => setDomainFilter(event.target.value)}><option value="all">All domains</option>{domains.map((domain) => <option key={domain} value={domain}>{humanize(domain)}</option>)}</select></label><label>Period<select value={timeFilter} onChange={(event) => setTimeFilter(event.target.value)}><option value="24h">Last 24 hours</option><option value="48h">Last 48 hours</option><option value="7d">Last 7 days</option><option value="pilot">Pilot period</option></select></label></div><div className="careos-signal-list">{filteredSignals.map((signal) => <article key={signal.id} className={`careos-signal careos-${signal.priority}`}><header><div><span>{signal.priority.toUpperCase()}</span><h3>{signal.serviceUserName}</h3><p>{signal.reasonSummary}</p></div><StatusBadge status={signal.status}>{humanize(signal.status)}</StatusBadge></header><dl><div><dt>Domain</dt><dd>{humanize(signal.domain)}</dd></div><div><dt>Review</dt><dd>{signal.recommendedReview}</dd></div><div><dt>Owner</dt><dd>{signal.owner}</dd></div><div><dt>Confidence</dt><dd>{humanize(signal.confidence)}</dd></div></dl><ul>{signal.explanation.map((item) => <li key={item}>{item}</li>)}</ul><footer><button className="button button-secondary button-small">Acknowledge</button><button className="button button-secondary button-small">Escalate</button><button className="button button-primary button-small">Record outcome</button></footer></article>)}</div>{!filteredSignals.length && <EmptyState icon={<ShieldCheck />} title="No signals in this view" detail="Adjust the filters or import more care observations." />}</>}
+        {layer === "signals" && <><div className="careos-toolbar"><label>Priority<select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}><option value="all">All priorities</option><option value="red">Red</option><option value="amber">Amber</option><option value="green">Green</option></select></label><label>Risk domain<select value={domainFilter} onChange={(event) => setDomainFilter(event.target.value)}><option value="all">All domains</option>{domains.map((domain) => <option key={domain} value={domain}>{humanize(domain)}</option>)}</select></label><label>Period<select value={timeFilter} onChange={(event) => setTimeFilter(event.target.value)}><option value="24h">Last 24 hours</option><option value="48h">Last 48 hours</option><option value="7d">Last 7 days</option><option value="all">Full period</option></select></label></div><div className="careos-signal-list">{filteredSignals.map((signal) => <article key={signal.id} className={`careos-signal careos-${signal.priority}`}><header><div><span>{signal.priority.toUpperCase()}</span><h3>{signal.serviceUserName}</h3><p>{signal.reasonSummary}</p></div><StatusBadge status={signal.status}>{humanize(signal.status)}</StatusBadge></header><dl><div><dt>Domain</dt><dd>{humanize(signal.domain)}</dd></div><div><dt>Review</dt><dd>{signal.recommendedReview}</dd></div><div><dt>Owner</dt><dd>{signal.owner}</dd></div><div><dt>Confidence</dt><dd>{humanize(signal.confidence)}</dd></div></dl><ul>{signal.explanation.map((item) => <li key={item}>{item}</li>)}</ul><footer><button className="button button-secondary button-small">Acknowledge</button><button className="button button-secondary button-small">Escalate</button><button className="button button-primary button-small">Record outcome</button></footer></article>)}</div>{!filteredSignals.length && <EmptyState icon={<ShieldCheck />} title="No signals in this view" detail="Adjust the filters or import more care observations." />}</>}
         {layer === "baselines" && <div className="careos-card-grid">{(dashboard.baselines || []).map((baseline) => <article key={baseline.serviceUserId}><h3>{baseline.serviceUserName}</h3><p>{baseline.usualPattern}</p><dl><div><dt>Risk cohort</dt><dd>{humanize(baseline.cohort)}</dd></div><div><dt>Confidence</dt><dd>{humanize(baseline.baselineConfidence)}</dd></div><div><dt>Last recalculated</dt><dd>{formatDate(baseline.lastRecalculated)}</dd></div></dl></article>)}</div>}
         {layer === "workflow" && <div className="careos-flow">{["Ingest note or observation", "Extract structured observations", "Compare against personal baseline", "Generate explainable signal", "Human reviewer decides action", "Record outcome and learning"].map((step, index) => <article key={step}><span>{index + 1}</span><strong>{step}</strong><small>{index < 4 ? "System support" : "Human-in-the-loop control"}</small></article>)}</div>}
         {layer === "outcomes" && <div className="careos-card-grid">{filteredSignals.slice(0, 6).map((signal) => <article key={signal.id}><h3>{signal.serviceUserName}</h3><p>{signal.outcomeRecorded ? "Outcome recorded from TaskBridge workflow evidence." : "Outcome required before this signal can be closed."}</p><dl><div><dt>Decision</dt><dd>{signal.outcomeRecorded ? "Valid concern / action completed" : "Awaiting reviewer decision"}</dd></div><div><dt>Follow-up</dt><dd>{signal.nextActionDue}</dd></div></dl></article>)}</div>}
@@ -830,6 +830,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
   const [rosterView, setRosterView] = useState("day");
   const [rosterFilter, setRosterFilter] = useState("all");
   const [activeRotaStep, setActiveRotaStep] = useState("caregivers");
+  const [activeRotaLayer, setActiveRotaLayer] = useState("live-board");
   const [caregivers, setCaregivers] = useState([{ name: "Morning carer", startPostcode: serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "14:00", skills: "personal care, medication" }]);
   const [calls, setCalls] = useState([
     { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "11:00", durationMinutes: 30, priority: "medium", requiredSkill: "personal care" }
@@ -926,6 +927,25 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
       calls: [] as RotaPlan["schedules"][number]["calls"]
     }));
   const conflictCount = plan ? plan.summary.riskWarnings + plan.summary.unassignedCalls : 0;
+  const selectedCalls = calls.filter((call) => call.serviceUserId);
+  const totalDraftMinutes = selectedCalls.reduce((total, call) => total + Number(call.durationMinutes || 0), 0);
+  const capacityMinutes = caregivers.reduce((total, caregiver) => total + Math.max(minutesFromTimeValue(caregiver.availableTo) - minutesFromTimeValue(caregiver.availableFrom), 0), 0);
+  const capacityPercent = capacityMinutes ? Math.min(100, Math.round((totalDraftMinutes / capacityMinutes) * 100)) : 0;
+  const highPriorityDraftCalls = selectedCalls.filter((call) => call.priority === "high").length;
+  const continuityCoverage = selectedCalls.length ? Math.round((continuity.length / selectedCalls.length) * 100) : 0;
+  const activeRotaLayerLabel = activeRotaLayer === "live-board" ? "Live board"
+    : activeRotaLayer === "capacity" ? "Capacity"
+      : activeRotaLayer === "continuity" ? "Continuity"
+        : activeRotaLayer === "conflicts" ? "Conflicts"
+          : activeRotaLayer === "approvals" ? "Approvals" : "Evidence";
+  const rotaLayers = [
+    { key: "live-board", label: "Live board", detail: `${boardSchedules.length} carer runs`, icon: LayoutDashboard },
+    { key: "capacity", label: "Capacity", detail: `${capacityPercent}% draft use`, icon: Activity },
+    { key: "continuity", label: "Continuity", detail: `${continuity.length} preferences`, icon: UserRoundCheck },
+    { key: "conflicts", label: "Conflicts", detail: `${conflictCount} to review`, icon: ShieldAlert },
+    { key: "approvals", label: "Approvals", detail: plan ? "Plan ready" : "Generate first", icon: CheckCircle2 },
+    { key: "evidence", label: "Evidence", detail: "Audit pack", icon: FileText }
+  ];
   const rosterTimeLabels = rosterView === "week"
     ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Weekend"]
     : rosterView === "runs"
@@ -955,6 +975,49 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
       </aside>
     </section>
     {error && !locked && <div className="alert alert-danger">{error}</div>}
+    <section className="rota-command-centre" aria-label="Rota planner internal menu">
+      <aside className="rota-internal-menu">
+        <label>Planner layer<select value={activeRotaLayer} onChange={(event) => setActiveRotaLayer(event.target.value)}>{rotaLayers.map((layer) => <option key={layer.key} value={layer.key}>{layer.label}</option>)}</select></label>
+        {rotaLayers.map((layer) => {
+          const Icon = layer.icon;
+          return <button key={layer.key} type="button" className={activeRotaLayer === layer.key ? "active" : ""} onClick={() => setActiveRotaLayer(layer.key)}><Icon size={18} /><span><strong>{layer.label}</strong><small>{layer.detail}</small></span></button>;
+        })}
+      </aside>
+      <main className="rota-layer-stage">
+        <div className="rota-layer-heading">
+          <div><span className="eyebrow">{activeRotaLayerLabel}</span><h2>{activeRotaLayer === "live-board" ? "Operational rota control" : activeRotaLayer === "capacity" ? "Capacity and travel planning" : activeRotaLayer === "continuity" ? "Continuity of care" : activeRotaLayer === "conflicts" ? "Risk and conflict review" : activeRotaLayer === "approvals" ? "Approval workflow" : "CQC-ready rota evidence"}</h2></div>
+          <button type="submit" className="button button-primary button-small" disabled={loading || !serviceUsers.length}>{loading ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />} Generate</button>
+        </div>
+        {activeRotaLayer === "live-board" && <div className="rota-layer-grid">
+          <article><LayoutDashboard size={18} /><strong>{selectedCalls.length}</strong><span>Selected visits</span><button type="button" onClick={() => openRotaStep("visits")}>Edit visits <ChevronRight size={15} /></button></article>
+          <article><UsersRound size={18} /><strong>{caregivers.length}</strong><span>Available caregivers</span><button type="button" onClick={() => openRotaStep("caregivers")}>Edit team <ChevronRight size={15} /></button></article>
+          <article><Navigation size={18} /><strong>{plan ? `${plan.summary.routeEfficiencyScore}%` : humanize(optimisationGoal)}</strong><span>Planning result</span><button type="button" onClick={() => setActiveRotaLayer("approvals")}>Review plan <ChevronRight size={15} /></button></article>
+        </div>}
+        {activeRotaLayer === "capacity" && <div className="rota-capacity-view">
+          <article><strong>{totalDraftMinutes}</strong><span>Draft care minutes</span><p>{capacityMinutes} staff minutes available across this planning run.</p></article>
+          <article><strong>{capacityPercent}%</strong><span>Capacity used</span><div className="rota-progress"><span style={{ width: `${capacityPercent}%` }} /></div><p>Target utilisation is {targetUtilisationPercent}%.</p></article>
+          <article><strong>{plan ? plan.summary.estimatedTravelMinutes : maxTravelMinutesBetweenCalls}</strong><span>{plan ? "Estimated travel minutes" : "Max travel segment"}</span><p>{plan ? `${plan.summary.estimatedMinutesSaved} minutes saved after sequencing.` : "This limit is applied during route generation."}</p></article>
+        </div>}
+        {activeRotaLayer === "continuity" && <div className="rota-continuity-view">
+          <article><strong>{continuityCoverage}%</strong><span>Draft continuity coverage</span><p>{continuity.length} continuity preference{continuity.length === 1 ? "" : "s"} against {selectedCalls.length || 0} selected visit{selectedCalls.length === 1 ? "" : "s"}.</p><button type="button" onClick={() => openRotaStep("continuity")}>Manage continuity <ChevronRight size={15} /></button></article>
+          <div>{continuity.length ? continuity.map((item, index) => {
+            const serviceUser = serviceUsers.find((user) => user.id === item.serviceUserId);
+            return <p key={`${item.serviceUserId}-${index}`}><UserRoundCheck size={15} /> {serviceUser?.name || "Service user"} should stay with {item.preferredCaregiverName || "preferred caregiver"}</p>;
+          }) : <p><UserRoundCheck size={15} /> No continuity rules set yet.</p>}</div>
+        </div>}
+        {activeRotaLayer === "conflicts" && <div className="rota-conflict-view">
+          <article className={conflictCount ? "needs-review" : "ready"}><ShieldAlert size={20} /><strong>{conflictCount}</strong><span>Generated conflicts</span><p>{plan ? "Unassigned calls and risk warnings from the latest plan." : "Generate a plan to calculate conflicts."}</p></article>
+          <article><Clock3 size={20} /><strong>{highPriorityDraftCalls}</strong><span>High priority draft visits</span><p>These should remain visible during assignment and route approval.</p></article>
+          <article><MapPin size={20} /><strong>{plan ? plan.summary.longTravelAlerts : 0}</strong><span>Long travel alerts</span><p>Segments above the selected travel limit are flagged here.</p></article>
+        </div>}
+        {activeRotaLayer === "approvals" && <div className="rota-approval-flow">
+          {["Generate safe route", "Review warnings", "Confirm continuity", "Approve rota", "Export evidence"].map((step, index) => <article key={step} className={plan || index === 0 ? "active" : ""}><span>{index + 1}</span><strong>{step}</strong><small>{index < 3 ? "Coordinator check" : "Manager control"}</small></article>)}
+        </div>}
+        {activeRotaLayer === "evidence" && <div className="rota-evidence-view">
+          {["Input data captured", "Rules applied", "Warnings explained", "Human approval retained", "Outcome ready for audit"].map((item) => <article key={item}><FileText size={17} /><p>{item}</p></article>)}
+        </div>}
+      </main>
+    </section>
     <section className="rota-how-strip" aria-label="Rota planning steps">
       {rotaSteps.map((step, index) => {
         const Icon = step.icon;
@@ -1066,6 +1129,11 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
       <section className="panel"><div className="panel-heading"><div><h2>Suggested rota</h2><p>Review each caregiver route, utilisation and safeguarding warnings before confirming.</p></div></div><div className="rota-schedule-list">{plan.schedules.map((schedule) => <article key={schedule.caregiverId} className="rota-schedule-card"><header><div><h3>{schedule.caregiverName}</h3><p>{schedule.available} / {schedule.travelMinutes} travel / {schedule.assignedMinutes} care minutes</p></div><StatusBadge status={schedule.warnings.length ? "pending" : "approved"}>{schedule.warnings.length ? "Review" : "Ready"}</StatusBadge></header><div className="rota-efficiency-strip"><span>{schedule.utilisationPercent}% utilisation</span><span>{schedule.routeEfficiencyScore}% efficient</span><span>{schedule.idleMinutes} mins contingency</span><span>{schedule.riskLoad} risk calls</span></div>{schedule.warnings.length > 0 && <div className="rota-schedule-warnings">{schedule.warnings.map((warning) => <small key={warning}>{warning}</small>)}</div>}{schedule.calls.map((call, index) => <div key={`${call.reference}-${index}`} className="rota-call-row"><span>{call.arrive}</span><div><strong>{call.serviceUserName}</strong><p>{call.postcode} / {call.window} / {call.durationMinutes} mins / {humanize(call.priority)} / leaves {call.leave}</p><p>{call.travelMinutes} mins travel{call.waitMinutes ? ` / ${call.waitMinutes} mins waiting` : ""}{call.continuityMatched ? " / continuity matched" : ""}</p>{call.warnings.length > 0 && <small>{call.warnings.join(" · ")}</small>}</div></div>)}{!schedule.calls.length && <p className="muted-copy">No calls assigned to this caregiver.</p>}</article>)}</div>{plan.unassigned.length > 0 && <div className="rota-unassigned">{plan.unassigned.map((call) => <p key={call.reference}><strong>{call.serviceUserName}</strong>: {call.reason}</p>)}</div>}</section>
     </section>}
   </form>;
+}
+
+function minutesFromTimeValue(value: string) {
+  const [hours = "0", minutes = "0"] = value.split(":");
+  return Number(hours) * 60 + Number(minutes);
 }
 
 function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] }) {

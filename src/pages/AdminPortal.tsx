@@ -184,8 +184,8 @@ const CARE_INTEGRATION_SANDBOX_EVENTS = [
 ];
 
 const AGENCY_GO_LIVE_OPTIONS = [
-  { value: "pilot_setup", label: "Pilot setup" },
-  { value: "pilot_live", label: "Pilot live" },
+  { value: "pilot_setup", label: "Setup" },
+  { value: "pilot_live", label: "Live" },
   { value: "paused", label: "Paused" },
   { value: "suspended", label: "Suspended" }
 ];
@@ -194,6 +194,10 @@ const ACCESS_STATE_OPTIONS = [
   { value: "unlocked", label: "Unlocked" },
   { value: "locked", label: "Locked" }
 ];
+
+function agencyGoLiveLabel(value?: string) {
+  return AGENCY_GO_LIVE_OPTIONS.find((option) => option.value === value)?.label || "Live";
+}
 
 const INCIDENT_TYPE_OPTIONS = [
   { value: "failed_visit", label: "Failed visit" },
@@ -447,7 +451,7 @@ function AdminOverview({ dashboard, tasks, onReview, onOpenView }: {
       <MetricAdmin icon={<ClipboardCheck />} label="Awaiting assignment" value={pending} tone="amber" onClick={() => onOpenView("tasks", "awaiting")} />
       <MetricAdmin icon={<BadgeCheck />} label="DBS approved" value={dashboard?.traders.approved || 0} tone="green" onClick={() => onOpenView("traders", "approved")} />
       <MetricAdmin icon={<FileWarning />} label="DBS action needed" value={(dashboard?.traders.pending || 0) + (dashboard?.traders.unclear || 0) + (dashboard?.traders.rejected || 0) + (dashboard?.traders.not_started || 0)} tone="blue" onClick={() => onOpenView("traders", "action-needed")} />
-      <MetricAdmin icon={<Mail />} label="Demo follow-ups" value={dashboard?.demoRequests || 0} tone="blue" onClick={() => onOpenView("demo-requests")} />
+      <MetricAdmin icon={<Mail />} label="Enquiries" value={dashboard?.demoRequests || 0} tone="blue" onClick={() => onOpenView("demo-requests")} />
       <MetricAdmin icon={<Wrench />} label="Handyman" value={dashboard?.handymanJoinRequests || 0} tone="green" onClick={() => onOpenView("traders", "leads")} />
       <MetricAdmin icon={<FileWarning />} label="Payout holds" value={dashboard?.paymentHolds || 0} tone="amber" onClick={() => onOpenView("billing")} />
     </div>
@@ -675,7 +679,7 @@ function DemoRequestDesk({ requests, onChanged }: { requests: DemoRequest[]; onC
   const [busy, setBusy] = useState("");
   const filtered = requests.filter((item) => filter === "open" ? item.status !== "closed" : filter === "all" ? true : item.status === filter);
   async function update(item: DemoRequest, status: string) {
-    const notes = window.prompt("Add an internal note for this demo request", item.internalNotes || "");
+    const notes = window.prompt("Add an internal note for this enquiry", item.internalNotes || "");
     setBusy(item.id);
     try {
       await api(`/api/admin/demo-requests/${item.id}`, { method: "PATCH", body: JSON.stringify({ status, internalNotes: notes || "" }) });
@@ -683,9 +687,9 @@ function DemoRequestDesk({ requests, onChanged }: { requests: DemoRequest[]; onC
     } finally { setBusy(""); }
   }
   return <>
-    <div className="page-title-row"><div><span className="eyebrow">Landing-page enquiries</span><h1>Demo request queue</h1><p>Track new care-company interest from request through qualification.</p></div></div>
-    <nav className="task-filter-links" aria-label="Filter demo requests">{[["open", "Open"], ["new", "New"], ["contacted", "Contacted"], ["qualified", "Qualified"], ["closed", "Closed"], ["all", "All"]].map(([key, label]) => <button key={key} className={filter === key ? "active" : ""} onClick={() => setFilter(key)}>{label}<span>{requests.filter((item) => key === "open" ? item.status !== "closed" : key === "all" ? true : item.status === key).length}</span></button>)}</nav>
-    <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Organisation</th><th>Contact</th><th>Status</th><th>Need</th><th>Actions</th></tr></thead><tbody>{filtered.map((item) => <tr key={item.id}><td><strong>{item.organisationName}</strong><small>{formatDate(item.createdAt, true)}</small></td><td><strong>{item.fullName}</strong><small>{item.workEmail}</small></td><td><StatusBadge status={item.status}>{humanize(item.status)}</StatusBadge>{item.ownerName && <small>Owner: {item.ownerName}</small>}</td><td><span className="integration-endpoint">{item.message || "No extra note"}</span>{item.internalNotes && <small>Internal: {item.internalNotes}</small>}</td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === item.id} onClick={() => update(item, "contacted")}>Contacted</button><button className="button button-secondary button-small" disabled={busy === item.id} onClick={() => update(item, "qualified")}>Qualify</button><button className="button button-secondary button-small" disabled={busy === item.id} onClick={() => update(item, "closed")}>Close</button></div></td></tr>)}</tbody></table></div>{!filtered.length && <EmptyState icon={<Mail />} title="No demo requests in this view" detail="New book-demo submissions will appear here." />}</section>
+    <div className="page-title-row"><div><span className="eyebrow">Landing-page enquiries</span><h1>Enquiry queue</h1><p>Track new care-company interest from request through qualification.</p></div></div>
+    <nav className="task-filter-links" aria-label="Filter enquiries">{[["open", "Open"], ["new", "New"], ["contacted", "Contacted"], ["qualified", "Qualified"], ["closed", "Closed"], ["all", "All"]].map(([key, label]) => <button key={key} className={filter === key ? "active" : ""} onClick={() => setFilter(key)}>{label}<span>{requests.filter((item) => key === "open" ? item.status !== "closed" : key === "all" ? true : item.status === key).length}</span></button>)}</nav>
+    <section className="panel table-panel"><div className="responsive-table"><table><thead><tr><th>Organisation</th><th>Contact</th><th>Status</th><th>Need</th><th>Actions</th></tr></thead><tbody>{filtered.map((item) => <tr key={item.id}><td><strong>{item.organisationName}</strong><small>{formatDate(item.createdAt, true)}</small></td><td><strong>{item.fullName}</strong><small>{item.workEmail}</small></td><td><StatusBadge status={item.status}>{humanize(item.status)}</StatusBadge>{item.ownerName && <small>Owner: {item.ownerName}</small>}</td><td><span className="integration-endpoint">{item.message || "No extra note"}</span>{item.internalNotes && <small>Internal: {item.internalNotes}</small>}</td><td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === item.id} onClick={() => update(item, "contacted")}>Contacted</button><button className="button button-secondary button-small" disabled={busy === item.id} onClick={() => update(item, "qualified")}>Qualify</button><button className="button button-secondary button-small" disabled={busy === item.id} onClick={() => update(item, "closed")}>Close</button></div></td></tr>)}</tbody></table></div>{!filtered.length && <EmptyState icon={<Mail />} title="No enquiries in this view" detail="New website enquiries will appear here." />}</section>
   </>;
 }
 
@@ -1250,7 +1254,7 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
     const values = new FormData(event.currentTarget);
     const monthlyCap = Number(values.get("monthlyCap") || current?.monthlyCap || 500);
     if (!Number.isFinite(monthlyCap)) return;
-    const goLiveStatus = String(values.get("goLiveStatus") || current?.goLiveStatus || "pilot_setup");
+    const goLiveStatus = String(values.get("goLiveStatus") || current?.goLiveStatus || "pilot_live");
     const healthAnalyticsEnabled = values.get("healthAnalytics") === "unlocked";
     const rotaPlannerEnabled = values.get("rotaPlanner") === "unlocked";
     const careOsEnabled = values.get("careOs") === "unlocked";
@@ -1309,7 +1313,7 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
         payload: {
           event_type: eventType,
           event_id: `sandbox-${Date.now()}`,
-          service_user: { id: "sandbox-service-user-001", name: "Sandbox Service User", address: "1 Pilot Street", postcode: "PE2 6XU", town: "Peterborough", county: "Cambridgeshire", vulnerable: true },
+          service_user: { id: "sandbox-service-user-001", name: "Sandbox Service User", address: "1 Safe Street", postcode: "PE2 6XU", town: "Peterborough", county: "Cambridgeshire", vulnerable: true },
           note: "Carer observed a loose hallway rail and asked for a verified handyman visit.",
           hazard: "Loose hallway rail",
           task_id: "sandbox-task-001",
@@ -1327,7 +1331,7 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
       <div className="agency-integration-heading"><div><strong>Agency controls</strong><small>Update go-live status and feature access without leaving this workspace.</small></div><button className="icon-button" type="button" onClick={() => setActiveSettingsAgencyId("")} aria-label="Close agency settings"><X size={16} /></button></div>
       <div className="agency-integration-grid">
         <label>Monthly cap in GBP<input name="monthlyCap" type="number" min={0} step={1} defaultValue={current?.monthlyCap || 500} /></label>
-        <label>Go-live status<select name="goLiveStatus" defaultValue={current?.goLiveStatus || "pilot_setup"}>{AGENCY_GO_LIVE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label>Go-live status<select name="goLiveStatus" defaultValue={current?.goLiveStatus || "pilot_live"}>{AGENCY_GO_LIVE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label>Free care analytics access<select name="healthAnalytics" defaultValue={current?.healthAnalyticsEnabled ? "unlocked" : "locked"}>{ACCESS_STATE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label>Premium AI rota planner access<select name="rotaPlanner" defaultValue={current?.rotaPlannerEnabled ? "unlocked" : "locked"}>{ACCESS_STATE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label>CareOS Intelligence access<select name="careOs" defaultValue={current?.careOsEnabled ? "unlocked" : "locked"}>{ACCESS_STATE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
@@ -1370,7 +1374,7 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
   return <>
     <div className="page-title-row"><div><span className="eyebrow">Super-admin control</span><h1>Care agency onboarding</h1><p>Only TaskBridge super administrators can create a care-organisation workspace.</p></div><span className="secure-indicator"><ShieldCheck size={17} /> Super admin only</span></div>
     <div className="agency-onboarding-layout">
-      <section className="panel"><div className="panel-heading"><div><h2>Care agencies</h2><p>{agencies.length} organisation{agencies.length === 1 ? "" : "s"} registered.</p></div></div><div className="agency-list agency-key-list">{agencies.map((agency) => <article key={agency.id}><span><Building2 size={19} /></span><div><h3>{agency.name}</h3><p><Mail size={14} /> {agency.primary_contact_email}</p><small>{agency.public_id} / {agency.work_email_domain}</small><div className="agency-operational-meta"><span><ClipboardCheck size={14} /> {agency.activeWorkorders} active workorder{agency.activeWorkorders === 1 ? "" : "s"}</span><span><ShieldCheck size={14} /> {humanize(agency.settings?.goLiveStatus || "pilot_setup")} · £{(agency.settings?.monthlyCap || 500).toFixed(0)} cap</span><span><Activity size={14} /> {(agency.integrations || []).filter((item) => item.enabled).map((item) => `${item.provider.toUpperCase()}${item.providerAccessTokenSet ? " agency token" : " fallback"}`).join(", ") || "No care-platform integration"}</span>{agency.secretApiKey ? <span title={agency.secretApiKey.encryptionRepresentation}><KeyRound size={14} /> {agency.secretApiKey.masked} / {agency.secretApiKey.length} characters / {agency.secretApiKey.encryptionRepresentation}</span> : <span><KeyRound size={14} /> Integration key not issued</span>}</div></div><div className="row-actions"><StatusBadge status={agency.status}>{humanize(agency.status)}</StatusBadge><button className="button button-secondary button-small" onClick={() => { setActiveSettingsAgencyId(""); setActiveIntegrationAgencyId(activeIntegrationAgencyId === agency.id ? "" : agency.id); }}>{activeIntegrationAgencyId === agency.id ? "Close integration" : "Integration"}</button><button className="button button-secondary button-small" onClick={() => { setActiveIntegrationAgencyId(""); setActiveSettingsAgencyId(activeSettingsAgencyId === agency.id ? "" : agency.id); }}>{activeSettingsAgencyId === agency.id ? "Close settings" : "Settings"}</button></div>{activeIntegrationAgencyId === agency.id && renderIntegrationPanel(agency)}{activeSettingsAgencyId === agency.id && renderSettingsPanel(agency)}</article>)}</div></section>
+      <section className="panel"><div className="panel-heading"><div><h2>Care agencies</h2><p>{agencies.length} organisation{agencies.length === 1 ? "" : "s"} registered.</p></div></div><div className="agency-list agency-key-list">{agencies.map((agency) => <article key={agency.id}><span><Building2 size={19} /></span><div><h3>{agency.name}</h3><p><Mail size={14} /> {agency.primary_contact_email}</p><small>{agency.public_id} / {agency.work_email_domain}</small><div className="agency-operational-meta"><span><ClipboardCheck size={14} /> {agency.activeWorkorders} active workorder{agency.activeWorkorders === 1 ? "" : "s"}</span><span><ShieldCheck size={14} /> {agencyGoLiveLabel(agency.settings?.goLiveStatus)} · £{(agency.settings?.monthlyCap || 500).toFixed(0)} cap</span><span><Activity size={14} /> {(agency.integrations || []).filter((item) => item.enabled).map((item) => `${item.provider.toUpperCase()}${item.providerAccessTokenSet ? " agency token" : " fallback"}`).join(", ") || "No care-platform integration"}</span>{agency.secretApiKey ? <span title={agency.secretApiKey.encryptionRepresentation}><KeyRound size={14} /> {agency.secretApiKey.masked} / {agency.secretApiKey.length} characters / {agency.secretApiKey.encryptionRepresentation}</span> : <span><KeyRound size={14} /> Integration key not issued</span>}</div></div><div className="row-actions"><StatusBadge status={agency.status}>{humanize(agency.status)}</StatusBadge><button className="button button-secondary button-small" onClick={() => { setActiveSettingsAgencyId(""); setActiveIntegrationAgencyId(activeIntegrationAgencyId === agency.id ? "" : agency.id); }}>{activeIntegrationAgencyId === agency.id ? "Close integration" : "Integration"}</button><button className="button button-secondary button-small" onClick={() => { setActiveIntegrationAgencyId(""); setActiveSettingsAgencyId(activeSettingsAgencyId === agency.id ? "" : agency.id); }}>{activeSettingsAgencyId === agency.id ? "Close settings" : "Settings"}</button></div>{activeIntegrationAgencyId === agency.id && renderIntegrationPanel(agency)}{activeSettingsAgencyId === agency.id && renderSettingsPanel(agency)}</article>)}</div></section>
       <aside className="agency-create-panel"><div className="resident-create-heading"><span><Plus size={20} /></span><div><h2>Onboard a care agency</h2><p>Create the tenant and invite its first care manager.</p></div></div><form className="stack" onSubmit={createAgency}><label>Agency name<input required name="name" minLength={2} /></label><label>Primary contact name<input required name="primaryContactName" minLength={2} /></label><label>Primary contact work email<input required name="primaryContactEmail" type="email" /></label><label>Approved work email domain<input required name="workEmailDomain" placeholder="careagency.co.uk" /></label><label className="integration-request-option"><input name="careManagementIntegrationRequested" type="checkbox" /><span><strong>Send care-management API requirements email</strong><small>Use this when the agency wants Birdie, PASS, Cera or another care-management system connected.</small></span></label>{error && <p className="form-error">{error}</p>}{success && <p className="form-success">{success}</p>}{staffInvitation && <div className="invitation-link"><input readOnly value={staffInvitation.url} aria-label="Care manager invitation URL" /><button className="icon-button" type="button" onClick={() => navigator.clipboard.writeText(staffInvitation.url)} aria-label="Copy manager invitation"><Copy size={18} /></button></div>}{issuedKey && <div className="issued-api-key"><strong>Copy the integration key now</strong><p>For security, the full secret is shown only once.</p><div><input readOnly value={issuedKey} aria-label="New agency API key" /><button className="icon-button" type="button" onClick={() => navigator.clipboard.writeText(issuedKey)} aria-label="Copy API key"><Copy size={18} /></button></div></div>}<button className="button button-primary button-full" disabled={busy} type="submit">{busy ? <><LoaderCircle className="spin" size={17} /> Creating...</> : <><Building2 size={17} /> Create agency workspace</>}</button></form></aside>
     </div>
   </>;

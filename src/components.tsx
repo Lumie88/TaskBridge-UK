@@ -141,7 +141,7 @@ export function DemoModal({ open, onClose }: { open: boolean; onClose: () => voi
             <header><h2 id="demo-title">Schedule your demo</h2><p>Tell us about your organisation in under two minutes.</p></header>
             <label>Your full name<input name="fullName" required autoComplete="name" placeholder="E.g., Sarah Jenkins" /></label>
             <label>Work email<input name="workEmail" required type="email" autoComplete="email" placeholder="E.g., manager@homecare.co.uk" /></label>
-            <label>Organisation name<input name="organisationName" required autoComplete="organization" placeholder="E.g., Primrose Care Services" /></label>
+            <label>Organisation name<input name="organisationName" required autoComplete="organization" placeholder="E.g., Acorn Care Services" /></label>
             <label>Your role<select name="role" defaultValue="Care Coordinator"><option>Care Coordinator</option><option>Care Manager</option><option>Safeguarding Lead</option><option>Operations Director</option><option>Local Authority Commissioner</option></select></label>
             <label>Safety or integration needs<textarea name="message" rows={2} placeholder="E.g., fall-risk prevention or care-platform integration" /></label>
             {error && <p className="form-error">{error}</p>}
@@ -189,7 +189,7 @@ export function PortalShell({ user, area, active, onActive, onSignOut, workspace
   ];
   const adminItems: Array<[string, string, LucideIcon]> = [
     ["overview", "Control centre", ShieldCheck],
-    ["demo-requests", "Demo requests", Handshake],
+    ["demo-requests", "Enquiries", Handshake],
     ["tasks", "Operations", BriefcaseBusiness],
     ["traders", "Handyman", Wrench],
     ["billing", "Care Agency Finance", Landmark]

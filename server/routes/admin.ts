@@ -1575,7 +1575,7 @@ adminRouter.get("/agencies", requireRoles("taskbridge_super_admin"), asyncHandle
       rotaPlannerEnabled: row.rota_planner_enabled,
       careOsEnabled: row.care_os_enabled,
       defaultVisitRadiusMiles: Number(row.default_visit_radius_miles || 15),
-      goLiveStatus: row.go_live_status || "pilot_setup",
+      goLiveStatus: row.go_live_status || "pilot_live",
       monthlyCap: Number(row.monthly_cap || 500),
       billingStatus: row.billing_status || "active"
     },
@@ -1605,7 +1605,7 @@ adminRouter.post("/agencies", requireRoles("taskbridge_super_admin"), async (req
       [publicId("agc"), data.name, `${slugify(data.name)}-${Date.now().toString(36)}`, data.primaryContactName,
         data.primaryContactEmail.toLowerCase(), data.workEmailDomain.toLowerCase()]
     );
-    await client.query("INSERT INTO tenant.agency_settings (agency_id) VALUES ($1)", [agency.rows[0].id]);
+    await client.query("INSERT INTO tenant.agency_settings (agency_id, go_live_status) VALUES ($1, 'pilot_live')", [agency.rows[0].id]);
     await client.query(
       `INSERT INTO billing.agency_billing_profiles (agency_id, billing_email, monthly_cap, currency, status)
        VALUES ($1, $2, 500, 'GBP', 'active')`,
@@ -1667,17 +1667,29 @@ adminRouter.patch("/agencies/:id/settings", requireRoles("taskbridge_super_admin
     );
     if (!agency.rows[0]) return null;
     await client.query(
-      `UPDATE tenant.agency_settings SET
-         vulnerable_adult_requires_enhanced_dbs = $2,
-         completion_requires_care_confirmation = $3,
-         supervised_visit_exception_allowed = $4,
-         taskbridge_assignment_requires_admin_review = $5,
-         health_analytics_enabled = $6,
-         rota_planner_enabled = $7,
-         care_os_enabled = $8,
-         default_visit_radius_miles = $9,
-         go_live_status = $10
-       WHERE agency_id = $1`,
+      `INSERT INTO tenant.agency_settings (
+         agency_id,
+         vulnerable_adult_requires_enhanced_dbs,
+         completion_requires_care_confirmation,
+         supervised_visit_exception_allowed,
+         taskbridge_assignment_requires_admin_review,
+         health_analytics_enabled,
+         rota_planner_enabled,
+         care_os_enabled,
+         default_visit_radius_miles,
+         go_live_status
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT (agency_id) DO UPDATE SET
+         vulnerable_adult_requires_enhanced_dbs = EXCLUDED.vulnerable_adult_requires_enhanced_dbs,
+         completion_requires_care_confirmation = EXCLUDED.completion_requires_care_confirmation,
+         supervised_visit_exception_allowed = EXCLUDED.supervised_visit_exception_allowed,
+         taskbridge_assignment_requires_admin_review = EXCLUDED.taskbridge_assignment_requires_admin_review,
+         health_analytics_enabled = EXCLUDED.health_analytics_enabled,
+         rota_planner_enabled = EXCLUDED.rota_planner_enabled,
+         care_os_enabled = EXCLUDED.care_os_enabled,
+         default_visit_radius_miles = EXCLUDED.default_visit_radius_miles,
+         go_live_status = EXCLUDED.go_live_status`,
       [req.params.id, data.vulnerableAdultRequiresEnhancedDbs, data.completionRequiresCareConfirmation,
         data.supervisedVisitExceptionAllowed, data.taskbridgeAssignmentRequiresAdminReview,
         data.healthAnalyticsEnabled, data.rotaPlannerEnabled, data.careOsEnabled, data.defaultVisitRadiusMiles, data.goLiveStatus]

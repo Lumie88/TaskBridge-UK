@@ -274,7 +274,7 @@ function StudioPillar({ icon, tone, title, detail, label }: { icon: React.ReactN
 }
 
 const demoScenes = [
-  { title: "Care coordinator dashboard", subtitle: "Start inside a personalised care workspace.", nav: "Dashboard", badge: "Primrose Care workspace", screen: "dashboard" },
+  { title: "Care coordinator dashboard", subtitle: "Start inside a personalised care workspace.", nav: "Dashboard", badge: "Care agency workspace", screen: "dashboard" },
   { title: "Create a task from a care note", subtitle: "Paste the daily note and select the service user.", nav: "Create task", badge: "AI ingestion", screen: "create" },
   { title: "Review suggested safety tasks", subtitle: "One note can become multiple care-approved actions.", nav: "Create task", badge: "Review before dispatch", screen: "review" },
   { title: "Check progress on the status board", subtitle: "Care teams see progress without seeing hidden candidate scoring.", nav: "Status board", badge: "Pending assignment", screen: "status" }
