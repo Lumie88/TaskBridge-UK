@@ -832,6 +832,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
   const [activeRotaPage, setActiveRotaPage] = useState("carers");
   const [activeRotaStep, setActiveRotaStep] = useState("caregivers");
   const [activeRotaLayer, setActiveRotaLayer] = useState("manual-board");
+  const [slotIntervalMinutes, setSlotIntervalMinutes] = useState(30);
   const [manualAssignments, setManualAssignments] = useState<Record<string, string>>({});
   const [caregivers, setCaregivers] = useState([{ name: "Morning carer", startPostcode: serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "14:00", skills: "personal care, medication" }]);
   const [draftCaregiver, setDraftCaregiver] = useState({ name: "", startPostcode: serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "18:00", skills: "" });
@@ -925,13 +926,40 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
     setCalls((current) => current.map((call, itemIndex) => itemIndex === index ? { ...call, [key]: value } : call));
   }
 
+  function ensureCallForServiceUser(serviceUserId: string) {
+    setCalls((current) => current.some((call) => call.serviceUserId === serviceUserId)
+      ? current
+      : [...current, { serviceUserId, earliest: "06:00", latest: "23:00", durationMinutes: slotIntervalMinutes, priority: "routine", requiredSkill: "", carersRequired: 1 }]);
+  }
+
+  function setServiceUserCarerRequirement(serviceUserId: string, carersRequired: number) {
+    setCalls((current) => current.some((call) => call.serviceUserId === serviceUserId)
+      ? current.map((call) => call.serviceUserId === serviceUserId ? { ...call, carersRequired } : call)
+      : [...current, { serviceUserId, earliest: "06:00", latest: "23:00", durationMinutes: slotIntervalMinutes, priority: "routine", requiredSkill: "", carersRequired }]);
+  }
+
   function updateContinuity(index: number, key: keyof typeof continuity[number], value: string) {
     setContinuity((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item));
   }
 
   function assignManualCall(callId: string, caregiverIndex: number, timeSlot: string) {
     const slotKey = `${caregiverIndex}-${timeSlot}`;
-    const call = manualCallCards.find((item) => item.id === callId);
+    const serviceUserId = callId.replace("manual-call-", "");
+    ensureCallForServiceUser(serviceUserId);
+    const serviceUser = serviceUsers.find((item) => item.id === serviceUserId);
+    const call = manualCallCards.find((item) => item.id === callId) || {
+      id: callId,
+      sourceIndex: -1,
+      serviceUserId,
+      serviceUserName: serviceUser?.name || "Service user",
+      reference: serviceUser?.reference || "Visit",
+      postcode: serviceUser?.postcode || "",
+      window: "06:00-23:00",
+      durationMinutes: slotIntervalMinutes,
+      priority: "routine",
+      requiredSkill: "",
+      carersRequired: 1
+    };
     const carersRequired = call?.carersRequired || 1;
     setManualAssignments((current) => {
       const next = { ...current };
@@ -1005,12 +1033,19 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
   const capacityPercent = capacityMinutes ? Math.min(100, Math.round((totalDraftMinutes / capacityMinutes) * 100)) : 0;
   const highPriorityDraftCalls = selectedCalls.filter((call) => call.priority === "high").length;
   const continuityCoverage = selectedCalls.length ? Math.round((continuity.length / selectedCalls.length) * 100) : 0;
-  const manualTimeSlots = ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"];
+  const manualTimeSlots = Array.from({ length: Math.floor(((23 - 6) * 60) / slotIntervalMinutes) + 1 }, (_, index) => {
+    const totalMinutes = 6 * 60 + index * slotIntervalMinutes;
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  });
+  const manualGridStyle = { gridTemplateColumns: `170px repeat(${manualTimeSlots.length}, minmax(${slotIntervalMinutes === 15 ? 56 : slotIntervalMinutes === 30 ? 72 : 96}px, 1fr))` };
   const manualCallCards = selectedCalls.map((call, index) => {
     const serviceUser = serviceUsers.find((item) => item.id === call.serviceUserId);
     return {
-      id: `manual-call-${index}`,
+      id: `manual-call-${call.serviceUserId}`,
       sourceIndex: index,
+      serviceUserId: call.serviceUserId,
       serviceUserName: serviceUser?.name || "Unselected service user",
       reference: serviceUser?.reference || `Visit ${index + 1}`,
       postcode: serviceUser?.postcode || "",
@@ -1019,6 +1054,21 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
       priority: call.priority,
       requiredSkill: call.requiredSkill,
       carersRequired: Number(call.carersRequired || 1)
+    };
+  });
+  const registeredServiceUserVisitCards = serviceUsers.map((serviceUser) => {
+    const configuredCall = selectedCalls.find((call) => call.serviceUserId === serviceUser.id);
+    return {
+      id: `manual-call-${serviceUser.id}`,
+      serviceUserId: serviceUser.id,
+      serviceUserName: serviceUser.name,
+      reference: serviceUser.reference,
+      postcode: serviceUser.postcode,
+      window: configuredCall ? `${configuredCall.earliest}-${configuredCall.latest}` : "06:00-23:00",
+      durationMinutes: configuredCall?.durationMinutes || slotIntervalMinutes,
+      priority: configuredCall?.priority || "routine",
+      requiredSkill: configuredCall?.requiredSkill || "",
+      carersRequired: Number(configuredCall?.carersRequired || 1)
     };
   });
   const manualAssignedCount = (callId: string) => Object.values(manualAssignments).filter((assignedCallId) => assignedCallId === callId).length;
@@ -1124,24 +1174,20 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
           <article><Navigation size={18} /><strong>{plan ? `${plan.summary.routeEfficiencyScore}%` : humanize(optimisationGoal)}</strong><span>Planning result</span><button type="button" onClick={() => setActiveRotaLayer("approvals")}>Review plan <ChevronRight size={15} /></button></article>
         </div>}
         {activeRotaLayer === "manual-board" && <div className="rota-manual-scheduler">
-          <aside className="rota-manual-pool">
-            <header><strong>Service-user visits</strong><span>{manualUnassignedCalls.length} unplaced</span></header>
-            <div>
-              {manualUnassignedCalls.map((call) => <article key={call.id} draggable onDragStart={(event) => event.dataTransfer.setData("text/plain", call.id)} className={`rota-draggable-visit urgency-${call.priority}`}>
-                <strong>{call.serviceUserName}</strong>
-                <small>{call.window} / {call.durationMinutes} mins{call.requiredSkill ? ` / ${call.requiredSkill}` : ""}</small>
-                <span>{call.carersRequired === 2 ? `Double-up: ${manualAssignedCount(call.id)} of 2 carers placed` : "Single call"}</span>
-              </article>)}
-              {!manualUnassignedCalls.length && <p>All selected visits have been placed into carer slots.</p>}
-            </div>
-          </aside>
           <section className="rota-manual-grid" aria-label="Manual rota scheduler">
-            <div className="rota-manual-header"><span>Carer</span>{manualTimeSlots.map((slot) => <span key={slot}>{slot}</span>)}</div>
-            {caregivers.map((caregiver, caregiverIndex) => <div className="rota-manual-row" key={`${caregiver.name}-${caregiverIndex}`}>
+            <div className="rota-slot-toolbar">
+              <div><strong>Place visits</strong><span>06:00-23:00 rota board</span></div>
+              <label>Slot size<select value={slotIntervalMinutes} onChange={(event) => {
+                setSlotIntervalMinutes(Number(event.target.value));
+                setManualAssignments({});
+              }}><option value={15}>15 mins</option><option value={30}>30 mins</option><option value={60}>1 hour</option></select></label>
+            </div>
+            <div className="rota-manual-header" style={manualGridStyle}><span>Carer</span>{manualTimeSlots.map((slot) => <span key={slot}>{slot}</span>)}</div>
+            {caregivers.map((caregiver, caregiverIndex) => <div className="rota-manual-row" style={manualGridStyle} key={`${caregiver.name}-${caregiverIndex}`}>
               <div className="rota-manual-carer"><strong>{caregiver.name}</strong><span>{caregiver.availableFrom}-{caregiver.availableTo}</span><small>{caregiver.startPostcode || branchPostcode || "No postcode"}</small></div>
               {manualTimeSlots.map((slot) => {
                 const slotKey = `${caregiverIndex}-${slot}`;
-                const assignedCall = manualCallCards.find((call) => call.id === manualAssignments[slotKey]);
+                const assignedCall = manualCallCards.find((call) => call.id === manualAssignments[slotKey]) || registeredServiceUserVisitCards.find((call) => call.id === manualAssignments[slotKey]);
                 return <div key={slot} className={`rota-manual-slot ${assignedCall ? "filled" : ""} ${assignedCall?.carersRequired === 2 ? "double-up" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => {
                   event.preventDefault();
                   const callId = event.dataTransfer.getData("text/plain");
@@ -1152,11 +1198,23 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
                     <strong>{assignedCall.serviceUserName}</strong>
                     <small>{assignedCall.durationMinutes} mins / {assignedCall.postcode || assignedCall.reference}</small>
                     {assignedCall.carersRequired === 2 && <em>Double-up</em>}
-                  </article> : <span>Drop visit</span>}
+                  </article> : <span>Drop</span>}
                 </div>;
               })}
             </div>)}
           </section>
+          <aside className="rota-manual-pool">
+            <header><strong>Registered service users</strong><span>{manualUnassignedCalls.length} unmet</span></header>
+            <div>
+              {registeredServiceUserVisitCards.map((call) => <article key={call.id} draggable onDragStart={(event) => event.dataTransfer.setData("text/plain", call.id)} className={`rota-draggable-visit urgency-${call.priority}`}>
+                <strong>{call.serviceUserName}</strong>
+                <small>{call.window} / {call.durationMinutes} mins{call.requiredSkill ? ` / ${call.requiredSkill}` : ""}</small>
+                <label>Requirement<select value={call.carersRequired} onChange={(event) => setServiceUserCarerRequirement(call.serviceUserId, Number(event.target.value))}><option value={1}>1 carer</option><option value={2}>2 carers</option></select></label>
+                <span>{call.carersRequired === 2 ? `Double-up: ${manualAssignedCount(call.id)} of 2 carers placed` : `${manualAssignedCount(call.id)} placed`}</span>
+              </article>)}
+              {!registeredServiceUserVisitCards.length && <p>No service users have been registered yet.</p>}
+            </div>
+          </aside>
         </div>}
         {activeRotaLayer === "capacity" && <div className="rota-capacity-view">
           <article><strong>{totalDraftMinutes}</strong><span>Draft care minutes</span><p>{capacityMinutes} staff minutes available across this planning run.</p></article>
