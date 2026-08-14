@@ -578,7 +578,7 @@ coordinatorRouter.post("/rota-planner/plan", asyncHandler(async (req, res) => {
   if (serviceUserLookup.size !== new Set(serviceUserIds).size) {
     return res.status(404).json({ error: "One or more service users could not be found in this agency" });
   }
-  const plan = buildRotaPlan(parsed.data, serviceUserLookup);
+  const plan = await buildRotaPlan(parsed.data, serviceUserLookup);
   await audit(req, "care.rota_planner.generated", "agency", req.auth!.agencyId!, {
     caregivers: parsed.data.caregivers.length,
     calls: parsed.data.calls.length,
@@ -1462,7 +1462,10 @@ function plainLabel(value: string) {
   return value.replace(/[_/-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<string, ServiceUserRow & { latitude: string | null; longitude: string | null }>) {
+type RotaLocation = { lat: number; lng: number; precision?: string };
+type TravelEstimate = { minutes: number; source: "openstreetmap_osrm" | "postcode_fallback" };
+
+async function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<string, ServiceUserRow & { latitude: string | null; longitude: string | null }>) {
   const continuityLookup = new Map(input.continuity.map((item) => [item.serviceUserId, item.preferredCaregiverName.trim().toLowerCase()]));
   const caregivers = input.caregivers.map((caregiver, index) => ({
     id: `caregiver-${index + 1}`,
@@ -1537,6 +1540,15 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
     const previous = index === 0 ? approximatePostcodeLocation(input.branchPostcode) : calls[index - 1].location;
     return total + travelMinutes(previous, call.location);
   }, 0);
+  const travelCache = new Map<string, Promise<TravelEstimate>>();
+  const estimateTravel = (from: RotaLocation, to: RotaLocation, mode: string) => {
+    const cacheKey = `${mode}:${from.lat.toFixed(5)},${from.lng.toFixed(5)}:${to.lat.toFixed(5)},${to.lng.toFixed(5)}`;
+    const cached = travelCache.get(cacheKey);
+    if (cached) return cached;
+    const estimate = estimateTravelMinutes(from, to, mode);
+    travelCache.set(cacheKey, estimate);
+    return estimate;
+  };
 
   const assignedVisitIds = new Set<string>();
   const completedCallFinish = new Map<number, number>();
@@ -1546,6 +1558,7 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
     const assignedForCall: Array<{
       schedule: typeof schedules[number];
       travel: number;
+      routeSource: TravelEstimate["source"];
       arrival: number;
       finish: number;
       waitMinutes: number;
@@ -1564,14 +1577,15 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
     for (let placementIndex = 0; placementIndex < requiredCaregivers; placementIndex += 1) {
       const targetArrival = assignedForCall[0]?.arrival;
       const dependencyFinish = call.dependsOnCallIndex === null ? null : completedCallFinish.get(call.dependsOnCallIndex) ?? null;
-      const candidates = schedules
+      const candidates = (await Promise.all(schedules
       .filter((schedule) => !assignedForCall.some((assigned) => assigned.schedule.caregiverId === schedule.caregiverId))
-      .map((schedule) => {
+      .map(async (schedule) => {
         const caregiver = caregivers.find((item) => item.id === schedule.caregiverId)!;
         const requiredSkills = Array.from(new Set([call.requiredSkill, visitTypeSkill(call.visitType)].filter(Boolean)));
         const skillBlocked = requiredSkills.some((skill) => !caregiver.skills.includes(skill));
         const genderBlocked = call.preferredCarerGender !== "no_preference" && caregiver.gender !== call.preferredCarerGender;
-        const travel = travelMinutesForMode(schedule.currentLocation, call.location, caregiver.travelMode);
+        const travelEstimate = await estimateTravel(schedule.currentLocation, call.location, caregiver.travelMode);
+        const travel = travelEstimate.minutes;
         const needsLegalBreak = schedule.busySinceBreak > 0 && schedule.busySinceBreak + travel + call.durationMinutes > 360;
         const inPreferredBreakWindow = schedule.currentTime >= caregiver.breakPreferredStart && schedule.currentTime <= caregiver.breakPreferredEnd && schedule.breaksTaken === 0;
         const breakBeforeMinutes = needsLegalBreak || inPreferredBreakWindow ? 30 : 0;
@@ -1605,8 +1619,8 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
         if (input.optimisationGoal === "protect_continuity") score += continuityMissed ? continuityPenalty * 2 : continuityMatched ? -18 : 0;
         if (input.optimisationGoal === "risk_first") score -= riskReward * 2;
         if (input.optimisationGoal === "balanced") score += continuityMissed ? continuityPenalty : continuityMatched ? -7 : 0;
-        return { schedule, travel, arrival, finish, lateBy, lateRisk, overtime, waitMinutes, projectedUtilisation, longTravel, continuityMatched, continuityMissed, breakBeforeMinutes, syncGap, score, genderBlocked, contractOverrun, dependencyFinish };
-      })
+        return { schedule, travel, routeSource: travelEstimate.source, arrival, finish, lateBy, lateRisk, overtime, waitMinutes, projectedUtilisation, longTravel, continuityMatched, continuityMissed, breakBeforeMinutes, syncGap, score, genderBlocked, contractOverrun, dependencyFinish };
+      })))
       .sort((left, right) => left.score - right.score);
       const best = candidates[0];
       if (!best || best.score >= 999 || best.lateBy > 0 || best.overtime > 0) {
@@ -1642,7 +1656,8 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
         assignment.lateRisk > 0 ? `Late-risk warning: arrival is within or beyond the final 15-minute tolerance` : "",
         assignment.dependencyFinish ? `Dependency honoured after earlier call finished at ${timeFromMinutes(assignment.dependencyFinish)}` : "",
         call.carersRequired === 2 && assignment.syncGap ? `Double-up arrival differs by ${assignment.syncGap} minutes` : "",
-        call.riskLevel !== "standard" && call.priority === "routine" ? "Vulnerable or high-risk service user marked routine" : ""
+        call.riskLevel !== "standard" && call.priority === "routine" ? "Vulnerable or high-risk service user marked routine" : "",
+        assignment.routeSource === "postcode_fallback" ? "OpenStreetMap route estimate unavailable; postcode travel estimate used" : ""
       ].filter(Boolean);
       assignment.schedule.calls.push({
         serviceUserName: call.serviceUserName,
@@ -1663,6 +1678,7 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
         continuityMatched: assignment.continuityMatched,
         continuityCaregiver: call.preferredCaregiverName,
         breakBeforeMinutes: assignment.breakBeforeMinutes,
+        routingProvider: assignment.routeSource === "openstreetmap_osrm" ? "OpenStreetMap / OSRM" : "Postcode fallback",
         warnings
       });
       assignment.schedule.travelMinutes += assignment.travel;
@@ -1736,7 +1752,7 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
     })),
     unassigned,
     recommendations: [...recommendations, ...doubleUpWarnings.slice(0, 3)],
-    method: "Premium rota optimisation using postcode proximity, care windows, staffing levels, gender preferences, skills, 6-hour break rules, utilisation targets, continuity preferences and risk weighting. Coordinator approval is required before publishing the rota."
+    method: "Premium rota optimisation using OpenStreetMap/OSRM travel estimates where available, postcode fallback, care windows, staffing levels, gender preferences, skills, 6-hour break rules, utilisation targets, continuity preferences and risk weighting. Coordinator approval is required before publishing the rota."
   };
 }
 
@@ -1801,6 +1817,43 @@ function travelMinutesForMode(from: { lat: number; lng: number }, to: { lat: num
   const mph = mode === "walking" ? 3 : mode === "bike" ? 10 : mode === "public_transport" ? 14 : 22;
   const overhead = mode === "walking" ? 2 : mode === "bike" ? 4 : mode === "public_transport" ? 10 : 4;
   return Math.max(2, Math.round((distance / mph) * 60 + overhead));
+}
+
+async function estimateTravelMinutes(from: RotaLocation, to: RotaLocation, mode: string): Promise<TravelEstimate> {
+  const fallbackMinutes = travelMinutesForMode(from, to, mode);
+  const profile = osrmProfileForMode(mode);
+  const baseUrl = (process.env.OSRM_BASE_URL || "").replace(/\/+$/, "");
+  const provider = (process.env.ROTA_ROUTING_PROVIDER || "").toLowerCase();
+  if (!baseUrl || !profile || !["openstreetmap", "openstreetmap_osrm", "osrm"].includes(provider)) {
+    return { minutes: fallbackMinutes, source: "postcode_fallback" };
+  }
+
+  try {
+    const routeUrl = new URL(`${baseUrl}/route/v1/${encodeURIComponent(profile)}/${from.lng},${from.lat};${to.lng},${to.lat}`);
+    routeUrl.searchParams.set("overview", "false");
+    routeUrl.searchParams.set("alternatives", "false");
+    routeUrl.searchParams.set("steps", "false");
+    const response = await fetch(routeUrl, {
+      headers: { "User-Agent": "TaskBridge-RotaPlanner/1.0" },
+      signal: AbortSignal.timeout(2500)
+    });
+    if (!response.ok) return { minutes: fallbackMinutes, source: "postcode_fallback" };
+    const payload = await response.json() as { routes?: Array<{ duration?: number }> };
+    const durationSeconds = payload.routes?.[0]?.duration;
+    if (!durationSeconds || !Number.isFinite(durationSeconds)) {
+      return { minutes: fallbackMinutes, source: "postcode_fallback" };
+    }
+    return { minutes: Math.max(2, Math.round(durationSeconds / 60)), source: "openstreetmap_osrm" };
+  } catch {
+    return { minutes: fallbackMinutes, source: "postcode_fallback" };
+  }
+}
+
+function osrmProfileForMode(mode: string) {
+  const explicitProfile = process.env[`OSRM_PROFILE_${mode.toUpperCase()}`]?.trim();
+  if (explicitProfile) return explicitProfile;
+  if (mode === "car") return "car";
+  return "";
 }
 
 function visitTypeSkill(visitType: string) {
