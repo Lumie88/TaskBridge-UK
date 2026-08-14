@@ -77,6 +77,12 @@ interface RotaCaregiverRow {
   available_from: string;
   available_to: string;
   gender: "not_recorded" | "female" | "male";
+  travel_mode: "car" | "walking" | "bike" | "public_transport";
+  weekly_contract_minutes: number;
+  assigned_week_minutes: number;
+  emergency_cover: boolean;
+  break_preferred_start: string;
+  break_preferred_end: string;
   skills_ciphertext: string | null;
   created_at: string;
 }
@@ -163,6 +169,12 @@ const rotaPlanSchema = z.object({
     availableFrom: z.string().regex(/^\d{2}:\d{2}$/).default("08:00"),
     availableTo: z.string().regex(/^\d{2}:\d{2}$/).default("18:00"),
     gender: z.enum(["not_recorded", "female", "male"]).optional().default("not_recorded"),
+    travelMode: z.enum(["car", "walking", "bike", "public_transport"]).optional().default("car"),
+    weeklyContractMinutes: z.number().int().min(0).max(4320).optional().default(2250),
+    assignedWeekMinutes: z.number().int().min(0).max(4320).optional().default(0),
+    emergencyCover: z.boolean().optional().default(false),
+    breakPreferredStart: z.string().regex(/^\d{2}:\d{2}$/).optional().default("12:00"),
+    breakPreferredEnd: z.string().regex(/^\d{2}:\d{2}$/).optional().default("14:00"),
     skills: z.string().trim().max(300).optional().default("")
   })).min(1).max(12),
   calls: z.array(z.object({
@@ -171,6 +183,10 @@ const rotaPlanSchema = z.object({
     latest: z.string().regex(/^\d{2}:\d{2}$/),
     durationMinutes: z.number().int().min(5).max(240),
     priority: z.enum(["routine", "medium", "high"]).default("routine"),
+    visitType: z.enum(["personal_care", "medication", "meal_prep", "welfare_check", "domestic_support", "double_up", "night_call"]).optional().default("personal_care"),
+    continuityPriority: z.enum(["low", "medium", "high", "critical"]).optional().default("medium"),
+    dependsOnCallIndex: z.number().int().min(0).max(79).optional().nullable(),
+    toleranceMinutes: z.number().int().min(15).max(15).optional().default(15),
     requiredSkill: z.string().trim().max(120).optional().default("")
   })).min(1).max(80),
   continuity: z.array(z.object({
@@ -184,6 +200,12 @@ const rotaCaregiverSchema = z.object({
   availableFrom: z.string().regex(/^\d{2}:\d{2}$/).default("08:00"),
   availableTo: z.string().regex(/^\d{2}:\d{2}$/).default("18:00"),
   gender: z.enum(["not_recorded", "female", "male"]).optional().default("not_recorded"),
+  travelMode: z.enum(["car", "walking", "bike", "public_transport"]).optional().default("car"),
+  weeklyContractMinutes: z.number().int().min(0).max(4320).optional().default(2250),
+  assignedWeekMinutes: z.number().int().min(0).max(4320).optional().default(0),
+  emergencyCover: z.boolean().optional().default(false),
+  breakPreferredStart: z.string().regex(/^\d{2}:\d{2}$/).optional().default("12:00"),
+  breakPreferredEnd: z.string().regex(/^\d{2}:\d{2}$/).optional().default("14:00"),
   skills: z.string().trim().max(300).optional().default("")
 });
 
@@ -569,7 +591,8 @@ coordinatorRouter.post("/rota-planner/plan", asyncHandler(async (req, res) => {
 coordinatorRouter.get("/rota-planner/caregivers", asyncHandler(async (req, res) => {
   const result = await query<RotaCaregiverRow>(
     `SELECT id::text, name_ciphertext, start_postcode_ciphertext, available_from,
-            available_to, gender, skills_ciphertext, created_at::text
+            available_to, gender, travel_mode, weekly_contract_minutes, assigned_week_minutes,
+            emergency_cover, break_preferred_start, break_preferred_end, skills_ciphertext, created_at::text
      FROM care.rota_caregivers
      WHERE agency_id = $1 AND deleted_at IS NULL
      ORDER BY created_at ASC`,
@@ -582,13 +605,18 @@ coordinatorRouter.post("/rota-planner/caregivers", asyncHandler(async (req, res)
   const parsed = rotaCaregiverSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid carer details" });
   const result = await query<RotaCaregiverRow>(
-    `INSERT INTO care.rota_caregivers
-       (agency_id, name_ciphertext, start_postcode_ciphertext, available_from, available_to, gender, skills_ciphertext)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     `INSERT INTO care.rota_caregivers
+       (agency_id, name_ciphertext, start_postcode_ciphertext, available_from, available_to, gender,
+        travel_mode, weekly_contract_minutes, assigned_week_minutes, emergency_cover,
+        break_preferred_start, break_preferred_end, skills_ciphertext)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING id::text, name_ciphertext, start_postcode_ciphertext, available_from,
-               available_to, gender, skills_ciphertext, created_at::text`,
+               available_to, gender, travel_mode, weekly_contract_minutes, assigned_week_minutes,
+               emergency_cover, break_preferred_start, break_preferred_end, skills_ciphertext, created_at::text`,
     [req.auth!.agencyId, encryptField(parsed.data.name), parsed.data.startPostcode ? encryptField(parsed.data.startPostcode.toUpperCase()) : null,
-      parsed.data.availableFrom, parsed.data.availableTo, parsed.data.gender, parsed.data.skills ? encryptField(parsed.data.skills) : null]
+      parsed.data.availableFrom, parsed.data.availableTo, parsed.data.gender, parsed.data.travelMode,
+      parsed.data.weeklyContractMinutes, parsed.data.assignedWeekMinutes, parsed.data.emergencyCover,
+      parsed.data.breakPreferredStart, parsed.data.breakPreferredEnd, parsed.data.skills ? encryptField(parsed.data.skills) : null]
   );
   await audit(req, "care.rota_caregiver.created", "rota_caregiver", result.rows[0].id, { availableFrom: parsed.data.availableFrom, availableTo: parsed.data.availableTo });
   res.status(201).json({ caregiver: mapRotaCaregiver(result.rows[0]) });
@@ -604,12 +632,21 @@ coordinatorRouter.patch("/rota-planner/caregivers/:id", asyncHandler(async (req,
          available_from = $5,
          available_to = $6,
          gender = $7,
-         skills_ciphertext = $8
+         travel_mode = $8,
+         weekly_contract_minutes = $9,
+         assigned_week_minutes = $10,
+         emergency_cover = $11,
+         break_preferred_start = $12,
+         break_preferred_end = $13,
+         skills_ciphertext = $14
      WHERE agency_id = $1 AND id = $2 AND deleted_at IS NULL
      RETURNING id::text, name_ciphertext, start_postcode_ciphertext, available_from,
-               available_to, gender, skills_ciphertext, created_at::text`,
+               available_to, gender, travel_mode, weekly_contract_minutes, assigned_week_minutes,
+               emergency_cover, break_preferred_start, break_preferred_end, skills_ciphertext, created_at::text`,
     [req.auth!.agencyId, req.params.id, encryptField(parsed.data.name), parsed.data.startPostcode ? encryptField(parsed.data.startPostcode.toUpperCase()) : null,
-      parsed.data.availableFrom, parsed.data.availableTo, parsed.data.gender, parsed.data.skills ? encryptField(parsed.data.skills) : null]
+      parsed.data.availableFrom, parsed.data.availableTo, parsed.data.gender, parsed.data.travelMode,
+      parsed.data.weeklyContractMinutes, parsed.data.assignedWeekMinutes, parsed.data.emergencyCover,
+      parsed.data.breakPreferredStart, parsed.data.breakPreferredEnd, parsed.data.skills ? encryptField(parsed.data.skills) : null]
   );
   if (!result.rows[0]) return res.status(404).json({ error: "Carer was not found" });
   await audit(req, "care.rota_caregiver.updated", "rota_caregiver", result.rows[0].id, { availableFrom: parsed.data.availableFrom, availableTo: parsed.data.availableTo });
@@ -1343,6 +1380,12 @@ function mapRotaCaregiver(row: RotaCaregiverRow) {
     availableFrom: row.available_from,
     availableTo: row.available_to,
     gender: row.gender || "not_recorded",
+    travelMode: row.travel_mode || "car",
+    weeklyContractMinutes: row.weekly_contract_minutes || 2250,
+    assignedWeekMinutes: row.assigned_week_minutes || 0,
+    emergencyCover: Boolean(row.emergency_cover),
+    breakPreferredStart: row.break_preferred_start || "12:00",
+    breakPreferredEnd: row.break_preferred_end || "14:00",
     skills: decryptOptional(row.skills_ciphertext),
     createdAt: row.created_at
   };
@@ -1425,6 +1468,12 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
     id: `caregiver-${index + 1}`,
     name: caregiver.name,
     gender: caregiver.gender,
+    travelMode: caregiver.travelMode,
+    weeklyContractMinutes: caregiver.weeklyContractMinutes,
+    assignedWeekMinutes: caregiver.assignedWeekMinutes,
+    emergencyCover: caregiver.emergencyCover,
+    breakPreferredStart: minutesFromTime(caregiver.breakPreferredStart),
+    breakPreferredEnd: minutesFromTime(caregiver.breakPreferredEnd),
     skills: caregiver.skills.toLowerCase().split(",").map((skill) => skill.trim()).filter(Boolean),
     availableFrom: minutesFromTime(caregiver.availableFrom),
     availableTo: minutesFromTime(caregiver.availableTo),
@@ -1448,6 +1497,10 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
         latest: minutesFromTime(call.latest),
         durationMinutes: call.durationMinutes,
         priority: call.priority,
+        visitType: call.visitType,
+        continuityPriority: call.continuityPriority,
+        dependsOnCallIndex: call.dependsOnCallIndex ?? null,
+        toleranceMinutes: call.toleranceMinutes,
         requiredSkill: call.requiredSkill.toLowerCase().trim(),
         riskLevel: serviceUser.risk_level,
         carersRequired: serviceUser.carers_required_per_visit === 2 ? 2 : 1,
@@ -1468,6 +1521,9 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
     assignedMinutes: 0,
     travelMinutes: 0,
     workingMinutes: Math.max(0, caregiver.availableTo - caregiver.availableFrom),
+    weeklyContractMinutes: caregiver.weeklyContractMinutes,
+    assignedWeekMinutes: caregiver.assignedWeekMinutes,
+    emergencyCover: caregiver.emergencyCover,
     breakMinutes: 0,
     breaksTaken: 0,
     busySinceBreak: 0,
@@ -1483,6 +1539,7 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
   }, 0);
 
   const assignedVisitIds = new Set<string>();
+  const completedCallFinish = new Map<number, number>();
   const doubleUpWarnings: string[] = [];
 
   for (const call of calls) {
@@ -1498,42 +1555,57 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
       continuityMissed: boolean;
       breakBeforeMinutes: number;
       syncGap: number;
+      lateRisk: number;
+      contractOverrun: number;
+      dependencyFinish: number | null;
     }> = [];
     const requiredCaregivers = call.carersRequired;
 
     for (let placementIndex = 0; placementIndex < requiredCaregivers; placementIndex += 1) {
       const targetArrival = assignedForCall[0]?.arrival;
+      const dependencyFinish = call.dependsOnCallIndex === null ? null : completedCallFinish.get(call.dependsOnCallIndex) ?? null;
       const candidates = schedules
       .filter((schedule) => !assignedForCall.some((assigned) => assigned.schedule.caregiverId === schedule.caregiverId))
       .map((schedule) => {
         const caregiver = caregivers.find((item) => item.id === schedule.caregiverId)!;
-        const skillBlocked = Boolean(call.requiredSkill && !caregiver.skills.includes(call.requiredSkill));
+        const requiredSkills = Array.from(new Set([call.requiredSkill, visitTypeSkill(call.visitType)].filter(Boolean)));
+        const skillBlocked = requiredSkills.some((skill) => !caregiver.skills.includes(skill));
         const genderBlocked = call.preferredCarerGender !== "no_preference" && caregiver.gender !== call.preferredCarerGender;
-        const travel = travelMinutes(schedule.currentLocation, call.location);
-        const breakBeforeMinutes = schedule.busySinceBreak > 0 && schedule.busySinceBreak + travel + call.durationMinutes > 360 ? 30 : 0;
-        const earliestArrival = Math.max(call.earliest, schedule.currentTime + breakBeforeMinutes + travel);
+        const travel = travelMinutesForMode(schedule.currentLocation, call.location, caregiver.travelMode);
+        const needsLegalBreak = schedule.busySinceBreak > 0 && schedule.busySinceBreak + travel + call.durationMinutes > 360;
+        const inPreferredBreakWindow = schedule.currentTime >= caregiver.breakPreferredStart && schedule.currentTime <= caregiver.breakPreferredEnd && schedule.breaksTaken === 0;
+        const breakBeforeMinutes = needsLegalBreak || inPreferredBreakWindow ? 30 : 0;
+        const earliestArrival = Math.max(call.earliest, dependencyFinish ?? 0, schedule.currentTime + breakBeforeMinutes + travel);
         const arrival = targetArrival && earliestArrival <= targetArrival ? targetArrival : earliestArrival;
         const finish = arrival + call.durationMinutes;
-        const lateBy = Math.max(0, arrival - call.latest);
+        const latestWithTolerance = call.latest + call.toleranceMinutes;
+        const lateBy = Math.max(0, arrival - latestWithTolerance);
+        const lateRisk = Math.max(0, arrival - (call.latest - 15));
         const overtime = Math.max(0, finish - caregiver.availableTo);
         const waitMinutes = Math.max(0, arrival - (schedule.currentTime + breakBeforeMinutes + travel));
         const projectedBusyMinutes = schedule.assignedMinutes + schedule.travelMinutes + schedule.breakMinutes + call.durationMinutes + travel + breakBeforeMinutes;
         const projectedUtilisation = schedule.workingMinutes ? Math.round((projectedBusyMinutes / schedule.workingMinutes) * 100) : 100;
+        const projectedWeekMinutes = caregiver.assignedWeekMinutes + projectedBusyMinutes;
+        const contractOverrun = Math.max(0, projectedWeekMinutes - caregiver.weeklyContractMinutes);
         const overUtilisation = Math.max(0, projectedUtilisation - input.targetUtilisationPercent);
         const longTravel = Math.max(0, travel - input.maxTravelMinutesBetweenCalls);
         const continuityMatched = Boolean(call.preferredCaregiverName && caregiver.name.toLowerCase() === call.preferredCaregiverName);
         const continuityMissed = Boolean(call.preferredCaregiverName && !continuityMatched);
         const syncGap = targetArrival ? Math.abs(arrival - targetArrival) : 0;
         const riskReward = call.riskLevel !== "standard" || call.priority === "high" ? 5 + priorityWeight(call.priority) : 0;
-        let score = travel + waitMinutes / 4 + lateBy * 8 + overtime * 10 + overUtilisation * 1.3 + longTravel * 2 + breakBeforeMinutes * 0.5 + syncGap * 4;
+        const continuityPenalty = continuityPriorityPenalty(call.continuityPriority);
+        const visitWeight = visitTypeWeight(call.visitType);
+        let score = travel + waitMinutes / 4 + lateBy * 8 + lateRisk * 1.8 + overtime * 10 + overUtilisation * 1.3 + longTravel * 2 + contractOverrun * 0.6 + breakBeforeMinutes * 0.5 + syncGap * 4 + visitWeight;
         if (skillBlocked) score += 999;
         if (genderBlocked) score += 999;
         if (targetArrival && syncGap > 15) score += 999;
+        if (call.visitType === "medication" && arrival > latestWithTolerance) score += 999;
+        if (caregiver.emergencyCover) score += call.priority === "high" ? 6 : 24;
         if (input.optimisationGoal === "minimise_travel") score += travel * 1.2 + longTravel * 3;
-        if (input.optimisationGoal === "protect_continuity") score += continuityMissed ? 28 : continuityMatched ? -18 : 0;
+        if (input.optimisationGoal === "protect_continuity") score += continuityMissed ? continuityPenalty * 2 : continuityMatched ? -18 : 0;
         if (input.optimisationGoal === "risk_first") score -= riskReward * 2;
-        if (input.optimisationGoal === "balanced") score += continuityMissed ? 9 : continuityMatched ? -7 : 0;
-        return { schedule, travel, arrival, finish, lateBy, overtime, waitMinutes, projectedUtilisation, longTravel, continuityMatched, continuityMissed, breakBeforeMinutes, syncGap, score, genderBlocked };
+        if (input.optimisationGoal === "balanced") score += continuityMissed ? continuityPenalty : continuityMatched ? -7 : 0;
+        return { schedule, travel, arrival, finish, lateBy, lateRisk, overtime, waitMinutes, projectedUtilisation, longTravel, continuityMatched, continuityMissed, breakBeforeMinutes, syncGap, score, genderBlocked, contractOverrun, dependencyFinish };
       })
       .sort((left, right) => left.score - right.score);
       const best = candidates[0];
@@ -1566,6 +1638,9 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
         assignment.projectedUtilisation > input.targetUtilisationPercent ? `Route above target utilisation: ${assignment.projectedUtilisation}%` : "",
         assignment.continuityMissed ? `Continuity preference not met: ${call.preferredCaregiverName}` : "",
         assignment.breakBeforeMinutes ? `30-minute break inserted before this visit after 6 hours of work` : "",
+        assignment.contractOverrun ? `Weekly contract hours exceeded by ${assignment.contractOverrun} minutes` : "",
+        assignment.lateRisk > 0 ? `Late-risk warning: arrival is within or beyond the final 15-minute tolerance` : "",
+        assignment.dependencyFinish ? `Dependency honoured after earlier call finished at ${timeFromMinutes(assignment.dependencyFinish)}` : "",
         call.carersRequired === 2 && assignment.syncGap ? `Double-up arrival differs by ${assignment.syncGap} minutes` : "",
         call.riskLevel !== "standard" && call.priority === "routine" ? "Vulnerable or high-risk service user marked routine" : ""
       ].filter(Boolean);
@@ -1580,6 +1655,7 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
         waitMinutes: assignment.waitMinutes,
         durationMinutes: call.durationMinutes,
         priority: call.priority,
+        visitType: call.visitType,
         riskLevel: call.riskLevel,
         carersRequired: call.carersRequired,
         preferredCarerGender: call.preferredCarerGender,
@@ -1602,6 +1678,7 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
       assignment.schedule.warnings.push(...warnings);
     }
     if (requiredCaregivers === 2) doubleUpWarnings.push(`${call.serviceUserName}: double-up covered by ${partnerNames.join(" and ")}`);
+    completedCallFinish.set(Number(call.id.replace("call-", "")) - 1, Math.max(...assignedForCall.map((assignment) => assignment.finish)));
   }
 
   const estimatedTravelMinutes = schedules.reduce((total, schedule) => total + schedule.travelMinutes, 0);
@@ -1717,6 +1794,36 @@ function approximatePostcodeLocation(postcode: string) {
 function travelMinutes(from: { lat: number; lng: number }, to: { lat: number; lng: number }) {
   const distance = haversineMiles(from.lat, from.lng, to.lat, to.lng);
   return Math.max(2, Math.round((distance / 22) * 60 + 4));
+}
+
+function travelMinutesForMode(from: { lat: number; lng: number }, to: { lat: number; lng: number }, mode: string) {
+  const distance = haversineMiles(from.lat, from.lng, to.lat, to.lng);
+  const mph = mode === "walking" ? 3 : mode === "bike" ? 10 : mode === "public_transport" ? 14 : 22;
+  const overhead = mode === "walking" ? 2 : mode === "bike" ? 4 : mode === "public_transport" ? 10 : 4;
+  return Math.max(2, Math.round((distance / mph) * 60 + overhead));
+}
+
+function visitTypeSkill(visitType: string) {
+  if (visitType === "medication") return "medication";
+  if (visitType === "personal_care" || visitType === "double_up") return "personal care";
+  if (visitType === "meal_prep") return "meal prep";
+  if (visitType === "domestic_support") return "domestic support";
+  if (visitType === "night_call") return "night care";
+  return "";
+}
+
+function continuityPriorityPenalty(priority: string) {
+  if (priority === "critical") return 45;
+  if (priority === "high") return 28;
+  if (priority === "low") return 4;
+  return 12;
+}
+
+function visitTypeWeight(visitType: string) {
+  if (visitType === "medication") return -8;
+  if (visitType === "night_call") return -3;
+  if (visitType === "welfare_check") return 2;
+  return 0;
 }
 
 function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number) {

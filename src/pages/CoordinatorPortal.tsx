@@ -737,6 +737,7 @@ interface RotaPlan {
       waitMinutes: number;
       durationMinutes: number;
       priority: string;
+      visitType: string;
       riskLevel: string;
       carersRequired: number;
       preferredCarerGender: "no_preference" | "female" | "male";
@@ -769,6 +770,12 @@ interface RotaCaregiver {
   availableFrom: string;
   availableTo: string;
   gender: "not_recorded" | "female" | "male";
+  travelMode: "car" | "walking" | "bike" | "public_transport";
+  weeklyContractMinutes: number;
+  assignedWeekMinutes: number;
+  emergencyCover: boolean;
+  breakPreferredStart: string;
+  breakPreferredEnd: string;
   skills: string;
   createdAt?: string;
 }
@@ -858,10 +865,10 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
   const [slotIntervalMinutes, setSlotIntervalMinutes] = useState(30);
   const [manualAssignments, setManualAssignments] = useState<Record<string, string>>({});
   const [caregivers, setCaregivers] = useState<RotaCaregiver[]>([]);
-  const [draftCaregiver, setDraftCaregiver] = useState({ name: "", startPostcode: serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "18:00", gender: "not_recorded" as RotaCaregiver["gender"], skills: "" });
+  const [draftCaregiver, setDraftCaregiver] = useState({ name: "", startPostcode: serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "18:00", gender: "not_recorded" as RotaCaregiver["gender"], travelMode: "car" as RotaCaregiver["travelMode"], weeklyContractMinutes: 2250, assignedWeekMinutes: 0, emergencyCover: false, breakPreferredStart: "12:00", breakPreferredEnd: "14:00", skills: "" });
   const [editingCaregiverIndex, setEditingCaregiverIndex] = useState<number | null>(null);
   const [calls, setCalls] = useState([
-    { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "11:00", durationMinutes: 30, priority: "medium", requiredSkill: "personal care", carersRequired: serviceUsers[0]?.carersRequiredPerVisit || 1 }
+    { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "11:00", durationMinutes: 30, priority: "medium", visitType: "personal_care", continuityPriority: "medium", dependsOnCallIndex: null as number | null, toleranceMinutes: 15, requiredSkill: "personal care", carersRequired: serviceUsers[0]?.carersRequiredPerVisit || 1 }
   ]);
   const [continuity, setContinuity] = useState<Array<{ serviceUserId: string; preferredCaregiverName: string }>>([]);
   const [plan, setPlan] = useState<RotaPlan | null>(null);
@@ -911,12 +918,12 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
     }
   }
 
-  function updateDraftCaregiver(key: keyof typeof draftCaregiver, value: string) {
+  function updateDraftCaregiver(key: keyof typeof draftCaregiver, value: string | number | boolean) {
     setDraftCaregiver((current) => ({ ...current, [key]: value }));
   }
 
   function resetDraftCaregiver() {
-    setDraftCaregiver({ name: "", startPostcode: branchPostcode || serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "18:00", gender: "not_recorded", skills: "" });
+    setDraftCaregiver({ name: "", startPostcode: branchPostcode || serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "18:00", gender: "not_recorded", travelMode: "car", weeklyContractMinutes: 2250, assignedWeekMinutes: 0, emergencyCover: false, breakPreferredStart: "12:00", breakPreferredEnd: "14:00", skills: "" });
     setEditingCaregiverIndex(null);
   }
 
@@ -946,8 +953,8 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
   }
 
   function editCaregiver(index: number) {
-    const { name, startPostcode, availableFrom, availableTo, gender, skills } = caregivers[index];
-    setDraftCaregiver({ name, startPostcode, availableFrom, availableTo, gender: gender || "not_recorded", skills });
+    const { name, startPostcode, availableFrom, availableTo, gender, travelMode, weeklyContractMinutes, assignedWeekMinutes, emergencyCover, breakPreferredStart, breakPreferredEnd, skills } = caregivers[index];
+    setDraftCaregiver({ name, startPostcode, availableFrom, availableTo, gender: gender || "not_recorded", travelMode: travelMode || "car", weeklyContractMinutes: weeklyContractMinutes || 2250, assignedWeekMinutes: assignedWeekMinutes || 0, emergencyCover: Boolean(emergencyCover), breakPreferredStart: breakPreferredStart || "12:00", breakPreferredEnd: breakPreferredEnd || "14:00", skills });
     setEditingCaregiverIndex(index);
     document.getElementById("rota-caregivers")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -975,7 +982,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
     }
   }
 
-  function updateCall(index: number, key: keyof typeof calls[number], value: string | number) {
+  function updateCall(index: number, key: keyof typeof calls[number], value: string | number | null) {
     setCalls((current) => current.map((call, itemIndex) => itemIndex === index ? { ...call, [key]: value } : call));
   }
 
@@ -993,7 +1000,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
   function ensureCallForServiceUser(serviceUserId: string) {
     setCalls((current) => current.some((call) => call.serviceUserId === serviceUserId)
       ? current
-      : [...current, { serviceUserId, earliest: "06:00", latest: "23:00", durationMinutes: slotIntervalMinutes, priority: "routine", requiredSkill: "", carersRequired: carersRequiredForServiceUser(serviceUserId) }]);
+      : [...current, { serviceUserId, earliest: "06:00", latest: "23:00", durationMinutes: slotIntervalMinutes, priority: "routine", visitType: "personal_care", continuityPriority: "medium", dependsOnCallIndex: null, toleranceMinutes: 15, requiredSkill: "", carersRequired: carersRequiredForServiceUser(serviceUserId) }]);
   }
 
   function updateContinuity(index: number, key: keyof typeof continuity[number], value: string) {
@@ -1374,6 +1381,10 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
               <label>Start postcode<input value={draftCaregiver.startPostcode} onChange={(event) => updateDraftCaregiver("startPostcode", event.target.value.toUpperCase())} placeholder="PE2 6XU" /></label>
               <div className="field-row"><label>From<input type="time" value={draftCaregiver.availableFrom} onChange={(event) => updateDraftCaregiver("availableFrom", event.target.value)} /></label><label>To<input type="time" value={draftCaregiver.availableTo} onChange={(event) => updateDraftCaregiver("availableTo", event.target.value)} /></label></div>
               <label>Carer gender<select value={draftCaregiver.gender} onChange={(event) => updateDraftCaregiver("gender", event.target.value as RotaCaregiver["gender"])}><option value="not_recorded">Not recorded</option><option value="female">Female</option><option value="male">Male</option></select></label>
+              <label>Travel method<select value={draftCaregiver.travelMode} onChange={(event) => updateDraftCaregiver("travelMode", event.target.value as RotaCaregiver["travelMode"])}><option value="car">Car</option><option value="walking">Walking</option><option value="bike">Bike</option><option value="public_transport">Public transport</option></select></label>
+              <div className="field-row"><label>Weekly contract minutes<input type="number" min={0} max={4320} value={draftCaregiver.weeklyContractMinutes} onChange={(event) => updateDraftCaregiver("weeklyContractMinutes", Number(event.target.value))} /></label><label>Already assigned this week<input type="number" min={0} max={4320} value={draftCaregiver.assignedWeekMinutes} onChange={(event) => updateDraftCaregiver("assignedWeekMinutes", Number(event.target.value))} /></label></div>
+              <div className="field-row"><label>Break from<input type="time" value={draftCaregiver.breakPreferredStart} onChange={(event) => updateDraftCaregiver("breakPreferredStart", event.target.value)} /></label><label>Break by<input type="time" value={draftCaregiver.breakPreferredEnd} onChange={(event) => updateDraftCaregiver("breakPreferredEnd", event.target.value)} /></label></div>
+              <label className="checkbox-line"><input type="checkbox" checked={draftCaregiver.emergencyCover} onChange={(event) => updateDraftCaregiver("emergencyCover", event.target.checked)} /> Emergency cover pool</label>
               <label>Skills<input value={draftCaregiver.skills} onChange={(event) => updateDraftCaregiver("skills", event.target.value)} placeholder="personal care, medication" /></label>
               <div className="rota-form-actions">
                 <button className="button button-primary" type="button" disabled={caregiverSaving} onClick={saveDraftCaregiver}><Plus size={15} /> {caregiverSaving ? "Saving..." : editingCaregiverIndex === null ? "Add carer" : "Update carer"}</button>
@@ -1389,7 +1400,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
                 <span><UsersRound size={16} /></span>
                 <div>
                   <strong>{caregiver.name || `Carer ${index + 1}`}</strong>
-                  <small>{caregiver.availableFrom}-{caregiver.availableTo} / {caregiver.gender === "not_recorded" ? "Gender not recorded" : humanize(caregiver.gender)} / {caregiver.startPostcode || branchPostcode || "No postcode"}</small>
+                  <small>{caregiver.availableFrom}-{caregiver.availableTo} / {humanize(caregiver.travelMode || "car")} / {caregiver.gender === "not_recorded" ? "Gender not recorded" : humanize(caregiver.gender)} / {Math.round((caregiver.weeklyContractMinutes || 0) / 60)}h contract</small>
                   <p>{caregiver.skills || "No skills added yet"}</p>
                   <em>{visits.length} planned call{visits.length === 1 ? "" : "s"}</em>
                   <div className="rota-carer-actions">
@@ -1409,11 +1420,14 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
             </article>)}</div>
           </section>}
           {activeRotaPage === "planner" && <section className="panel" id="rota-visits">
-            <div className="panel-heading"><div><h2>Calls</h2><p>Select service users and preferred call windows. Staffing requirement comes from the service-user record.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setCalls((current) => [...current, { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "12:00", durationMinutes: 30, priority: "routine", requiredSkill: "", carersRequired: serviceUsers[0]?.carersRequiredPerVisit || 1 }])}><Plus size={15} /> Add</button></div>
+            <div className="panel-heading"><div><h2>Calls</h2><p>Select service users and preferred call windows. Staffing requirement comes from the service-user record.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setCalls((current) => [...current, { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "12:00", durationMinutes: 30, priority: "routine", visitType: "personal_care", continuityPriority: "medium", dependsOnCallIndex: null, toleranceMinutes: 15, requiredSkill: "", carersRequired: serviceUsers[0]?.carersRequiredPerVisit || 1 }])}><Plus size={15} /> Add</button></div>
             <div className="rota-input-list">{calls.map((call, index) => <article key={index}>
               <label>Service user<select value={call.serviceUserId} onChange={(event) => updateCallServiceUser(index, event.target.value)}><option value="">Select service user</option>{serviceUsers.map((serviceUser) => <option key={serviceUser.id} value={serviceUser.id}>{serviceUser.name} / {serviceUser.postcode}</option>)}</select></label>
               <div className="field-row"><label>Earliest<input type="time" value={call.earliest} onChange={(event) => updateCall(index, "earliest", event.target.value)} /></label><label>Latest<input type="time" value={call.latest} onChange={(event) => updateCall(index, "latest", event.target.value)} /></label></div>
               <div className="field-row"><label>Minutes<input type="number" min={5} max={240} value={call.durationMinutes} onChange={(event) => updateCall(index, "durationMinutes", Number(event.target.value))} /></label><label>Priority<select value={call.priority} onChange={(event) => updateCall(index, "priority", event.target.value)}><option value="routine">Routine</option><option value="medium">Medium</option><option value="high">High</option></select></label></div>
+              <label>Visit type<select value={call.visitType} onChange={(event) => updateCall(index, "visitType", event.target.value)}><option value="personal_care">Personal care</option><option value="medication">Medication</option><option value="meal_prep">Meal prep</option><option value="welfare_check">Welfare check</option><option value="domestic_support">Domestic support</option><option value="double_up">Double-up</option><option value="night_call">Night call</option></select></label>
+              <div className="field-row"><label>Continuity priority<select value={call.continuityPriority} onChange={(event) => updateCall(index, "continuityPriority", event.target.value)}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select></label><label>After call<select value={call.dependsOnCallIndex ?? ""} onChange={(event) => updateCall(index, "dependsOnCallIndex", event.target.value === "" ? null : Number(event.target.value))}><option value="">No dependency</option>{calls.slice(0, index).map((_, previousIndex) => <option key={previousIndex} value={previousIndex}>Call {previousIndex + 1}</option>)}</select></label></div>
+              <p className="muted-copy">Arrival tolerance is fixed at 15 minutes for late-risk warnings.</p>
               <p className="muted-copy">Visit staffing: {carersRequiredForServiceUser(call.serviceUserId) === 2 ? "2 carers / double-up" : "1 carer"}</p>
               <label>Required skill<input value={call.requiredSkill} onChange={(event) => updateCall(index, "requiredSkill", event.target.value)} placeholder="personal care" /></label>
             </article>)}</div>
