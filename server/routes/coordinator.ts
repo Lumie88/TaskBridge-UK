@@ -14,6 +14,7 @@ interface ServiceUserRow {
   external_service_user_id: string;
   encrypted_name: string;
   encrypted_address: string;
+  carers_required_per_visit: number;
   town_ciphertext: string | null;
   county_ciphertext: string | null;
   postcode_ciphertext: string | null;
@@ -90,6 +91,7 @@ const createServiceUserSchema = z.object({
   county: z.string().trim().min(2).max(120),
   postcode: z.string().trim().min(5).max(12),
   riskLevel: z.enum(["standard", "vulnerable_adult", "high_risk"]),
+  carersRequiredPerVisit: z.number().int().min(1).max(2).optional().default(1),
   vulnerabilityNotes: z.string().trim().max(2000).optional().default("")
 });
 
@@ -472,7 +474,7 @@ coordinatorRouter.get("/care-os/dashboard", asyncHandler(async (req, res) => {
   const [serviceUsers, tasks] = await Promise.all([
     query<ServiceUserRow>(
       `SELECT id::text, external_service_user_id, encrypted_name, encrypted_address,
-              town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+              carers_required_per_visit, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
               vulnerability_notes_ciphertext, created_at::text
        FROM care.service_users
        WHERE agency_id = $1 AND deleted_at IS NULL
@@ -539,7 +541,7 @@ coordinatorRouter.post("/rota-planner/plan", asyncHandler(async (req, res) => {
   const serviceUserIds = parsed.data.calls.map((call) => call.serviceUserId);
   const serviceUsers = await query<ServiceUserRow & { latitude: string | null; longitude: string | null }>(
     `SELECT id::text, external_service_user_id, encrypted_name, encrypted_address,
-            town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+            carers_required_per_visit, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
             vulnerability_notes_ciphertext, latitude::text, longitude::text, created_at::text
      FROM care.service_users
      WHERE agency_id = $1 AND id = ANY($2::uuid[]) AND deleted_at IS NULL`,
@@ -628,7 +630,7 @@ coordinatorRouter.post("/analytics/uploads", asyncHandler(async (req, res) => {
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid CSV upload" });
   const serviceUsers = await query<ServiceUserRow>(
     `SELECT id::text, external_service_user_id, encrypted_name, encrypted_address,
-            town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+            carers_required_per_visit, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
             vulnerability_notes_ciphertext, created_at::text
      FROM care.service_users
      WHERE agency_id = $1 AND deleted_at IS NULL`,
@@ -671,7 +673,7 @@ coordinatorRouter.post("/analytics/uploads", asyncHandler(async (req, res) => {
 coordinatorRouter.get("/service-users", async (req, res) => {
   const result = await query<ServiceUserRow>(
     `SELECT id::text, external_service_user_id, encrypted_name, encrypted_address,
-            town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+            carers_required_per_visit, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
             vulnerability_notes_ciphertext, created_at::text
      FROM care.service_users
      WHERE agency_id = $1 AND deleted_at IS NULL
@@ -706,15 +708,16 @@ coordinatorRouter.post("/service-users/import", asyncHandler(async (req, res) =>
       const result = await client.query<ServiceUserRow>(
         `INSERT INTO care.service_users
           (agency_id, external_service_user_id, encrypted_name, encrypted_address, postcode_hash,
-           town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level, vulnerability_notes_ciphertext)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level, carers_required_per_visit,
+           vulnerability_notes_ciphertext)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (agency_id, external_service_user_id) DO NOTHING
          RETURNING id::text, external_service_user_id, encrypted_name, encrypted_address,
-                   town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+                   carers_required_per_visit, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
                    vulnerability_notes_ciphertext, created_at::text`,
         [req.auth!.agencyId, reference, encryptField(row.fullName), encryptField(row.address),
           hashToken(normalizedPostcode), encryptField(row.town), encryptField(row.county),
-          encryptField(row.postcode.toUpperCase()), row.riskLevel,
+          encryptField(row.postcode.toUpperCase()), row.riskLevel, row.carersRequiredPerVisit,
           row.vulnerabilityNotes ? encryptField(row.vulnerabilityNotes) : null]
       );
       if (result.rows[0]) rows.push(result.rows[0]);
@@ -752,14 +755,15 @@ coordinatorRouter.post("/service-users", async (req, res) => {
     const result = await client.query<ServiceUserRow>(
       `INSERT INTO care.service_users
         (agency_id, external_service_user_id, encrypted_name, encrypted_address, postcode_hash,
-         town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level, vulnerability_notes_ciphertext)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level, carers_required_per_visit,
+         vulnerability_notes_ciphertext)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id::text, external_service_user_id, encrypted_name, encrypted_address,
-                 town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+                 carers_required_per_visit, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
                  vulnerability_notes_ciphertext, created_at::text`,
       [req.auth!.agencyId, reference, encryptField(data.fullName), encryptedAddress,
         hashToken(normalizedPostcode), encryptField(data.town), encryptField(data.county),
-        encryptField(data.postcode.toUpperCase()), data.riskLevel,
+        encryptField(data.postcode.toUpperCase()), data.riskLevel, data.carersRequiredPerVisit,
         data.vulnerabilityNotes ? encryptField(data.vulnerabilityNotes) : null]
     );
     return result.rows[0];
@@ -780,14 +784,16 @@ coordinatorRouter.patch("/service-users/:id", asyncHandler(async (req, res) => {
     `UPDATE care.service_users
      SET encrypted_name = $1, encrypted_address = $2, town_ciphertext = $3,
          county_ciphertext = $4, postcode_ciphertext = $5, postcode_hash = $6,
-         risk_level = $7, vulnerability_notes_ciphertext = $8, updated_at = clock_timestamp()
-     WHERE id = $9 AND agency_id = $10 AND deleted_at IS NULL
+         risk_level = $7, carers_required_per_visit = $8, vulnerability_notes_ciphertext = $9,
+         updated_at = clock_timestamp()
+     WHERE id = $10 AND agency_id = $11 AND deleted_at IS NULL
      RETURNING id::text, external_service_user_id, encrypted_name, encrypted_address,
-               town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+               carers_required_per_visit, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
                vulnerability_notes_ciphertext, created_at::text`,
     [encryptField(data.fullName), encryptField(data.address), encryptField(data.town), encryptField(data.county),
       encryptField(data.postcode.toUpperCase()), hashToken(normalizedPostcode), data.riskLevel,
-      data.vulnerabilityNotes ? encryptField(data.vulnerabilityNotes) : null, req.params.id, req.auth!.agencyId]
+      data.carersRequiredPerVisit, data.vulnerabilityNotes ? encryptField(data.vulnerabilityNotes) : null,
+      req.params.id, req.auth!.agencyId]
   );
   if (!result.rows[0]) return res.status(404).json({ error: "Service user not found" });
   await audit(req, "care.service_user.updated", "service_user", result.rows[0].id, { riskLevel: data.riskLevel });
@@ -1313,6 +1319,7 @@ function mapServiceUser(row: ServiceUserRow) {
     county: decryptOptional(row.county_ciphertext),
     postcode: decryptOptional(row.postcode_ciphertext),
     riskLevel: row.risk_level,
+    carersRequiredPerVisit: row.carers_required_per_visit || 1,
     vulnerabilityNotes: decryptOptional(row.vulnerability_notes_ciphertext),
     createdAt: row.created_at
   };

@@ -58,6 +58,7 @@ interface ServiceUser {
   county: string;
   postcode: string;
   riskLevel: "standard" | "vulnerable_adult" | "high_risk";
+  carersRequiredPerVisit: number;
   vulnerabilityNotes: string;
   createdAt: string;
 }
@@ -435,7 +436,7 @@ function BillingMetric({ icon, label, value, active, onClick, tone }: { icon: Re
 }
 
 function ServiceUserDirectory({ serviceUsers, onChanged }: { serviceUsers: ServiceUser[]; onChanged: () => Promise<void> }) {
-  const emptyForm = { fullName: "", address: "", town: "", county: "", postcode: "", riskLevel: "standard" as ServiceUser["riskLevel"], vulnerabilityNotes: "" };
+  const emptyForm = { fullName: "", address: "", town: "", county: "", postcode: "", riskLevel: "standard" as ServiceUser["riskLevel"], carersRequiredPerVisit: 1 as 1 | 2, vulnerabilityNotes: "" };
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState("");
   const [saving, setSaving] = useState(false);
@@ -456,6 +457,7 @@ function ServiceUserDirectory({ serviceUsers, onChanged }: { serviceUsers: Servi
       county: serviceUser.county,
       postcode: serviceUser.postcode,
       riskLevel: serviceUser.riskLevel,
+      carersRequiredPerVisit: (serviceUser.carersRequiredPerVisit === 2 ? 2 : 1) as 1 | 2,
       vulnerabilityNotes: serviceUser.vulnerabilityNotes
     });
     setError("");
@@ -541,7 +543,7 @@ function ServiceUserDirectory({ serviceUsers, onChanged }: { serviceUsers: Servi
         <div className="panel-heading"><div><h2>Service-user directory</h2><p>{serviceUsers.length} active record{serviceUsers.length === 1 ? "" : "s"}, organised by town and county.</p></div></div>
         {serviceUsers.length ? <div className="resident-list">{serviceUsers.map((serviceUser) => <article className="resident-record service-user-record" key={serviceUser.id}>
           <span className="resident-avatar">{initials(serviceUser.name)}</span>
-          <div className="resident-record-main"><div><h3>{serviceUser.name}</h3><StatusBadge status={serviceUser.riskLevel === "standard" ? "active" : serviceUser.riskLevel === "high_risk" ? "failed" : "pending"}>{humanize(serviceUser.riskLevel)}</StatusBadge></div><p><MapPin size={14} /> {formatAddress(serviceUser)}</p><small>{serviceUser.reference} / Added {formatDate(serviceUser.createdAt)}</small></div>
+          <div className="resident-record-main"><div><h3>{serviceUser.name}</h3><StatusBadge status={serviceUser.riskLevel === "standard" ? "active" : serviceUser.riskLevel === "high_risk" ? "failed" : "pending"}>{humanize(serviceUser.riskLevel)}</StatusBadge></div><p><MapPin size={14} /> {formatAddress(serviceUser)}</p><small>{serviceUser.reference} / {serviceUser.carersRequiredPerVisit === 2 ? "2-carer visits" : "1-carer visits"} / Added {formatDate(serviceUser.createdAt)}</small></div>
           <div className="record-actions"><button className="icon-button" onClick={() => edit(serviceUser)} aria-label={`Edit ${serviceUser.name}`} title="Edit service user"><Pencil size={17} /></button><button className="icon-button danger-icon" onClick={() => remove(serviceUser)} aria-label={`Delete ${serviceUser.name}`} title="Delete service user"><Trash2 size={17} /></button></div>
         </article>)}</div> : <EmptyState icon={<UsersRound />} title="No service users registered" detail="Add the first service user to make them available for task creation." />}
       </section>
@@ -560,6 +562,7 @@ function ServiceUserDirectory({ serviceUsers, onChanged }: { serviceUsers: Servi
           <div className="field-row"><label>Town<input required minLength={2} maxLength={120} value={form.town} onChange={(event) => update("town", event.target.value)} autoComplete="address-level2" /></label><label>County<input required minLength={2} maxLength={120} value={form.county} onChange={(event) => update("county", event.target.value)} autoComplete="address-level1" /></label></div>
           <label>Postcode<input required minLength={5} maxLength={12} value={form.postcode} onChange={(event) => update("postcode", event.target.value.toUpperCase())} autoComplete="postal-code" /></label>
           <label>Safeguarding status<select value={form.riskLevel} onChange={(event) => update("riskLevel", event.target.value as ServiceUser["riskLevel"])}><option value="standard">Standard</option><option value="vulnerable_adult">Vulnerable adult</option><option value="high_risk">High risk</option></select></label>
+          <label>Carers required per visit<select value={String(form.carersRequiredPerVisit)} onChange={(event) => update("carersRequiredPerVisit", Number(event.target.value) as 1 | 2)}><option value="1">1 carer per visit</option><option value="2">2 carers per visit / double-up</option></select></label>
           {form.riskLevel !== "standard" && <label>Safeguarding notes<textarea maxLength={2000} rows={3} value={form.vulnerabilityNotes} onChange={(event) => update("vulnerabilityNotes", event.target.value)} placeholder="Record only information needed to apply the correct visit controls." /></label>}
           <div className="resident-privacy-note"><ShieldAlert size={18} /><p>Identity, address and safeguarding details are encrypted and are never sent to handyman marketplaces.</p></div>
           {error && <p className="form-error" role="alert">{error}</p>}
@@ -848,7 +851,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
   const [draftCaregiver, setDraftCaregiver] = useState({ name: "", startPostcode: serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "18:00", skills: "" });
   const [editingCaregiverIndex, setEditingCaregiverIndex] = useState<number | null>(null);
   const [calls, setCalls] = useState([
-    { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "11:00", durationMinutes: 30, priority: "medium", requiredSkill: "personal care", carersRequired: 1 }
+    { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "11:00", durationMinutes: 30, priority: "medium", requiredSkill: "personal care", carersRequired: serviceUsers[0]?.carersRequiredPerVisit || 1 }
   ]);
   const [continuity, setContinuity] = useState<Array<{ serviceUserId: string; preferredCaregiverName: string }>>([]);
   const [plan, setPlan] = useState<RotaPlan | null>(null);
@@ -966,16 +969,21 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
     setCalls((current) => current.map((call, itemIndex) => itemIndex === index ? { ...call, [key]: value } : call));
   }
 
+  function carersRequiredForServiceUser(serviceUserId: string) {
+    const serviceUser = serviceUsers.find((item) => item.id === serviceUserId);
+    return serviceUser?.carersRequiredPerVisit === 2 ? 2 : 1;
+  }
+
+  function updateCallServiceUser(index: number, serviceUserId: string) {
+    setCalls((current) => current.map((call, itemIndex) => itemIndex === index
+      ? { ...call, serviceUserId, carersRequired: carersRequiredForServiceUser(serviceUserId) }
+      : call));
+  }
+
   function ensureCallForServiceUser(serviceUserId: string) {
     setCalls((current) => current.some((call) => call.serviceUserId === serviceUserId)
       ? current
-      : [...current, { serviceUserId, earliest: "06:00", latest: "23:00", durationMinutes: slotIntervalMinutes, priority: "routine", requiredSkill: "", carersRequired: 1 }]);
-  }
-
-  function setServiceUserCarerRequirement(serviceUserId: string, carersRequired: number) {
-    setCalls((current) => current.some((call) => call.serviceUserId === serviceUserId)
-      ? current.map((call) => call.serviceUserId === serviceUserId ? { ...call, carersRequired } : call)
-      : [...current, { serviceUserId, earliest: "06:00", latest: "23:00", durationMinutes: slotIntervalMinutes, priority: "routine", requiredSkill: "", carersRequired }]);
+      : [...current, { serviceUserId, earliest: "06:00", latest: "23:00", durationMinutes: slotIntervalMinutes, priority: "routine", requiredSkill: "", carersRequired: carersRequiredForServiceUser(serviceUserId) }]);
   }
 
   function updateContinuity(index: number, key: keyof typeof continuity[number], value: string) {
@@ -998,7 +1006,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
       durationMinutes: slotIntervalMinutes,
       priority: "routine",
       requiredSkill: "",
-      carersRequired: 1
+      carersRequired: carersRequiredForServiceUser(serviceUserId)
     };
     const carersRequired = call?.carersRequired || 1;
     setManualAssignments((current) => {
@@ -1093,7 +1101,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
       durationMinutes: call.durationMinutes,
       priority: call.priority,
       requiredSkill: call.requiredSkill,
-      carersRequired: Number(call.carersRequired || 1)
+      carersRequired: serviceUser?.carersRequiredPerVisit === 2 ? 2 : 1
     };
   });
   const registeredServiceUserVisitCards = serviceUsers.map((serviceUser) => {
@@ -1108,7 +1116,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
       durationMinutes: configuredCall?.durationMinutes || slotIntervalMinutes,
       priority: configuredCall?.priority || "routine",
       requiredSkill: configuredCall?.requiredSkill || "",
-      carersRequired: Number(configuredCall?.carersRequired || 1)
+      carersRequired: serviceUser.carersRequiredPerVisit === 2 ? 2 : 1
     };
   });
   const manualAssignedCount = (callId: string) => Object.values(manualAssignments).filter((assignedCallId) => assignedCallId === callId).length;
@@ -1249,7 +1257,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
               {registeredServiceUserVisitCards.map((call) => <article key={call.id} draggable onDragStart={(event) => event.dataTransfer.setData("text/plain", call.id)} className={`rota-draggable-visit urgency-${call.priority}`}>
                 <strong>{call.serviceUserName}</strong>
                 <small>{call.window} / {call.durationMinutes} mins{call.requiredSkill ? ` / ${call.requiredSkill}` : ""}</small>
-                <label>Requirement<select value={call.carersRequired} onChange={(event) => setServiceUserCarerRequirement(call.serviceUserId, Number(event.target.value))}><option value={1}>1 carer</option><option value={2}>2 carers</option></select></label>
+                <small>Requirement: {call.carersRequired === 2 ? "2 carers / double-up" : "1 carer"}</small>
                 <span>{call.carersRequired === 2 ? `Double-up: ${manualAssignedCount(call.id)} of 2 carers placed` : `${manualAssignedCount(call.id)} placed`}</span>
               </article>)}
               {!registeredServiceUserVisitCards.length && <p>No service users have been registered yet.</p>}
@@ -1384,12 +1392,12 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
             </article>)}</div>
           </section>}
           {activeRotaPage === "planner" && <section className="panel" id="rota-visits">
-            <div className="panel-heading"><div><h2>Calls</h2><p>Select service users and preferred call windows.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setCalls((current) => [...current, { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "12:00", durationMinutes: 30, priority: "routine", requiredSkill: "", carersRequired: 1 }])}><Plus size={15} /> Add</button></div>
+            <div className="panel-heading"><div><h2>Calls</h2><p>Select service users and preferred call windows. Staffing requirement comes from the service-user record.</p></div><button className="button button-secondary button-small" type="button" onClick={() => setCalls((current) => [...current, { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "12:00", durationMinutes: 30, priority: "routine", requiredSkill: "", carersRequired: serviceUsers[0]?.carersRequiredPerVisit || 1 }])}><Plus size={15} /> Add</button></div>
             <div className="rota-input-list">{calls.map((call, index) => <article key={index}>
-              <label>Service user<select value={call.serviceUserId} onChange={(event) => updateCall(index, "serviceUserId", event.target.value)}><option value="">Select service user</option>{serviceUsers.map((serviceUser) => <option key={serviceUser.id} value={serviceUser.id}>{serviceUser.name} / {serviceUser.postcode}</option>)}</select></label>
+              <label>Service user<select value={call.serviceUserId} onChange={(event) => updateCallServiceUser(index, event.target.value)}><option value="">Select service user</option>{serviceUsers.map((serviceUser) => <option key={serviceUser.id} value={serviceUser.id}>{serviceUser.name} / {serviceUser.postcode}</option>)}</select></label>
               <div className="field-row"><label>Earliest<input type="time" value={call.earliest} onChange={(event) => updateCall(index, "earliest", event.target.value)} /></label><label>Latest<input type="time" value={call.latest} onChange={(event) => updateCall(index, "latest", event.target.value)} /></label></div>
               <div className="field-row"><label>Minutes<input type="number" min={5} max={240} value={call.durationMinutes} onChange={(event) => updateCall(index, "durationMinutes", Number(event.target.value))} /></label><label>Priority<select value={call.priority} onChange={(event) => updateCall(index, "priority", event.target.value)}><option value="routine">Routine</option><option value="medium">Medium</option><option value="high">High</option></select></label></div>
-              <label>Call type<select value={String(call.carersRequired || 1)} onChange={(event) => updateCall(index, "carersRequired", Number(event.target.value))}><option value="1">Single call</option><option value="2">Double-up call</option></select></label>
+              <p className="muted-copy">Visit staffing: {carersRequiredForServiceUser(call.serviceUserId) === 2 ? "2 carers / double-up" : "1 carer"}</p>
               <label>Required skill<input value={call.requiredSkill} onChange={(event) => updateCall(index, "requiredSkill", event.target.value)} placeholder="personal care" /></label>
             </article>)}</div>
           </section>}

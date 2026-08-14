@@ -8,20 +8,23 @@ test("service user CSV template contains the required directory headers", () => 
   assert.match(headers, /address/);
   assert.match(headers, /postcode/);
   assert.match(headers, /risk_level/);
+  assert.match(headers, /carers_required_per_visit/);
 });
 
 test("service user CSV import accepts quoted fields and normalises risk levels", () => {
-  const result = parseServiceUserCsv(`reference,full_name,address,town,county,postcode,risk_level,vulnerability_notes
-CARE-1,"Janet Hart","Flat 4, 12 Example Road",Peterborough,Cambridgeshire,pe1 1aa,Vulnerable adult,"Lives alone, carer attends"
-CARE-2,"Mo Ali","1 ""Rose"" Court",Cambridge,Cambridgeshire,CB1 1AA,high risk,"Needs two-person access review"`);
+  const result = parseServiceUserCsv(`reference,full_name,address,town,county,postcode,risk_level,carers_required_per_visit,vulnerability_notes
+CARE-1,"Janet Hart","Flat 4, 12 Example Road",Peterborough,Cambridgeshire,pe1 1aa,Vulnerable adult,1,"Lives alone, carer attends"
+CARE-2,"Mo Ali","1 ""Rose"" Court",Cambridge,Cambridgeshire,CB1 1AA,high risk,double-up,"Needs two-person access review"`);
 
   assert.deepEqual(result.errors, []);
   assert.equal(result.rows.length, 2);
   assert.equal(result.rows[0].riskLevel, "vulnerable_adult");
+  assert.equal(result.rows[0].carersRequiredPerVisit, 1);
   assert.equal(result.rows[0].postcode, "PE1 1AA");
   assert.equal(result.rows[0].vulnerabilityNotes, "Lives alone, carer attends");
   assert.equal(result.rows[1].address, "1 \"Rose\" Court");
   assert.equal(result.rows[1].riskLevel, "high_risk");
+  assert.equal(result.rows[1].carersRequiredPerVisit, 2);
 });
 
 test("service user CSV import reports row-level validation without losing valid rows", () => {

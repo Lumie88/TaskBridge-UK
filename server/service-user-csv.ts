@@ -8,6 +8,7 @@ export interface ServiceUserCsvRow {
   county: string;
   postcode: string;
   riskLevel: ServiceUserRiskLevel;
+  carersRequiredPerVisit: number;
   vulnerabilityNotes: string;
 }
 
@@ -19,8 +20,8 @@ export interface ServiceUserCsvParseResult {
 const MAX_SERVICE_USER_IMPORT_ROWS = 500;
 
 export const SERVICE_USER_CSV_TEMPLATE = [
-  ["reference", "full_name", "address", "town", "county", "postcode", "risk_level", "vulnerability_notes"],
-  ["", "Janet Hart", "Flat 4, 12 Example Road", "Peterborough", "Cambridgeshire", "PE1 1AA", "vulnerable_adult", "Lives alone; carer should be on site for high-risk work"]
+  ["reference", "full_name", "address", "town", "county", "postcode", "risk_level", "carers_required_per_visit", "vulnerability_notes"],
+  ["", "Janet Hart", "Flat 4, 12 Example Road", "Peterborough", "Cambridgeshire", "PE1 1AA", "vulnerable_adult", "2", "Lives alone; double-up care call required"]
 ].map((row) => row.map(csvEscape).join(",")).join("\r\n") + "\r\n";
 
 export function parseServiceUserCsv(csvText: string): ServiceUserCsvParseResult {
@@ -69,6 +70,7 @@ function normalizeServiceUserRow(row: Record<string, string>): ServiceUserCsvRow
     county: firstValue(row, ["county", "region"]),
     postcode: firstValue(row, ["postcode", "post_code", "postal_code"]).toUpperCase(),
     riskLevel: normalizeRiskLevel(firstValue(row, ["risk_level", "safeguarding_status", "status"])),
+    carersRequiredPerVisit: normalizeCarersRequired(firstValue(row, ["carers_required_per_visit", "carers_required", "number_of_carers", "visit_carers", "double_up"])),
     vulnerabilityNotes: firstValue(row, ["vulnerability_notes", "safeguarding_notes", "notes", "visit_controls"])
   };
 }
@@ -81,6 +83,7 @@ function validateServiceUserRow(row: ServiceUserCsvRow, line: number) {
   if (row.town.length < 2 || row.town.length > 120) errors.push(`CSV row ${line}: town must be 2-120 characters`);
   if (row.county.length < 2 || row.county.length > 120) errors.push(`CSV row ${line}: county must be 2-120 characters`);
   if (row.postcode.length < 5 || row.postcode.length > 12) errors.push(`CSV row ${line}: postcode must be 5-12 characters`);
+  if (![1, 2].includes(row.carersRequiredPerVisit)) errors.push(`CSV row ${line}: carers_required_per_visit must be 1 or 2`);
   if (row.vulnerabilityNotes.length > 2000) errors.push(`CSV row ${line}: vulnerability_notes must be 2000 characters or fewer`);
   return errors;
 }
@@ -90,6 +93,14 @@ function normalizeRiskLevel(value: string): ServiceUserRiskLevel {
   if (["high", "high_risk", "urgent", "enhanced"].includes(normalized)) return "high_risk";
   if (["vulnerable", "vulnerable_adult", "adult_at_risk", "safeguarded"].includes(normalized)) return "vulnerable_adult";
   return "standard";
+}
+
+function normalizeCarersRequired(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return 1;
+  if (["2", "two", "double", "double_up", "double-up", "yes", "y", "true"].includes(normalized)) return 2;
+  if (["1", "one", "single", "single_carer", "single-carer", "no", "n", "false"].includes(normalized)) return 1;
+  return Number.parseInt(normalized, 10);
 }
 
 function parseCsvRecords(csvText: string) {
