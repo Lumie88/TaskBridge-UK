@@ -59,6 +59,7 @@ interface ServiceUser {
   postcode: string;
   riskLevel: "standard" | "vulnerable_adult" | "high_risk";
   carersRequiredPerVisit: number;
+  preferredCarerGender: "no_preference" | "female" | "male";
   vulnerabilityNotes: string;
   createdAt: string;
 }
@@ -436,7 +437,7 @@ function BillingMetric({ icon, label, value, active, onClick, tone }: { icon: Re
 }
 
 function ServiceUserDirectory({ serviceUsers, onChanged }: { serviceUsers: ServiceUser[]; onChanged: () => Promise<void> }) {
-  const emptyForm = { fullName: "", address: "", town: "", county: "", postcode: "", riskLevel: "standard" as ServiceUser["riskLevel"], carersRequiredPerVisit: 1 as 1 | 2, vulnerabilityNotes: "" };
+  const emptyForm = { fullName: "", address: "", town: "", county: "", postcode: "", riskLevel: "standard" as ServiceUser["riskLevel"], carersRequiredPerVisit: 1 as 1 | 2, preferredCarerGender: "no_preference" as ServiceUser["preferredCarerGender"], vulnerabilityNotes: "" };
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState("");
   const [saving, setSaving] = useState(false);
@@ -458,6 +459,7 @@ function ServiceUserDirectory({ serviceUsers, onChanged }: { serviceUsers: Servi
       postcode: serviceUser.postcode,
       riskLevel: serviceUser.riskLevel,
       carersRequiredPerVisit: (serviceUser.carersRequiredPerVisit === 2 ? 2 : 1) as 1 | 2,
+      preferredCarerGender: serviceUser.preferredCarerGender || "no_preference",
       vulnerabilityNotes: serviceUser.vulnerabilityNotes
     });
     setError("");
@@ -543,7 +545,7 @@ function ServiceUserDirectory({ serviceUsers, onChanged }: { serviceUsers: Servi
         <div className="panel-heading"><div><h2>Service-user directory</h2><p>{serviceUsers.length} active record{serviceUsers.length === 1 ? "" : "s"}, organised by town and county.</p></div></div>
         {serviceUsers.length ? <div className="resident-list">{serviceUsers.map((serviceUser) => <article className="resident-record service-user-record" key={serviceUser.id}>
           <span className="resident-avatar">{initials(serviceUser.name)}</span>
-          <div className="resident-record-main"><div><h3>{serviceUser.name}</h3><StatusBadge status={serviceUser.riskLevel === "standard" ? "active" : serviceUser.riskLevel === "high_risk" ? "failed" : "pending"}>{humanize(serviceUser.riskLevel)}</StatusBadge></div><p><MapPin size={14} /> {formatAddress(serviceUser)}</p><small>{serviceUser.reference} / {serviceUser.carersRequiredPerVisit === 2 ? "2-carer visits" : "1-carer visits"} / Added {formatDate(serviceUser.createdAt)}</small></div>
+          <div className="resident-record-main"><div><h3>{serviceUser.name}</h3><StatusBadge status={serviceUser.riskLevel === "standard" ? "active" : serviceUser.riskLevel === "high_risk" ? "failed" : "pending"}>{humanize(serviceUser.riskLevel)}</StatusBadge></div><p><MapPin size={14} /> {formatAddress(serviceUser)}</p><small>{serviceUser.reference} / {serviceUser.carersRequiredPerVisit === 2 ? "2-carer visits" : "1-carer visits"} / {serviceUser.preferredCarerGender === "no_preference" ? "Any carer gender" : `${humanize(serviceUser.preferredCarerGender)} carer`} / Added {formatDate(serviceUser.createdAt)}</small></div>
           <div className="record-actions"><button className="icon-button" onClick={() => edit(serviceUser)} aria-label={`Edit ${serviceUser.name}`} title="Edit service user"><Pencil size={17} /></button><button className="icon-button danger-icon" onClick={() => remove(serviceUser)} aria-label={`Delete ${serviceUser.name}`} title="Delete service user"><Trash2 size={17} /></button></div>
         </article>)}</div> : <EmptyState icon={<UsersRound />} title="No service users registered" detail="Add the first service user to make them available for task creation." />}
       </section>
@@ -563,6 +565,7 @@ function ServiceUserDirectory({ serviceUsers, onChanged }: { serviceUsers: Servi
           <label>Postcode<input required minLength={5} maxLength={12} value={form.postcode} onChange={(event) => update("postcode", event.target.value.toUpperCase())} autoComplete="postal-code" /></label>
           <label>Safeguarding status<select value={form.riskLevel} onChange={(event) => update("riskLevel", event.target.value as ServiceUser["riskLevel"])}><option value="standard">Standard</option><option value="vulnerable_adult">Vulnerable adult</option><option value="high_risk">High risk</option></select></label>
           <label>Carers required per visit<select value={String(form.carersRequiredPerVisit)} onChange={(event) => update("carersRequiredPerVisit", Number(event.target.value) as 1 | 2)}><option value="1">1 carer per visit</option><option value="2">2 carers per visit / double-up</option></select></label>
+          <label>Preferred carer gender<select value={form.preferredCarerGender} onChange={(event) => update("preferredCarerGender", event.target.value as ServiceUser["preferredCarerGender"])}><option value="no_preference">No preference</option><option value="female">Female carer</option><option value="male">Male carer</option></select></label>
           {form.riskLevel !== "standard" && <label>Safeguarding notes<textarea maxLength={2000} rows={3} value={form.vulnerabilityNotes} onChange={(event) => update("vulnerabilityNotes", event.target.value)} placeholder="Record only information needed to apply the correct visit controls." /></label>}
           <div className="resident-privacy-note"><ShieldAlert size={18} /><p>Identity, address and safeguarding details are encrypted and are never sent to handyman marketplaces.</p></div>
           {error && <p className="form-error" role="alert">{error}</p>}
@@ -735,13 +738,19 @@ interface RotaPlan {
       durationMinutes: number;
       priority: string;
       riskLevel: string;
+      carersRequired: number;
+      preferredCarerGender: "no_preference" | "female" | "male";
+      doubleUpPartnerNames: string[];
       continuityMatched: boolean;
       continuityCaregiver: string;
+      breakBeforeMinutes: number;
       warnings: string[];
     }>;
     assignedMinutes: number;
     travelMinutes: number;
     workingMinutes: number;
+    breakMinutes: number;
+    breaksTaken: number;
     idleMinutes: number;
     utilisationPercent: number;
     routeEfficiencyScore: number;
@@ -759,6 +768,7 @@ interface RotaCaregiver {
   startPostcode: string;
   availableFrom: string;
   availableTo: string;
+  gender: "not_recorded" | "female" | "male";
   skills: string;
   createdAt?: string;
 }
@@ -848,7 +858,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
   const [slotIntervalMinutes, setSlotIntervalMinutes] = useState(30);
   const [manualAssignments, setManualAssignments] = useState<Record<string, string>>({});
   const [caregivers, setCaregivers] = useState<RotaCaregiver[]>([]);
-  const [draftCaregiver, setDraftCaregiver] = useState({ name: "", startPostcode: serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "18:00", skills: "" });
+  const [draftCaregiver, setDraftCaregiver] = useState({ name: "", startPostcode: serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "18:00", gender: "not_recorded" as RotaCaregiver["gender"], skills: "" });
   const [editingCaregiverIndex, setEditingCaregiverIndex] = useState<number | null>(null);
   const [calls, setCalls] = useState([
     { serviceUserId: serviceUsers[0]?.id || "", earliest: "09:00", latest: "11:00", durationMinutes: 30, priority: "medium", requiredSkill: "personal care", carersRequired: serviceUsers[0]?.carersRequiredPerVisit || 1 }
@@ -906,7 +916,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
   }
 
   function resetDraftCaregiver() {
-    setDraftCaregiver({ name: "", startPostcode: branchPostcode || serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "18:00", skills: "" });
+    setDraftCaregiver({ name: "", startPostcode: branchPostcode || serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "18:00", gender: "not_recorded", skills: "" });
     setEditingCaregiverIndex(null);
   }
 
@@ -936,8 +946,8 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
   }
 
   function editCaregiver(index: number) {
-    const { name, startPostcode, availableFrom, availableTo, skills } = caregivers[index];
-    setDraftCaregiver({ name, startPostcode, availableFrom, availableTo, skills });
+    const { name, startPostcode, availableFrom, availableTo, gender, skills } = caregivers[index];
+    setDraftCaregiver({ name, startPostcode, availableFrom, availableTo, gender: gender || "not_recorded", skills });
     setEditingCaregiverIndex(index);
     document.getElementById("rota-caregivers")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -1006,7 +1016,8 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
       durationMinutes: slotIntervalMinutes,
       priority: "routine",
       requiredSkill: "",
-      carersRequired: carersRequiredForServiceUser(serviceUserId)
+      carersRequired: carersRequiredForServiceUser(serviceUserId),
+      preferredCarerGender: serviceUser?.preferredCarerGender || "no_preference"
     };
     const carersRequired = call?.carersRequired || 1;
     setManualAssignments((current) => {
@@ -1068,6 +1079,8 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
       available: `${caregiver.availableFrom}-${caregiver.availableTo}`,
       travelMinutes: 0,
       assignedMinutes: 0,
+      breakMinutes: 0,
+      breaksTaken: 0,
       utilisationPercent: 0,
       routeEfficiencyScore: 0,
       riskLoad: 0,
@@ -1101,7 +1114,8 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
       durationMinutes: call.durationMinutes,
       priority: call.priority,
       requiredSkill: call.requiredSkill,
-      carersRequired: serviceUser?.carersRequiredPerVisit === 2 ? 2 : 1
+      carersRequired: serviceUser?.carersRequiredPerVisit === 2 ? 2 : 1,
+      preferredCarerGender: serviceUser?.preferredCarerGender || "no_preference"
     };
   });
   const registeredServiceUserVisitCards = serviceUsers.map((serviceUser) => {
@@ -1116,7 +1130,8 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
       durationMinutes: configuredCall?.durationMinutes || slotIntervalMinutes,
       priority: configuredCall?.priority || "routine",
       requiredSkill: configuredCall?.requiredSkill || "",
-      carersRequired: serviceUser.carersRequiredPerVisit === 2 ? 2 : 1
+      carersRequired: serviceUser.carersRequiredPerVisit === 2 ? 2 : 1,
+      preferredCarerGender: serviceUser.preferredCarerGender || "no_preference"
     };
   });
   const manualAssignedCount = (callId: string) => Object.values(manualAssignments).filter((assignedCallId) => assignedCallId === callId).length;
@@ -1258,6 +1273,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
                 <strong>{call.serviceUserName}</strong>
                 <small>{call.window} / {call.durationMinutes} mins{call.requiredSkill ? ` / ${call.requiredSkill}` : ""}</small>
                 <small>Requirement: {call.carersRequired === 2 ? "2 carers / double-up" : "1 carer"}</small>
+                <small>Gender preference: {call.preferredCarerGender === "no_preference" ? "No preference" : humanize(call.preferredCarerGender)}</small>
                 <span>{call.carersRequired === 2 ? `Double-up: ${manualAssignedCount(call.id)} of 2 carers placed` : `${manualAssignedCount(call.id)} placed`}</span>
               </article>)}
               {!registeredServiceUserVisitCards.length && <p>No service users have been registered yet.</p>}
@@ -1325,7 +1341,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
               {schedule.calls.length ? schedule.calls.map((call, index) => <article key={`${call.reference}-${index}`} className={`rota-visit-block urgency-${call.priority}`}>
                 <strong>{call.arrive}-{call.leave}</strong>
                 <span>{call.serviceUserName}</span>
-                <small>{call.travelMinutes} mins travel{call.continuityMatched ? " / continuity" : ""}</small>
+                <small>{call.travelMinutes} mins travel{call.carersRequired === 2 ? " / double-up" : ""}{call.continuityMatched ? " / continuity" : ""}</small>
               </article>) : <span className="rota-empty-run">No visits assigned yet</span>}
             </div>
           </div>)}
@@ -1357,6 +1373,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
               <label>Name<input value={draftCaregiver.name} onChange={(event) => updateDraftCaregiver("name", event.target.value)} placeholder="Carer name" /></label>
               <label>Start postcode<input value={draftCaregiver.startPostcode} onChange={(event) => updateDraftCaregiver("startPostcode", event.target.value.toUpperCase())} placeholder="PE2 6XU" /></label>
               <div className="field-row"><label>From<input type="time" value={draftCaregiver.availableFrom} onChange={(event) => updateDraftCaregiver("availableFrom", event.target.value)} /></label><label>To<input type="time" value={draftCaregiver.availableTo} onChange={(event) => updateDraftCaregiver("availableTo", event.target.value)} /></label></div>
+              <label>Carer gender<select value={draftCaregiver.gender} onChange={(event) => updateDraftCaregiver("gender", event.target.value as RotaCaregiver["gender"])}><option value="not_recorded">Not recorded</option><option value="female">Female</option><option value="male">Male</option></select></label>
               <label>Skills<input value={draftCaregiver.skills} onChange={(event) => updateDraftCaregiver("skills", event.target.value)} placeholder="personal care, medication" /></label>
               <div className="rota-form-actions">
                 <button className="button button-primary" type="button" disabled={caregiverSaving} onClick={saveDraftCaregiver}><Plus size={15} /> {caregiverSaving ? "Saving..." : editingCaregiverIndex === null ? "Add carer" : "Update carer"}</button>
@@ -1372,7 +1389,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
                 <span><UsersRound size={16} /></span>
                 <div>
                   <strong>{caregiver.name || `Carer ${index + 1}`}</strong>
-                  <small>{caregiver.availableFrom}-{caregiver.availableTo} / {caregiver.startPostcode || branchPostcode || "No postcode"}</small>
+                  <small>{caregiver.availableFrom}-{caregiver.availableTo} / {caregiver.gender === "not_recorded" ? "Gender not recorded" : humanize(caregiver.gender)} / {caregiver.startPostcode || branchPostcode || "No postcode"}</small>
                   <p>{caregiver.skills || "No skills added yet"}</p>
                   <em>{visits.length} planned call{visits.length === 1 ? "" : "s"}</em>
                   <div className="rota-carer-actions">
@@ -1446,7 +1463,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
         <article><strong>{plan.summary.longTravelAlerts}</strong><span>Long travel alerts</span><p>Segments above {maxTravelMinutesBetweenCalls} minutes are flagged before approval.</p></article>
       </section>
       <section className="panel rota-recommendations"><div className="panel-heading"><div><h2>Manager recommendations</h2><p>{plan.method}</p></div><StatusBadge status={plan.summary.riskWarnings || plan.summary.unassignedCalls ? "pending" : "approved"}>{plan.summary.riskWarnings || plan.summary.unassignedCalls ? "Needs review" : "Ready"}</StatusBadge></div>{plan.recommendations.map((recommendation) => <p key={recommendation}><Sparkles size={15} /> {recommendation}</p>)}</section>
-      <section className="panel"><div className="panel-heading"><div><h2>Suggested rota</h2><p>Review each caregiver route, utilisation and safeguarding warnings before confirming.</p></div></div><div className="rota-schedule-list">{plan.schedules.map((schedule) => <article key={schedule.caregiverId} className="rota-schedule-card"><header><div><h3>{schedule.caregiverName}</h3><p>{schedule.available} / {schedule.travelMinutes} travel / {schedule.assignedMinutes} care minutes</p></div><StatusBadge status={schedule.warnings.length ? "pending" : "approved"}>{schedule.warnings.length ? "Review" : "Ready"}</StatusBadge></header><div className="rota-efficiency-strip"><span>{schedule.utilisationPercent}% utilisation</span><span>{schedule.routeEfficiencyScore}% efficient</span><span>{schedule.idleMinutes} mins contingency</span><span>{schedule.riskLoad} risk calls</span></div>{schedule.warnings.length > 0 && <div className="rota-schedule-warnings">{schedule.warnings.map((warning) => <small key={warning}>{warning}</small>)}</div>}{schedule.calls.map((call, index) => <div key={`${call.reference}-${index}`} className="rota-call-row"><span>{call.arrive}</span><div><strong>{call.serviceUserName}</strong><p>{call.postcode} / {call.window} / {call.durationMinutes} mins / {humanize(call.priority)} / leaves {call.leave}</p><p>{call.travelMinutes} mins travel{call.waitMinutes ? ` / ${call.waitMinutes} mins waiting` : ""}{call.continuityMatched ? " / continuity matched" : ""}</p>{call.warnings.length > 0 && <small>{call.warnings.join(" · ")}</small>}</div></div>)}{!schedule.calls.length && <p className="muted-copy">No calls assigned to this caregiver.</p>}</article>)}</div>{plan.unassigned.length > 0 && <div className="rota-unassigned">{plan.unassigned.map((call) => <p key={call.reference}><strong>{call.serviceUserName}</strong>: {call.reason}</p>)}</div>}</section>
+      <section className="panel"><div className="panel-heading"><div><h2>Suggested rota</h2><p>Review each caregiver route, double-up cover, gender match, breaks and safeguarding warnings before confirming.</p></div></div><div className="rota-schedule-list">{plan.schedules.map((schedule) => <article key={schedule.caregiverId} className="rota-schedule-card"><header><div><h3>{schedule.caregiverName}</h3><p>{schedule.available} / {schedule.travelMinutes} travel / {schedule.assignedMinutes} care minutes / {schedule.breakMinutes || 0} break minutes</p></div><StatusBadge status={schedule.warnings.length ? "pending" : "approved"}>{schedule.warnings.length ? "Review" : "Ready"}</StatusBadge></header><div className="rota-efficiency-strip"><span>{schedule.utilisationPercent}% utilisation</span><span>{schedule.routeEfficiencyScore}% efficient</span><span>{schedule.idleMinutes} mins contingency</span><span>{schedule.riskLoad} risk calls</span><span>{schedule.breaksTaken || 0} breaks</span></div>{schedule.warnings.length > 0 && <div className="rota-schedule-warnings">{schedule.warnings.map((warning) => <small key={warning}>{warning}</small>)}</div>}{schedule.calls.map((call, index) => <div key={`${call.reference}-${index}`} className="rota-call-row"><span>{call.arrive}</span><div><strong>{call.serviceUserName}</strong><p>{call.postcode} / {call.window} / {call.durationMinutes} mins / {humanize(call.priority)} / leaves {call.leave}</p><p>{call.travelMinutes} mins travel{call.waitMinutes ? ` / ${call.waitMinutes} mins waiting` : ""}{call.breakBeforeMinutes ? ` / ${call.breakBeforeMinutes} min break before` : ""}{call.carersRequired === 2 ? ` / double-up${call.doubleUpPartnerNames.length ? ` with ${call.doubleUpPartnerNames.join(", ")}` : ""}` : ""}{call.preferredCarerGender !== "no_preference" ? ` / ${humanize(call.preferredCarerGender)} preference matched` : ""}{call.continuityMatched ? " / continuity matched" : ""}</p>{call.warnings.length > 0 && <small>{call.warnings.join(" / ")}</small>}</div></div>)}{!schedule.calls.length && <p className="muted-copy">No calls assigned to this caregiver.</p>}</article>)}</div>{plan.unassigned.length > 0 && <div className="rota-unassigned">{plan.unassigned.map((call) => <p key={call.reference}><strong>{call.serviceUserName}</strong>: {call.reason}</p>)}</div>}</section>
     </section>}
   </form>;
 }

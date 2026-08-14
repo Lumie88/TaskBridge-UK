@@ -15,6 +15,7 @@ interface ServiceUserRow {
   encrypted_name: string;
   encrypted_address: string;
   carers_required_per_visit: number;
+  preferred_carer_gender: "no_preference" | "female" | "male";
   town_ciphertext: string | null;
   county_ciphertext: string | null;
   postcode_ciphertext: string | null;
@@ -75,6 +76,7 @@ interface RotaCaregiverRow {
   start_postcode_ciphertext: string | null;
   available_from: string;
   available_to: string;
+  gender: "not_recorded" | "female" | "male";
   skills_ciphertext: string | null;
   created_at: string;
 }
@@ -92,6 +94,7 @@ const createServiceUserSchema = z.object({
   postcode: z.string().trim().min(5).max(12),
   riskLevel: z.enum(["standard", "vulnerable_adult", "high_risk"]),
   carersRequiredPerVisit: z.number().int().min(1).max(2).optional().default(1),
+  preferredCarerGender: z.enum(["no_preference", "female", "male"]).optional().default("no_preference"),
   vulnerabilityNotes: z.string().trim().max(2000).optional().default("")
 });
 
@@ -159,6 +162,7 @@ const rotaPlanSchema = z.object({
     startPostcode: z.string().trim().min(3).max(12).optional().default(""),
     availableFrom: z.string().regex(/^\d{2}:\d{2}$/).default("08:00"),
     availableTo: z.string().regex(/^\d{2}:\d{2}$/).default("18:00"),
+    gender: z.enum(["not_recorded", "female", "male"]).optional().default("not_recorded"),
     skills: z.string().trim().max(300).optional().default("")
   })).min(1).max(12),
   calls: z.array(z.object({
@@ -179,6 +183,7 @@ const rotaCaregiverSchema = z.object({
   startPostcode: z.string().trim().max(12).optional().default(""),
   availableFrom: z.string().regex(/^\d{2}:\d{2}$/).default("08:00"),
   availableTo: z.string().regex(/^\d{2}:\d{2}$/).default("18:00"),
+  gender: z.enum(["not_recorded", "female", "male"]).optional().default("not_recorded"),
   skills: z.string().trim().max(300).optional().default("")
 });
 
@@ -474,7 +479,7 @@ coordinatorRouter.get("/care-os/dashboard", asyncHandler(async (req, res) => {
   const [serviceUsers, tasks] = await Promise.all([
     query<ServiceUserRow>(
       `SELECT id::text, external_service_user_id, encrypted_name, encrypted_address,
-              carers_required_per_visit, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+              carers_required_per_visit, preferred_carer_gender, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
               vulnerability_notes_ciphertext, created_at::text
        FROM care.service_users
        WHERE agency_id = $1 AND deleted_at IS NULL
@@ -541,7 +546,7 @@ coordinatorRouter.post("/rota-planner/plan", asyncHandler(async (req, res) => {
   const serviceUserIds = parsed.data.calls.map((call) => call.serviceUserId);
   const serviceUsers = await query<ServiceUserRow & { latitude: string | null; longitude: string | null }>(
     `SELECT id::text, external_service_user_id, encrypted_name, encrypted_address,
-            carers_required_per_visit, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+            carers_required_per_visit, preferred_carer_gender, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
             vulnerability_notes_ciphertext, latitude::text, longitude::text, created_at::text
      FROM care.service_users
      WHERE agency_id = $1 AND id = ANY($2::uuid[]) AND deleted_at IS NULL`,
@@ -564,7 +569,7 @@ coordinatorRouter.post("/rota-planner/plan", asyncHandler(async (req, res) => {
 coordinatorRouter.get("/rota-planner/caregivers", asyncHandler(async (req, res) => {
   const result = await query<RotaCaregiverRow>(
     `SELECT id::text, name_ciphertext, start_postcode_ciphertext, available_from,
-            available_to, skills_ciphertext, created_at::text
+            available_to, gender, skills_ciphertext, created_at::text
      FROM care.rota_caregivers
      WHERE agency_id = $1 AND deleted_at IS NULL
      ORDER BY created_at ASC`,
@@ -578,12 +583,12 @@ coordinatorRouter.post("/rota-planner/caregivers", asyncHandler(async (req, res)
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid carer details" });
   const result = await query<RotaCaregiverRow>(
     `INSERT INTO care.rota_caregivers
-       (agency_id, name_ciphertext, start_postcode_ciphertext, available_from, available_to, skills_ciphertext)
-     VALUES ($1, $2, $3, $4, $5, $6)
+       (agency_id, name_ciphertext, start_postcode_ciphertext, available_from, available_to, gender, skills_ciphertext)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING id::text, name_ciphertext, start_postcode_ciphertext, available_from,
-               available_to, skills_ciphertext, created_at::text`,
+               available_to, gender, skills_ciphertext, created_at::text`,
     [req.auth!.agencyId, encryptField(parsed.data.name), parsed.data.startPostcode ? encryptField(parsed.data.startPostcode.toUpperCase()) : null,
-      parsed.data.availableFrom, parsed.data.availableTo, parsed.data.skills ? encryptField(parsed.data.skills) : null]
+      parsed.data.availableFrom, parsed.data.availableTo, parsed.data.gender, parsed.data.skills ? encryptField(parsed.data.skills) : null]
   );
   await audit(req, "care.rota_caregiver.created", "rota_caregiver", result.rows[0].id, { availableFrom: parsed.data.availableFrom, availableTo: parsed.data.availableTo });
   res.status(201).json({ caregiver: mapRotaCaregiver(result.rows[0]) });
@@ -598,12 +603,13 @@ coordinatorRouter.patch("/rota-planner/caregivers/:id", asyncHandler(async (req,
          start_postcode_ciphertext = $4,
          available_from = $5,
          available_to = $6,
-         skills_ciphertext = $7
+         gender = $7,
+         skills_ciphertext = $8
      WHERE agency_id = $1 AND id = $2 AND deleted_at IS NULL
      RETURNING id::text, name_ciphertext, start_postcode_ciphertext, available_from,
-               available_to, skills_ciphertext, created_at::text`,
+               available_to, gender, skills_ciphertext, created_at::text`,
     [req.auth!.agencyId, req.params.id, encryptField(parsed.data.name), parsed.data.startPostcode ? encryptField(parsed.data.startPostcode.toUpperCase()) : null,
-      parsed.data.availableFrom, parsed.data.availableTo, parsed.data.skills ? encryptField(parsed.data.skills) : null]
+      parsed.data.availableFrom, parsed.data.availableTo, parsed.data.gender, parsed.data.skills ? encryptField(parsed.data.skills) : null]
   );
   if (!result.rows[0]) return res.status(404).json({ error: "Carer was not found" });
   await audit(req, "care.rota_caregiver.updated", "rota_caregiver", result.rows[0].id, { availableFrom: parsed.data.availableFrom, availableTo: parsed.data.availableTo });
@@ -630,7 +636,7 @@ coordinatorRouter.post("/analytics/uploads", asyncHandler(async (req, res) => {
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid CSV upload" });
   const serviceUsers = await query<ServiceUserRow>(
     `SELECT id::text, external_service_user_id, encrypted_name, encrypted_address,
-            carers_required_per_visit, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+            carers_required_per_visit, preferred_carer_gender, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
             vulnerability_notes_ciphertext, created_at::text
      FROM care.service_users
      WHERE agency_id = $1 AND deleted_at IS NULL`,
@@ -673,7 +679,7 @@ coordinatorRouter.post("/analytics/uploads", asyncHandler(async (req, res) => {
 coordinatorRouter.get("/service-users", async (req, res) => {
   const result = await query<ServiceUserRow>(
     `SELECT id::text, external_service_user_id, encrypted_name, encrypted_address,
-            carers_required_per_visit, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+            carers_required_per_visit, preferred_carer_gender, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
             vulnerability_notes_ciphertext, created_at::text
      FROM care.service_users
      WHERE agency_id = $1 AND deleted_at IS NULL
@@ -709,15 +715,16 @@ coordinatorRouter.post("/service-users/import", asyncHandler(async (req, res) =>
         `INSERT INTO care.service_users
           (agency_id, external_service_user_id, encrypted_name, encrypted_address, postcode_hash,
            town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level, carers_required_per_visit,
+           preferred_carer_gender,
            vulnerability_notes_ciphertext)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          ON CONFLICT (agency_id, external_service_user_id) DO NOTHING
          RETURNING id::text, external_service_user_id, encrypted_name, encrypted_address,
-                   carers_required_per_visit, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+                   carers_required_per_visit, preferred_carer_gender, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
                    vulnerability_notes_ciphertext, created_at::text`,
         [req.auth!.agencyId, reference, encryptField(row.fullName), encryptField(row.address),
           hashToken(normalizedPostcode), encryptField(row.town), encryptField(row.county),
-          encryptField(row.postcode.toUpperCase()), row.riskLevel, row.carersRequiredPerVisit,
+          encryptField(row.postcode.toUpperCase()), row.riskLevel, row.carersRequiredPerVisit, row.preferredCarerGender,
           row.vulnerabilityNotes ? encryptField(row.vulnerabilityNotes) : null]
       );
       if (result.rows[0]) rows.push(result.rows[0]);
@@ -756,14 +763,15 @@ coordinatorRouter.post("/service-users", async (req, res) => {
       `INSERT INTO care.service_users
         (agency_id, external_service_user_id, encrypted_name, encrypted_address, postcode_hash,
          town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level, carers_required_per_visit,
+         preferred_carer_gender,
          vulnerability_notes_ciphertext)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING id::text, external_service_user_id, encrypted_name, encrypted_address,
-                 carers_required_per_visit, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+                 carers_required_per_visit, preferred_carer_gender, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
                  vulnerability_notes_ciphertext, created_at::text`,
       [req.auth!.agencyId, reference, encryptField(data.fullName), encryptedAddress,
         hashToken(normalizedPostcode), encryptField(data.town), encryptField(data.county),
-        encryptField(data.postcode.toUpperCase()), data.riskLevel, data.carersRequiredPerVisit,
+        encryptField(data.postcode.toUpperCase()), data.riskLevel, data.carersRequiredPerVisit, data.preferredCarerGender,
         data.vulnerabilityNotes ? encryptField(data.vulnerabilityNotes) : null]
     );
     return result.rows[0];
@@ -784,15 +792,16 @@ coordinatorRouter.patch("/service-users/:id", asyncHandler(async (req, res) => {
     `UPDATE care.service_users
      SET encrypted_name = $1, encrypted_address = $2, town_ciphertext = $3,
          county_ciphertext = $4, postcode_ciphertext = $5, postcode_hash = $6,
-         risk_level = $7, carers_required_per_visit = $8, vulnerability_notes_ciphertext = $9,
+         risk_level = $7, carers_required_per_visit = $8, preferred_carer_gender = $9,
+         vulnerability_notes_ciphertext = $10,
          updated_at = clock_timestamp()
-     WHERE id = $10 AND agency_id = $11 AND deleted_at IS NULL
+     WHERE id = $11 AND agency_id = $12 AND deleted_at IS NULL
      RETURNING id::text, external_service_user_id, encrypted_name, encrypted_address,
-               carers_required_per_visit, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
+               carers_required_per_visit, preferred_carer_gender, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
                vulnerability_notes_ciphertext, created_at::text`,
     [encryptField(data.fullName), encryptField(data.address), encryptField(data.town), encryptField(data.county),
       encryptField(data.postcode.toUpperCase()), hashToken(normalizedPostcode), data.riskLevel,
-      data.carersRequiredPerVisit, data.vulnerabilityNotes ? encryptField(data.vulnerabilityNotes) : null,
+      data.carersRequiredPerVisit, data.preferredCarerGender, data.vulnerabilityNotes ? encryptField(data.vulnerabilityNotes) : null,
       req.params.id, req.auth!.agencyId]
   );
   if (!result.rows[0]) return res.status(404).json({ error: "Service user not found" });
@@ -1320,6 +1329,7 @@ function mapServiceUser(row: ServiceUserRow) {
     postcode: decryptOptional(row.postcode_ciphertext),
     riskLevel: row.risk_level,
     carersRequiredPerVisit: row.carers_required_per_visit || 1,
+    preferredCarerGender: row.preferred_carer_gender || "no_preference",
     vulnerabilityNotes: decryptOptional(row.vulnerability_notes_ciphertext),
     createdAt: row.created_at
   };
@@ -1332,6 +1342,7 @@ function mapRotaCaregiver(row: RotaCaregiverRow) {
     startPostcode: decryptOptional(row.start_postcode_ciphertext),
     availableFrom: row.available_from,
     availableTo: row.available_to,
+    gender: row.gender || "not_recorded",
     skills: decryptOptional(row.skills_ciphertext),
     createdAt: row.created_at
   };
@@ -1413,6 +1424,7 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
   const caregivers = input.caregivers.map((caregiver, index) => ({
     id: `caregiver-${index + 1}`,
     name: caregiver.name,
+    gender: caregiver.gender,
     skills: caregiver.skills.toLowerCase().split(",").map((skill) => skill.trim()).filter(Boolean),
     availableFrom: minutesFromTime(caregiver.availableFrom),
     availableTo: minutesFromTime(caregiver.availableTo),
@@ -1438,6 +1450,8 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
         priority: call.priority,
         requiredSkill: call.requiredSkill.toLowerCase().trim(),
         riskLevel: serviceUser.risk_level,
+        carersRequired: serviceUser.carers_required_per_visit === 2 ? 2 : 1,
+        preferredCarerGender: serviceUser.preferred_carer_gender || "no_preference",
         preferredCaregiverName: continuityLookup.get(serviceUser.id) || ""
       };
     })
@@ -1454,6 +1468,9 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
     assignedMinutes: 0,
     travelMinutes: 0,
     workingMinutes: Math.max(0, caregiver.availableTo - caregiver.availableFrom),
+    breakMinutes: 0,
+    breaksTaken: 0,
+    busySinceBreak: 0,
     riskLoad: 0,
     warnings: [] as string[],
     currentTime: caregiver.availableFrom,
@@ -1465,81 +1482,136 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
     return total + travelMinutes(previous, call.location);
   }, 0);
 
+  const assignedVisitIds = new Set<string>();
+  const doubleUpWarnings: string[] = [];
+
   for (const call of calls) {
-    const candidates = schedules
+    const assignedForCall: Array<{
+      schedule: typeof schedules[number];
+      travel: number;
+      arrival: number;
+      finish: number;
+      waitMinutes: number;
+      projectedUtilisation: number;
+      longTravel: number;
+      continuityMatched: boolean;
+      continuityMissed: boolean;
+      breakBeforeMinutes: number;
+      syncGap: number;
+    }> = [];
+    const requiredCaregivers = call.carersRequired;
+
+    for (let placementIndex = 0; placementIndex < requiredCaregivers; placementIndex += 1) {
+      const targetArrival = assignedForCall[0]?.arrival;
+      const candidates = schedules
+      .filter((schedule) => !assignedForCall.some((assigned) => assigned.schedule.caregiverId === schedule.caregiverId))
       .map((schedule) => {
         const caregiver = caregivers.find((item) => item.id === schedule.caregiverId)!;
         const skillBlocked = Boolean(call.requiredSkill && !caregiver.skills.includes(call.requiredSkill));
+        const genderBlocked = call.preferredCarerGender !== "no_preference" && caregiver.gender !== call.preferredCarerGender;
         const travel = travelMinutes(schedule.currentLocation, call.location);
-        const arrival = Math.max(call.earliest, schedule.currentTime + travel);
+        const breakBeforeMinutes = schedule.busySinceBreak > 0 && schedule.busySinceBreak + travel + call.durationMinutes > 360 ? 30 : 0;
+        const earliestArrival = Math.max(call.earliest, schedule.currentTime + breakBeforeMinutes + travel);
+        const arrival = targetArrival && earliestArrival <= targetArrival ? targetArrival : earliestArrival;
         const finish = arrival + call.durationMinutes;
         const lateBy = Math.max(0, arrival - call.latest);
         const overtime = Math.max(0, finish - caregiver.availableTo);
-        const waitMinutes = Math.max(0, arrival - (schedule.currentTime + travel));
-        const projectedBusyMinutes = schedule.assignedMinutes + schedule.travelMinutes + call.durationMinutes + travel;
+        const waitMinutes = Math.max(0, arrival - (schedule.currentTime + breakBeforeMinutes + travel));
+        const projectedBusyMinutes = schedule.assignedMinutes + schedule.travelMinutes + schedule.breakMinutes + call.durationMinutes + travel + breakBeforeMinutes;
         const projectedUtilisation = schedule.workingMinutes ? Math.round((projectedBusyMinutes / schedule.workingMinutes) * 100) : 100;
         const overUtilisation = Math.max(0, projectedUtilisation - input.targetUtilisationPercent);
         const longTravel = Math.max(0, travel - input.maxTravelMinutesBetweenCalls);
         const continuityMatched = Boolean(call.preferredCaregiverName && caregiver.name.toLowerCase() === call.preferredCaregiverName);
         const continuityMissed = Boolean(call.preferredCaregiverName && !continuityMatched);
+        const syncGap = targetArrival ? Math.abs(arrival - targetArrival) : 0;
         const riskReward = call.riskLevel !== "standard" || call.priority === "high" ? 5 + priorityWeight(call.priority) : 0;
-        let score = travel + waitMinutes / 4 + lateBy * 8 + overtime * 10 + overUtilisation * 1.3 + longTravel * 2;
+        let score = travel + waitMinutes / 4 + lateBy * 8 + overtime * 10 + overUtilisation * 1.3 + longTravel * 2 + breakBeforeMinutes * 0.5 + syncGap * 4;
         if (skillBlocked) score += 999;
+        if (genderBlocked) score += 999;
+        if (targetArrival && syncGap > 15) score += 999;
         if (input.optimisationGoal === "minimise_travel") score += travel * 1.2 + longTravel * 3;
         if (input.optimisationGoal === "protect_continuity") score += continuityMissed ? 28 : continuityMatched ? -18 : 0;
         if (input.optimisationGoal === "risk_first") score -= riskReward * 2;
         if (input.optimisationGoal === "balanced") score += continuityMissed ? 9 : continuityMatched ? -7 : 0;
-        return { schedule, travel, arrival, finish, lateBy, overtime, waitMinutes, projectedUtilisation, longTravel, continuityMatched, continuityMissed, score };
+        return { schedule, travel, arrival, finish, lateBy, overtime, waitMinutes, projectedUtilisation, longTravel, continuityMatched, continuityMissed, breakBeforeMinutes, syncGap, score, genderBlocked };
       })
       .sort((left, right) => left.score - right.score);
-    const best = candidates[0];
-    if (!best || best.score >= 999 || best.lateBy > 0 || best.overtime > 0) {
+      const best = candidates[0];
+      if (!best || best.score >= 999 || best.lateBy > 0 || best.overtime > 0) {
+        const hasGenderBlock = candidates.some((candidate) => candidate.genderBlocked);
+        const hasSkillBlock = candidates.some((candidate) => candidate.score >= 999 && !candidate.genderBlocked);
       const reason = !best || best.score >= 999
-        ? "No caregiver has the required skill"
+          ? hasGenderBlock
+            ? `No available carer matches the ${call.preferredCarerGender} gender preference`
+            : hasSkillBlock
+              ? "No caregiver has the required skill"
+              : requiredCaregivers === 2
+                ? "No second carer can attend the double-up call at the same time"
+                : "No caregiver can meet the planning constraints"
         : best.lateBy > 0
           ? "No caregiver can arrive inside the requested visit window"
           : "No caregiver can complete the call inside availability";
-      unassigned.push({ serviceUserName: call.serviceUserName, reference: call.reference, reason, priority: call.priority, riskLevel: call.riskLevel });
-      continue;
+        unassigned.push({ serviceUserName: call.serviceUserName, reference: call.reference, reason, priority: call.priority, riskLevel: call.riskLevel, carersRequired: requiredCaregivers, preferredCarerGender: call.preferredCarerGender });
+        break;
+      }
+      assignedForCall.push(best);
     }
-    const warnings = [
-      best.longTravel ? `Long travel segment: ${best.travel} minutes` : "",
-      best.projectedUtilisation > input.targetUtilisationPercent ? `Route above target utilisation: ${best.projectedUtilisation}%` : "",
-      best.continuityMissed ? `Continuity preference not met: ${call.preferredCaregiverName}` : "",
-      call.riskLevel !== "standard" && call.priority === "routine" ? "Vulnerable or high-risk service user marked routine" : ""
-    ].filter(Boolean);
-    best.schedule.calls.push({
-      serviceUserName: call.serviceUserName,
-      reference: call.reference,
-      postcode: call.postcode || "No postcode",
-      window: `${timeFromMinutes(call.earliest)}-${timeFromMinutes(call.latest)}`,
-      arrive: timeFromMinutes(best.arrival),
-      leave: timeFromMinutes(best.finish),
-      travelMinutes: best.travel,
-      waitMinutes: best.waitMinutes,
-      durationMinutes: call.durationMinutes,
-      priority: call.priority,
-      riskLevel: call.riskLevel,
-      continuityMatched: best.continuityMatched,
-      continuityCaregiver: call.preferredCaregiverName,
-      warnings
-    });
-    best.schedule.travelMinutes += best.travel;
-    best.schedule.assignedMinutes += call.durationMinutes;
-    if (call.riskLevel !== "standard" || call.priority === "high") best.schedule.riskLoad += 1;
-    best.schedule.currentTime = best.finish;
-    best.schedule.currentLocation = call.location;
-    best.schedule.warnings.push(...warnings);
+
+    if (assignedForCall.length !== requiredCaregivers) continue;
+    assignedVisitIds.add(call.id);
+    const partnerNames = assignedForCall.map((assignment) => assignment.schedule.caregiverName);
+    for (const assignment of assignedForCall) {
+      const warnings = [
+        assignment.longTravel ? `Long travel segment: ${assignment.travel} minutes` : "",
+        assignment.projectedUtilisation > input.targetUtilisationPercent ? `Route above target utilisation: ${assignment.projectedUtilisation}%` : "",
+        assignment.continuityMissed ? `Continuity preference not met: ${call.preferredCaregiverName}` : "",
+        assignment.breakBeforeMinutes ? `30-minute break inserted before this visit after 6 hours of work` : "",
+        call.carersRequired === 2 && assignment.syncGap ? `Double-up arrival differs by ${assignment.syncGap} minutes` : "",
+        call.riskLevel !== "standard" && call.priority === "routine" ? "Vulnerable or high-risk service user marked routine" : ""
+      ].filter(Boolean);
+      assignment.schedule.calls.push({
+        serviceUserName: call.serviceUserName,
+        reference: call.reference,
+        postcode: call.postcode || "No postcode",
+        window: `${timeFromMinutes(call.earliest)}-${timeFromMinutes(call.latest)}`,
+        arrive: timeFromMinutes(assignment.arrival),
+        leave: timeFromMinutes(assignment.finish),
+        travelMinutes: assignment.travel,
+        waitMinutes: assignment.waitMinutes,
+        durationMinutes: call.durationMinutes,
+        priority: call.priority,
+        riskLevel: call.riskLevel,
+        carersRequired: call.carersRequired,
+        preferredCarerGender: call.preferredCarerGender,
+        doubleUpPartnerNames: partnerNames.filter((name) => name !== assignment.schedule.caregiverName),
+        continuityMatched: assignment.continuityMatched,
+        continuityCaregiver: call.preferredCaregiverName,
+        breakBeforeMinutes: assignment.breakBeforeMinutes,
+        warnings
+      });
+      assignment.schedule.travelMinutes += assignment.travel;
+      assignment.schedule.assignedMinutes += call.durationMinutes;
+      assignment.schedule.breakMinutes += assignment.breakBeforeMinutes;
+      assignment.schedule.breaksTaken += assignment.breakBeforeMinutes ? 1 : 0;
+      assignment.schedule.busySinceBreak = assignment.breakBeforeMinutes
+        ? assignment.travel + call.durationMinutes
+        : assignment.schedule.busySinceBreak + assignment.travel + call.durationMinutes;
+      if (call.riskLevel !== "standard" || call.priority === "high") assignment.schedule.riskLoad += 1;
+      assignment.schedule.currentTime = assignment.finish;
+      assignment.schedule.currentLocation = call.location;
+      assignment.schedule.warnings.push(...warnings);
+    }
+    if (requiredCaregivers === 2) doubleUpWarnings.push(`${call.serviceUserName}: double-up covered by ${partnerNames.join(" and ")}`);
   }
 
   const estimatedTravelMinutes = schedules.reduce((total, schedule) => total + schedule.travelMinutes, 0);
-  const assignedCalls = schedules.reduce((total, schedule) => total + schedule.calls.length, 0);
+  const assignedCalls = assignedVisitIds.size;
   const totalCareMinutes = schedules.reduce((total, schedule) => total + schedule.assignedMinutes, 0);
   const estimatedMinutesSaved = Math.max(0, manualTravelBaseline - estimatedTravelMinutes);
   const averageUtilisationPercent = schedules.length
-    ? Math.round(schedules.reduce((total, schedule) => total + ((schedule.assignedMinutes + schedule.travelMinutes) / Math.max(1, schedule.workingMinutes)) * 100, 0) / schedules.length)
+    ? Math.round(schedules.reduce((total, schedule) => total + ((schedule.assignedMinutes + schedule.travelMinutes + schedule.breakMinutes) / Math.max(1, schedule.workingMinutes)) * 100, 0) / schedules.length)
     : 0;
-  const idleMinutes = schedules.reduce((total, schedule) => total + Math.max(0, schedule.workingMinutes - schedule.assignedMinutes - schedule.travelMinutes), 0);
+  const idleMinutes = schedules.reduce((total, schedule) => total + Math.max(0, schedule.workingMinutes - schedule.assignedMinutes - schedule.travelMinutes - schedule.breakMinutes), 0);
   const longTravelAlerts = schedules.reduce((total, schedule) => total + schedule.calls.filter((call) => Number(call.travelMinutes) > input.maxTravelMinutesBetweenCalls).length, 0);
   const continuityMatches = schedules.reduce((total, schedule) => total + schedule.calls.filter((call) => Boolean(call.continuityMatched)).length, 0);
   const routeEfficiencyScore = assignedCalls
@@ -1566,7 +1638,7 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
       unassignedCalls: unassigned.length,
       estimatedTravelMinutes,
       estimatedMinutesSaved,
-      riskWarnings: schedules.reduce((total, schedule) => total + schedule.warnings.length, 0) + unassigned.length,
+    riskWarnings: schedules.reduce((total, schedule) => total + schedule.warnings.length, 0) + unassigned.length,
       totalCareMinutes,
       idleMinutes,
       averageUtilisationPercent,
@@ -1580,14 +1652,14 @@ function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<
     },
     schedules: schedules.map(({ currentTime: _currentTime, currentLocation: _currentLocation, ...schedule }) => ({
       ...schedule,
-      utilisationPercent: schedule.workingMinutes ? Math.round(((schedule.assignedMinutes + schedule.travelMinutes) / schedule.workingMinutes) * 100) : 0,
-      idleMinutes: Math.max(0, schedule.workingMinutes - schedule.assignedMinutes - schedule.travelMinutes),
+      utilisationPercent: schedule.workingMinutes ? Math.round(((schedule.assignedMinutes + schedule.travelMinutes + schedule.breakMinutes) / schedule.workingMinutes) * 100) : 0,
+      idleMinutes: Math.max(0, schedule.workingMinutes - schedule.assignedMinutes - schedule.travelMinutes - schedule.breakMinutes),
       routeEfficiencyScore: schedule.calls.length ? clamp(Math.round(100 - (schedule.travelMinutes / Math.max(1, schedule.travelMinutes + schedule.assignedMinutes)) * 100 - schedule.warnings.length * 4), 0, 100) : 0,
       warnings: Array.from(new Set(schedule.warnings))
     })),
     unassigned,
-    recommendations,
-    method: "Premium rota optimisation using postcode proximity, care windows, skills, utilisation targets, continuity preferences and risk weighting. Coordinator approval is required before publishing the rota."
+    recommendations: [...recommendations, ...doubleUpWarnings.slice(0, 3)],
+    method: "Premium rota optimisation using postcode proximity, care windows, staffing levels, gender preferences, skills, 6-hour break rules, utilisation targets, continuity preferences and risk weighting. Coordinator approval is required before publishing the rota."
   };
 }
 

@@ -1,4 +1,5 @@
 export type ServiceUserRiskLevel = "standard" | "vulnerable_adult" | "high_risk";
+export type PreferredCarerGender = "no_preference" | "female" | "male";
 
 export interface ServiceUserCsvRow {
   reference: string;
@@ -9,6 +10,7 @@ export interface ServiceUserCsvRow {
   postcode: string;
   riskLevel: ServiceUserRiskLevel;
   carersRequiredPerVisit: number;
+  preferredCarerGender: PreferredCarerGender;
   vulnerabilityNotes: string;
 }
 
@@ -20,8 +22,8 @@ export interface ServiceUserCsvParseResult {
 const MAX_SERVICE_USER_IMPORT_ROWS = 500;
 
 export const SERVICE_USER_CSV_TEMPLATE = [
-  ["reference", "full_name", "address", "town", "county", "postcode", "risk_level", "carers_required_per_visit", "vulnerability_notes"],
-  ["", "Janet Hart", "Flat 4, 12 Example Road", "Peterborough", "Cambridgeshire", "PE1 1AA", "vulnerable_adult", "2", "Lives alone; double-up care call required"]
+  ["reference", "full_name", "address", "town", "county", "postcode", "risk_level", "carers_required_per_visit", "preferred_carer_gender", "vulnerability_notes"],
+  ["", "Janet Hart", "Flat 4, 12 Example Road", "Peterborough", "Cambridgeshire", "PE1 1AA", "vulnerable_adult", "2", "female", "Lives alone; double-up care call required"]
 ].map((row) => row.map(csvEscape).join(",")).join("\r\n") + "\r\n";
 
 export function parseServiceUserCsv(csvText: string): ServiceUserCsvParseResult {
@@ -71,6 +73,7 @@ function normalizeServiceUserRow(row: Record<string, string>): ServiceUserCsvRow
     postcode: firstValue(row, ["postcode", "post_code", "postal_code"]).toUpperCase(),
     riskLevel: normalizeRiskLevel(firstValue(row, ["risk_level", "safeguarding_status", "status"])),
     carersRequiredPerVisit: normalizeCarersRequired(firstValue(row, ["carers_required_per_visit", "carers_required", "number_of_carers", "visit_carers", "double_up"])),
+    preferredCarerGender: normalizePreferredCarerGender(firstValue(row, ["preferred_carer_gender", "carer_gender", "gender_preference", "gender_requirement"])),
     vulnerabilityNotes: firstValue(row, ["vulnerability_notes", "safeguarding_notes", "notes", "visit_controls"])
   };
 }
@@ -84,6 +87,7 @@ function validateServiceUserRow(row: ServiceUserCsvRow, line: number) {
   if (row.county.length < 2 || row.county.length > 120) errors.push(`CSV row ${line}: county must be 2-120 characters`);
   if (row.postcode.length < 5 || row.postcode.length > 12) errors.push(`CSV row ${line}: postcode must be 5-12 characters`);
   if (![1, 2].includes(row.carersRequiredPerVisit)) errors.push(`CSV row ${line}: carers_required_per_visit must be 1 or 2`);
+  if (!["no_preference", "female", "male"].includes(row.preferredCarerGender)) errors.push(`CSV row ${line}: preferred_carer_gender must be no_preference, female or male`);
   if (row.vulnerabilityNotes.length > 2000) errors.push(`CSV row ${line}: vulnerability_notes must be 2000 characters or fewer`);
   return errors;
 }
@@ -101,6 +105,13 @@ function normalizeCarersRequired(value: string) {
   if (["2", "two", "double", "double_up", "double-up", "yes", "y", "true"].includes(normalized)) return 2;
   if (["1", "one", "single", "single_carer", "single-carer", "no", "n", "false"].includes(normalized)) return 1;
   return Number.parseInt(normalized, 10);
+}
+
+function normalizePreferredCarerGender(value: string): PreferredCarerGender {
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  if (["female", "woman", "women", "f"].includes(normalized)) return "female";
+  if (["male", "man", "men", "m"].includes(normalized)) return "male";
+  return "no_preference";
 }
 
 function parseCsvRecords(csvText: string) {
