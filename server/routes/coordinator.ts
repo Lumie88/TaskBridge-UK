@@ -68,6 +68,16 @@ interface CoordinatorTaskRow {
   safeguarding_risk_factors: string[];
 }
 
+interface RotaCaregiverRow {
+  id: string;
+  name_ciphertext: string;
+  start_postcode_ciphertext: string | null;
+  available_from: string;
+  available_to: string;
+  skills_ciphertext: string | null;
+  created_at: string;
+}
+
 const planSchema = z.object({
   serviceUserId: z.string().uuid(),
   note: z.string().min(10).max(5000)
@@ -161,6 +171,13 @@ const rotaPlanSchema = z.object({
     serviceUserId: z.string().uuid(),
     preferredCaregiverName: z.string().trim().min(2).max(120)
   })).optional().default([])
+});
+const rotaCaregiverSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  startPostcode: z.string().trim().max(12).optional().default(""),
+  availableFrom: z.string().regex(/^\d{2}:\d{2}$/).default("08:00"),
+  availableTo: z.string().regex(/^\d{2}:\d{2}$/).default("18:00"),
+  skills: z.string().trim().max(300).optional().default("")
 });
 
 export const coordinatorRouter = Router();
@@ -540,6 +557,68 @@ coordinatorRouter.post("/rota-planner/plan", asyncHandler(async (req, res) => {
     estimatedMinutesSaved: plan.summary.estimatedMinutesSaved
   });
   res.json(plan);
+}));
+
+coordinatorRouter.get("/rota-planner/caregivers", asyncHandler(async (req, res) => {
+  const result = await query<RotaCaregiverRow>(
+    `SELECT id::text, name_ciphertext, start_postcode_ciphertext, available_from,
+            available_to, skills_ciphertext, created_at::text
+     FROM care.rota_caregivers
+     WHERE agency_id = $1 AND deleted_at IS NULL
+     ORDER BY created_at ASC`,
+    [req.auth!.agencyId]
+  );
+  res.json({ caregivers: result.rows.map(mapRotaCaregiver) });
+}));
+
+coordinatorRouter.post("/rota-planner/caregivers", asyncHandler(async (req, res) => {
+  const parsed = rotaCaregiverSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid carer details" });
+  const result = await query<RotaCaregiverRow>(
+    `INSERT INTO care.rota_caregivers
+       (agency_id, name_ciphertext, start_postcode_ciphertext, available_from, available_to, skills_ciphertext)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id::text, name_ciphertext, start_postcode_ciphertext, available_from,
+               available_to, skills_ciphertext, created_at::text`,
+    [req.auth!.agencyId, encryptField(parsed.data.name), parsed.data.startPostcode ? encryptField(parsed.data.startPostcode.toUpperCase()) : null,
+      parsed.data.availableFrom, parsed.data.availableTo, parsed.data.skills ? encryptField(parsed.data.skills) : null]
+  );
+  await audit(req, "care.rota_caregiver.created", "rota_caregiver", result.rows[0].id, { availableFrom: parsed.data.availableFrom, availableTo: parsed.data.availableTo });
+  res.status(201).json({ caregiver: mapRotaCaregiver(result.rows[0]) });
+}));
+
+coordinatorRouter.patch("/rota-planner/caregivers/:id", asyncHandler(async (req, res) => {
+  const parsed = rotaCaregiverSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid carer details" });
+  const result = await query<RotaCaregiverRow>(
+    `UPDATE care.rota_caregivers
+     SET name_ciphertext = $3,
+         start_postcode_ciphertext = $4,
+         available_from = $5,
+         available_to = $6,
+         skills_ciphertext = $7
+     WHERE agency_id = $1 AND id = $2 AND deleted_at IS NULL
+     RETURNING id::text, name_ciphertext, start_postcode_ciphertext, available_from,
+               available_to, skills_ciphertext, created_at::text`,
+    [req.auth!.agencyId, req.params.id, encryptField(parsed.data.name), parsed.data.startPostcode ? encryptField(parsed.data.startPostcode.toUpperCase()) : null,
+      parsed.data.availableFrom, parsed.data.availableTo, parsed.data.skills ? encryptField(parsed.data.skills) : null]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: "Carer was not found" });
+  await audit(req, "care.rota_caregiver.updated", "rota_caregiver", result.rows[0].id, { availableFrom: parsed.data.availableFrom, availableTo: parsed.data.availableTo });
+  res.json({ caregiver: mapRotaCaregiver(result.rows[0]) });
+}));
+
+coordinatorRouter.delete("/rota-planner/caregivers/:id", asyncHandler(async (req, res) => {
+  const result = await query<{ id: string }>(
+    `UPDATE care.rota_caregivers
+     SET deleted_at = clock_timestamp()
+     WHERE agency_id = $1 AND id = $2 AND deleted_at IS NULL
+     RETURNING id::text`,
+    [req.auth!.agencyId, req.params.id]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: "Carer was not found" });
+  await audit(req, "care.rota_caregiver.deleted", "rota_caregiver", result.rows[0].id, {});
+  res.status(204).send();
 }));
 
 coordinatorRouter.post("/analytics/uploads", asyncHandler(async (req, res) => {
@@ -1235,6 +1314,18 @@ function mapServiceUser(row: ServiceUserRow) {
     postcode: decryptOptional(row.postcode_ciphertext),
     riskLevel: row.risk_level,
     vulnerabilityNotes: decryptOptional(row.vulnerability_notes_ciphertext),
+    createdAt: row.created_at
+  };
+}
+
+function mapRotaCaregiver(row: RotaCaregiverRow) {
+  return {
+    id: row.id,
+    name: decryptField(row.name_ciphertext),
+    startPostcode: decryptOptional(row.start_postcode_ciphertext),
+    availableFrom: row.available_from,
+    availableTo: row.available_to,
+    skills: decryptOptional(row.skills_ciphertext),
     createdAt: row.created_at
   };
 }

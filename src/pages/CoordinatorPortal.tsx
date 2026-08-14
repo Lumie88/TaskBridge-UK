@@ -750,6 +750,16 @@ interface RotaPlan {
   method: string;
 }
 
+interface RotaCaregiver {
+  id: string;
+  name: string;
+  startPostcode: string;
+  availableFrom: string;
+  availableTo: string;
+  skills: string;
+  createdAt?: string;
+}
+
 function CareOsIntelligenceDashboard() {
   const [dashboard, setDashboard] = useState<CareOsDashboard | null>(null);
   const [loading, setLoading] = useState(true);
@@ -834,7 +844,7 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
   const [activeRotaLayer, setActiveRotaLayer] = useState("manual-board");
   const [slotIntervalMinutes, setSlotIntervalMinutes] = useState(30);
   const [manualAssignments, setManualAssignments] = useState<Record<string, string>>({});
-  const [caregivers, setCaregivers] = useState([{ name: "Morning carer", startPostcode: serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "14:00", skills: "personal care, medication" }]);
+  const [caregivers, setCaregivers] = useState<RotaCaregiver[]>([]);
   const [draftCaregiver, setDraftCaregiver] = useState({ name: "", startPostcode: serviceUsers[0]?.postcode || "", availableFrom: "08:00", availableTo: "18:00", skills: "" });
   const [editingCaregiverIndex, setEditingCaregiverIndex] = useState<number | null>(null);
   const [calls, setCalls] = useState([
@@ -844,8 +854,20 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
   const [plan, setPlan] = useState<RotaPlan | null>(null);
   const [publishedRotaAt, setPublishedRotaAt] = useState("");
   const [loading, setLoading] = useState(false);
+  const [caregiverSaving, setCaregiverSaving] = useState(false);
   const [locked, setLocked] = useState(false);
   const [error, setError] = useState("");
+
+  async function loadRotaCaregivers() {
+    try {
+      const result = await api<{ caregivers: RotaCaregiver[] }>("/api/coordinator/rota-planner/caregivers");
+      setCaregivers(result.caregivers);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to load saved carers");
+    }
+  }
+
+  useEffect(() => { void loadRotaCaregivers(); }, []);
 
   async function generatePlan(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -876,10 +898,6 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
     }
   }
 
-  function updateCaregiver(index: number, key: keyof typeof caregivers[number], value: string) {
-    setCaregivers((current) => current.map((caregiver, itemIndex) => itemIndex === index ? { ...caregiver, [key]: value } : caregiver));
-  }
-
   function updateDraftCaregiver(key: keyof typeof draftCaregiver, value: string) {
     setDraftCaregiver((current) => ({ ...current, [key]: value }));
   }
@@ -889,37 +907,59 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
     setEditingCaregiverIndex(null);
   }
 
-  function saveDraftCaregiver() {
+  async function saveDraftCaregiver() {
     const caregiver = {
       ...draftCaregiver,
       name: draftCaregiver.name.trim() || `Carer ${editingCaregiverIndex === null ? caregivers.length + 1 : editingCaregiverIndex + 1}`,
       startPostcode: draftCaregiver.startPostcode.trim().toUpperCase()
     };
-    if (editingCaregiverIndex === null) {
-      setCaregivers((current) => [...current, caregiver]);
-    } else {
-      setCaregivers((current) => current.map((item, index) => index === editingCaregiverIndex ? caregiver : item));
+    setCaregiverSaving(true);
+    setError("");
+    try {
+      if (editingCaregiverIndex === null) {
+        const result = await api<{ caregiver: RotaCaregiver }>("/api/coordinator/rota-planner/caregivers", { method: "POST", body: JSON.stringify(caregiver) });
+        setCaregivers((current) => [...current, result.caregiver]);
+      } else {
+        const existing = caregivers[editingCaregiverIndex];
+        const result = await api<{ caregiver: RotaCaregiver }>(`/api/coordinator/rota-planner/caregivers/${existing.id}`, { method: "PATCH", body: JSON.stringify(caregiver) });
+        setCaregivers((current) => current.map((item, index) => index === editingCaregiverIndex ? result.caregiver : item));
+      }
+      resetDraftCaregiver();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to save carer");
+    } finally {
+      setCaregiverSaving(false);
     }
-    resetDraftCaregiver();
   }
 
   function editCaregiver(index: number) {
-    setDraftCaregiver(caregivers[index]);
+    const { name, startPostcode, availableFrom, availableTo, skills } = caregivers[index];
+    setDraftCaregiver({ name, startPostcode, availableFrom, availableTo, skills });
     setEditingCaregiverIndex(index);
     document.getElementById("rota-caregivers")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  function deleteCaregiver(index: number) {
-    setCaregivers((current) => current.filter((_, itemIndex) => itemIndex !== index));
-    setManualAssignments((current) => Object.fromEntries(Object.entries(current).flatMap(([slotKey, callId]) => {
-      const [caregiverIndexValue, timeSlot] = slotKey.split("-");
-      const caregiverIndex = Number(caregiverIndexValue);
-      if (caregiverIndex === index) return [];
-      const nextIndex = caregiverIndex > index ? caregiverIndex - 1 : caregiverIndex;
-      return [[`${nextIndex}-${timeSlot}`, callId]];
-    })));
-    if (editingCaregiverIndex === index) resetDraftCaregiver();
-    else if (editingCaregiverIndex !== null && editingCaregiverIndex > index) setEditingCaregiverIndex(editingCaregiverIndex - 1);
+  async function deleteCaregiver(index: number) {
+    const caregiver = caregivers[index];
+    setCaregiverSaving(true);
+    setError("");
+    try {
+      await api(`/api/coordinator/rota-planner/caregivers/${caregiver.id}`, { method: "DELETE" });
+      setCaregivers((current) => current.filter((_, itemIndex) => itemIndex !== index));
+      setManualAssignments((current) => Object.fromEntries(Object.entries(current).flatMap(([slotKey, callId]) => {
+        const [caregiverIndexValue, timeSlot] = slotKey.split("-");
+        const caregiverIndex = Number(caregiverIndexValue);
+        if (caregiverIndex === index) return [];
+        const nextIndex = caregiverIndex > index ? caregiverIndex - 1 : caregiverIndex;
+        return [[`${nextIndex}-${timeSlot}`, callId]];
+      })));
+      if (editingCaregiverIndex === index) resetDraftCaregiver();
+      else if (editingCaregiverIndex !== null && editingCaregiverIndex > index) setEditingCaregiverIndex(editingCaregiverIndex - 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to delete carer");
+    } finally {
+      setCaregiverSaving(false);
+    }
   }
 
   function updateCall(index: number, key: keyof typeof calls[number], value: string | number) {
@@ -1311,8 +1351,8 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
               <div className="field-row"><label>From<input type="time" value={draftCaregiver.availableFrom} onChange={(event) => updateDraftCaregiver("availableFrom", event.target.value)} /></label><label>To<input type="time" value={draftCaregiver.availableTo} onChange={(event) => updateDraftCaregiver("availableTo", event.target.value)} /></label></div>
               <label>Skills<input value={draftCaregiver.skills} onChange={(event) => updateDraftCaregiver("skills", event.target.value)} placeholder="personal care, medication" /></label>
               <div className="rota-form-actions">
-                <button className="button button-primary" type="button" onClick={saveDraftCaregiver}><Plus size={15} /> {editingCaregiverIndex === null ? "Add carer" : "Update carer"}</button>
-                {editingCaregiverIndex !== null && <button className="button button-secondary" type="button" onClick={resetDraftCaregiver}>Cancel edit</button>}
+                <button className="button button-primary" type="button" disabled={caregiverSaving} onClick={saveDraftCaregiver}><Plus size={15} /> {caregiverSaving ? "Saving..." : editingCaregiverIndex === null ? "Add carer" : "Update carer"}</button>
+                {editingCaregiverIndex !== null && <button className="button button-secondary" type="button" disabled={caregiverSaving} onClick={resetDraftCaregiver}>Cancel edit</button>}
               </div>
             </div>
           </section>}
@@ -1328,8 +1368,8 @@ function RotaPlannerDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] })
                   <p>{caregiver.skills || "No skills added yet"}</p>
                   <em>{visits.length} planned call{visits.length === 1 ? "" : "s"}</em>
                   <div className="rota-carer-actions">
-                    <button type="button" onClick={() => editCaregiver(index)}><Pencil size={13} /> Edit</button>
-                    <button type="button" onClick={() => deleteCaregiver(index)}><Trash2 size={13} /> Delete</button>
+                    <button type="button" disabled={caregiverSaving} onClick={() => editCaregiver(index)}><Pencil size={13} /> Edit</button>
+                    <button type="button" disabled={caregiverSaving} onClick={() => deleteCaregiver(index)}><Trash2 size={13} /> Delete</button>
                   </div>
                 </div>
               </article>;
