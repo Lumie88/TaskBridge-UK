@@ -70,6 +70,30 @@ interface CoordinatorTaskRow {
   safeguarding_risk_factors: string[];
 }
 
+interface CareOsImportedNoteRow {
+  id: string;
+  service_user_id: string;
+  external_note_id: string | null;
+  note_ciphertext: string;
+  source: string;
+  created_at: string;
+  encrypted_name: string;
+  external_service_user_id: string;
+  risk_level: string;
+}
+
+interface CareOsIntegrationEventRow {
+  id: string;
+  event_type: string;
+  status: string;
+  response_status: string | null;
+  request_metadata: Record<string, unknown>;
+  response_metadata: Record<string, unknown>;
+  error_message: string | null;
+  created_at: string;
+  provider: string | null;
+}
+
 interface RotaCaregiverRow {
   id: string;
   name_ciphertext: string;
@@ -498,7 +522,7 @@ coordinatorRouter.get("/analytics", asyncHandler(async (req, res) => {
 coordinatorRouter.get("/care-os/dashboard", asyncHandler(async (req, res) => {
   const enabled = await careOsEnabled(req.auth!.agencyId!);
   if (!enabled) return res.json({ enabled: false });
-  const [serviceUsers, tasks] = await Promise.all([
+  const [serviceUsers, tasks, importedNotes, integrationEvents] = await Promise.all([
     query<ServiceUserRow>(
       `SELECT id::text, external_service_user_id, encrypted_name, encrypted_address,
               carers_required_per_visit, preferred_carer_gender, town_ciphertext, county_ciphertext, postcode_ciphertext, risk_level,
@@ -526,12 +550,35 @@ coordinatorRouter.get("/care-os/dashboard", asyncHandler(async (req, res) => {
        JOIN care.service_users su ON su.id = t.service_user_id
        LEFT JOIN ops.assignments a ON a.task_id = t.id AND a.status <> 'failed'
        WHERE t.agency_id = $1 AND t.deleted_at IS NULL
-       ORDER BY t.created_at DESC LIMIT 80`,
+      ORDER BY t.created_at DESC LIMIT 80`,
+      [req.auth!.agencyId]
+    ),
+    query<CareOsImportedNoteRow>(
+      `SELECT n.id::text, n.service_user_id::text, n.external_note_id, n.note_ciphertext, n.source,
+              n.created_at::text, su.encrypted_name, su.external_service_user_id, su.risk_level
+       FROM care.care_notes n
+       JOIN care.service_users su ON su.id = n.service_user_id
+       WHERE n.agency_id = $1
+         AND n.source <> 'portal'
+       ORDER BY n.created_at DESC LIMIT 40`,
+      [req.auth!.agencyId]
+    ),
+    query<CareOsIntegrationEventRow>(
+      `SELECT wl.id::text, wl.event_type, wl.status::text, wl.response_status::text,
+              wl.request_metadata, wl.response_metadata, wl.error_message, wl.created_at::text,
+              pc.name AS provider
+       FROM integration.webhook_logs wl
+       LEFT JOIN integration.provider_configs pc ON pc.id = wl.provider_config_id
+       WHERE wl.agency_id = $1
+         AND wl.direction = 'inbound'
+         AND wl.endpoint LIKE '/api/webhooks/care-platforms/%'
+       ORDER BY wl.created_at DESC LIMIT 30`,
       [req.auth!.agencyId]
     )
   ]);
-  const signals = buildCareOsSignals(serviceUsers.rows, tasks.rows);
+  const signals = buildCareOsSignals(serviceUsers.rows, tasks.rows, importedNotes.rows, integrationEvents.rows);
   const now = Date.now();
+  const integrationProviders = Array.from(new Set(integrationEvents.rows.map((event) => event.provider || String(event.request_metadata?.provider || "")).filter(Boolean)));
   res.json({
     enabled: true,
     summary: {
@@ -540,7 +587,10 @@ coordinatorRouter.get("/care-os/dashboard", asyncHandler(async (req, res) => {
       reviewToday: signals.filter((signal) => signal.priority === "amber").length,
       stable: Math.max(serviceUsers.rows.length - signals.filter((signal) => signal.priority !== "green").length, 0),
       unresolvedEscalations: signals.filter((signal) => ["new", "under_review", "escalated"].includes(signal.status)).length,
-      outcomeCompletionRate: signals.length ? Math.round(signals.filter((signal) => signal.outcomeRecorded).length / signals.length * 100) : 100
+      outcomeCompletionRate: signals.length ? Math.round(signals.filter((signal) => signal.outcomeRecorded).length / signals.length * 100) : 100,
+      integratedCareNotes: importedNotes.rows.length,
+      carePlatformEvents: integrationEvents.rows.length,
+      carePlatformProviders: integrationProviders
     },
     signals,
     baselines: serviceUsers.rows.slice(0, 12).map((serviceUser) => ({
@@ -555,6 +605,7 @@ coordinatorRouter.get("/care-os/dashboard", asyncHandler(async (req, res) => {
       "CareOS does not diagnose medical conditions, prescribe treatment or make autonomous care decisions.",
       "All red and amber signals require human review, rationale and outcome recording.",
       "Safeguarding-sensitive signals are restricted to authorised roles and audit logged.",
+      "Care-management integration events are used as evidence inputs only; TaskBridge keeps the human coordinator decision and outcome as the controlling record.",
       "Designed as AI-supported care coordination and deterioration review for UK care providers."
     ]
   });
@@ -1419,9 +1470,9 @@ async function careOsEnabled(agencyId: string) {
   return result.rows[0]?.care_os_enabled === true;
 }
 
-function buildCareOsSignals(serviceUsers: ServiceUserRow[], tasks: CoordinatorTaskRow[]) {
+function buildCareOsSignals(serviceUsers: ServiceUserRow[], tasks: CoordinatorTaskRow[], importedNotes: CareOsImportedNoteRow[] = [], integrationEvents: CareOsIntegrationEventRow[] = []) {
   const serviceUsersById = new Map(serviceUsers.map((serviceUser) => [serviceUser.id, serviceUser]));
-  return tasks.slice(0, 12).map((task, index) => {
+  const taskSignals = tasks.slice(0, 12).map((task, index) => {
     const serviceUserName = decryptField(task.encrypted_name);
     const serviceUser = task.service_user_id ? serviceUsersById.get(task.service_user_id) : undefined;
     const safeguardingScore = Number(task.safeguarding_risk_score || 0);
@@ -1456,6 +1507,71 @@ function buildCareOsSignals(serviceUsers: ServiceUserRow[], tasks: CoordinatorTa
       outcomeRecorded: ["completed", "awaiting_care_confirmation"].includes(task.status)
     };
   });
+  const noteSignals = importedNotes.slice(0, 8).map((note, index) => {
+    const noteText = decryptField(note.note_ciphertext);
+    const providerLabel = plainLabel(note.source.replace(/_webhook$/, ""));
+    const deterioration = /worse|worsening|decline|deteriorat|confused|less mobile|not eating|missed|fall|fallen|pain/i.test(noteText);
+    const safeguarding = /safeguard|neglect|abuse|unsafe|self-neglect|hoard|soiled|locked out|keysafe|key safe/i.test(noteText);
+    const priority = safeguarding ? "red" : deterioration || note.risk_level !== "standard" ? "amber" : "green";
+    const domain = /fall|fallen|mobility|walking|stairs|trip/i.test(noteText) ? "mobility/falls"
+      : /medication|medicine|tablet|dose/i.test(noteText) ? "medication"
+        : /key|keysafe|lock|door|access/i.test(noteText) ? "environmental"
+          : safeguarding ? "safeguarding" : "general deterioration";
+    return {
+      id: `cos-note-${note.id}`,
+      serviceUserName: decryptField(note.encrypted_name),
+      serviceUserReference: note.external_service_user_id,
+      priority,
+      domain,
+      status: index % 3 === 0 ? "under_review" : "new",
+      generatedAt: note.created_at,
+      owner: "Care coordinator",
+      reasonSummary: priority === "green"
+        ? `Imported ${providerLabel} note added to the CareOS baseline.`
+        : `Care-management note needs review: ${summariseCareOsText(noteText)}`,
+      explanation: [
+        `Source: ${providerLabel} care-management integration`,
+        note.external_note_id ? `Provider note reference: ${note.external_note_id}` : null,
+        note.risk_level !== "standard" ? `Cohort: ${plainLabel(note.risk_level)}` : "Standard monitoring cohort",
+        safeguarding ? "Safeguarding-sensitive wording found in imported note" : deterioration ? "Possible deterioration wording found in imported note" : "No urgent wording detected"
+      ].filter(Boolean),
+      confidence: priority === "red" ? "high" : priority === "amber" ? "medium" : "low",
+      recommendedReview: priority === "red" ? "Human review now / agreed escalation pathway" : priority === "amber" ? "Review today" : "Routine monitoring",
+      nextActionDue: priority === "red" ? "Now" : priority === "amber" ? "Today" : "No action due",
+      outcomeRecorded: false
+    };
+  });
+  const failedIntegrationSignals = integrationEvents
+    .filter((event) => event.status === "failed" || Number(event.response_status || 0) >= 400)
+    .slice(0, 4)
+    .map((event) => {
+      const provider = String(event.provider || event.request_metadata?.provider || "care platform");
+      return {
+        id: `cos-integration-${event.id}`,
+        serviceUserName: String(event.request_metadata?.serviceUserExternalId || "Care-platform integration"),
+        serviceUserReference: String(event.request_metadata?.serviceUserExternalId || provider),
+        priority: "amber",
+        domain: "integration governance",
+        status: "new",
+        generatedAt: event.created_at,
+        owner: "Care coordinator",
+        reasonSummary: `${plainLabel(provider)} integration event needs review.`,
+        explanation: [
+          `Event type: ${plainLabel(event.event_type)}`,
+          event.error_message ? `Provider error: ${event.error_message}` : "Provider event was not processed successfully",
+          "CareOS cannot rely on this external input until the integration issue is resolved"
+        ],
+        confidence: "medium",
+        recommendedReview: "Review today",
+        nextActionDue: "Today",
+        outcomeRecorded: false
+      };
+    });
+  return [...failedIntegrationSignals, ...noteSignals, ...taskSignals].slice(0, 24);
+}
+
+function summariseCareOsText(value: string) {
+  return value.replace(/\s+/g, " ").trim().slice(0, 140) || "Imported note requires review";
 }
 
 function plainLabel(value: string) {
