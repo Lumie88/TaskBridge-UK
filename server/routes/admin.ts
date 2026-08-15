@@ -649,7 +649,7 @@ adminRouter.post("/tasks/:publicId/family-update-link", asyncHandler(async (req,
   res.status(201).json({ id: result.id, updateUrl: `${config.appOrigin}/family-update/${rawToken}` });
 }));
 
-adminRouter.get("/tasks/:publicId/candidates", async (req, res) => {
+adminRouter.get("/tasks/:publicId/candidates", asyncHandler(async (req, res) => {
   const candidates = await evaluateCandidates(req.params.publicId);
   if (!candidates) return res.status(404).json({ error: "Task not found" });
   await persistCandidates(candidates.task, candidates.evaluated);
@@ -675,9 +675,9 @@ adminRouter.get("/tasks/:publicId/candidates", async (req, res) => {
       score: evaluation.score
     }))
   });
-});
+}));
 
-adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
+adminRouter.post("/tasks/:publicId/dispatch", asyncHandler(async (req, res) => {
   const parsed = dispatchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: "Select a valid handyman" });
   const candidates = await evaluateCandidates(req.params.publicId);
@@ -874,7 +874,7 @@ adminRouter.post("/tasks/:publicId/dispatch", async (req, res) => {
   );
   await audit(req, "admin.task.dispatched", "task", created.taskId, { traderId: selected.trader.id, smsStatus: smsResult.status });
   res.json({ id: req.params.publicId, status: "dispatched", visitUrl: `${config.appOrigin}${visitPath}`, smsStatus: smsResult.status });
-});
+}));
 
 adminRouter.get("/traders", async (_req, res) => {
   const result = await query<{
