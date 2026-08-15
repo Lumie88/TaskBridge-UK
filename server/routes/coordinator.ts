@@ -1463,7 +1463,7 @@ function plainLabel(value: string) {
 }
 
 type RotaLocation = { lat: number; lng: number; precision?: string };
-type TravelEstimate = { minutes: number; source: "openstreetmap_osrm" | "postcode_fallback" };
+type TravelEstimate = { minutes: number; source: "google_maps" | "openstreetmap_osrm" | "postcode_fallback" };
 
 async function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers: Map<string, ServiceUserRow & { latitude: string | null; longitude: string | null }>) {
   const continuityLookup = new Map(input.continuity.map((item) => [item.serviceUserId, item.preferredCaregiverName.trim().toLowerCase()]));
@@ -1657,7 +1657,7 @@ async function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers
         assignment.dependencyFinish ? `Dependency honoured after earlier call finished at ${timeFromMinutes(assignment.dependencyFinish)}` : "",
         call.carersRequired === 2 && assignment.syncGap ? `Double-up arrival differs by ${assignment.syncGap} minutes` : "",
         call.riskLevel !== "standard" && call.priority === "routine" ? "Vulnerable or high-risk service user marked routine" : "",
-        assignment.routeSource === "postcode_fallback" ? "OpenStreetMap route estimate unavailable; postcode travel estimate used" : ""
+        assignment.routeSource === "postcode_fallback" ? "Live route estimate unavailable; postcode travel estimate used" : ""
       ].filter(Boolean);
       assignment.schedule.calls.push({
         serviceUserName: call.serviceUserName,
@@ -1678,7 +1678,11 @@ async function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers
         continuityMatched: assignment.continuityMatched,
         continuityCaregiver: call.preferredCaregiverName,
         breakBeforeMinutes: assignment.breakBeforeMinutes,
-        routingProvider: assignment.routeSource === "openstreetmap_osrm" ? "OpenStreetMap / OSRM" : "Postcode fallback",
+        routingProvider: assignment.routeSource === "google_maps"
+          ? "Google Maps"
+          : assignment.routeSource === "openstreetmap_osrm"
+            ? "OpenStreetMap / OSRM"
+            : "Postcode fallback",
         warnings
       });
       assignment.schedule.travelMinutes += assignment.travel;
@@ -1752,7 +1756,7 @@ async function buildRotaPlan(input: z.infer<typeof rotaPlanSchema>, serviceUsers
     })),
     unassigned,
     recommendations: [...recommendations, ...doubleUpWarnings.slice(0, 3)],
-    method: "Premium rota optimisation using OpenStreetMap/OSRM travel estimates where available, postcode fallback, care windows, staffing levels, gender preferences, skills, 6-hour break rules, utilisation targets, continuity preferences and risk weighting. Coordinator approval is required before publishing the rota."
+    method: "Premium rota optimisation using Google Maps travel estimates where configured, OpenStreetMap/OSRM or postcode fallback, care windows, staffing levels, gender preferences, skills, 6-hour break rules, utilisation targets, continuity preferences and risk weighting. Coordinator approval is required before publishing the rota."
   };
 }
 
@@ -1821,9 +1825,13 @@ function travelMinutesForMode(from: { lat: number; lng: number }, to: { lat: num
 
 async function estimateTravelMinutes(from: RotaLocation, to: RotaLocation, mode: string): Promise<TravelEstimate> {
   const fallbackMinutes = travelMinutesForMode(from, to, mode);
+  const provider = (process.env.ROTA_ROUTING_PROVIDER || "").toLowerCase();
+  if (["google", "google_maps", "googlemaps"].includes(provider)) {
+    return estimateGoogleMapsTravelMinutes(from, to, mode, fallbackMinutes);
+  }
+
   const profile = osrmProfileForMode(mode);
   const baseUrl = (process.env.OSRM_BASE_URL || "").replace(/\/+$/, "");
-  const provider = (process.env.ROTA_ROUTING_PROVIDER || "").toLowerCase();
   if (!baseUrl || !profile || !["openstreetmap", "openstreetmap_osrm", "osrm"].includes(provider)) {
     return { minutes: fallbackMinutes, source: "postcode_fallback" };
   }
@@ -1847,6 +1855,46 @@ async function estimateTravelMinutes(from: RotaLocation, to: RotaLocation, mode:
   } catch {
     return { minutes: fallbackMinutes, source: "postcode_fallback" };
   }
+}
+
+async function estimateGoogleMapsTravelMinutes(from: RotaLocation, to: RotaLocation, mode: string, fallbackMinutes: number): Promise<TravelEstimate> {
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY?.trim();
+  if (!apiKey) return { minutes: fallbackMinutes, source: "postcode_fallback" };
+
+  try {
+    const baseUrl = process.env.GOOGLE_MAPS_DISTANCE_MATRIX_URL?.trim() || "https://maps.googleapis.com/maps/api/distancematrix/json";
+    const routeUrl = new URL(baseUrl);
+    routeUrl.searchParams.set("origins", `${from.lat},${from.lng}`);
+    routeUrl.searchParams.set("destinations", `${to.lat},${to.lng}`);
+    routeUrl.searchParams.set("mode", googleMapsTravelMode(mode));
+    routeUrl.searchParams.set("units", "imperial");
+    routeUrl.searchParams.set("key", apiKey);
+    if (mode === "car") routeUrl.searchParams.set("departure_time", "now");
+    const response = await fetch(routeUrl, {
+      headers: { "User-Agent": "TaskBridge-RotaPlanner/1.0" },
+      signal: AbortSignal.timeout(3000)
+    });
+    if (!response.ok) return { minutes: fallbackMinutes, source: "postcode_fallback" };
+    const payload = await response.json() as {
+      status?: string;
+      rows?: Array<{ elements?: Array<{ status?: string; duration?: { value?: number }; duration_in_traffic?: { value?: number } }> }>;
+    };
+    const element = payload.rows?.[0]?.elements?.[0];
+    const durationSeconds = element?.duration_in_traffic?.value ?? element?.duration?.value;
+    if (payload.status !== "OK" || element?.status !== "OK" || !durationSeconds || !Number.isFinite(durationSeconds)) {
+      return { minutes: fallbackMinutes, source: "postcode_fallback" };
+    }
+    return { minutes: Math.max(2, Math.round(durationSeconds / 60)), source: "google_maps" };
+  } catch {
+    return { minutes: fallbackMinutes, source: "postcode_fallback" };
+  }
+}
+
+function googleMapsTravelMode(mode: string) {
+  if (mode === "walking") return "walking";
+  if (mode === "bike") return "bicycling";
+  if (mode === "public_transport") return "transit";
+  return "driving";
 }
 
 function osrmProfileForMode(mode: string) {
