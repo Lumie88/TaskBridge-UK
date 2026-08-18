@@ -84,26 +84,46 @@ authRouter.post("/handyman-join-request", signInLimiter, asyncHandler(async (req
   const parsed = handymanJoinRequestSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: "Enter valid handyman application details" });
   const data = parsed.data;
+  const email = data.email.toLowerCase();
+  const postcode = data.postcode.toUpperCase();
   const dbsRoute = data.dbsRoute || (data.hasEnhancedDbs ? "already_enhanced" : "basic_or_not_sure");
   const dbsNotes = dbsRoute === "already_enhanced"
     ? "Applicant says they already hold an Enhanced DBS certificate for an eligible role. Evidence still requires TaskBridge admin verification."
     : dbsRoute === "needs_application"
       ? "Applicant needs guidance on the correct DBS route. Enhanced DBS should be pursued only where the proposed role is legally eligible."
       : "Applicant has Basic DBS, no DBS, or is unsure. Restrict to non-vulnerable or supervised work until reviewed.";
-  const created = await query<{ id: string }>(
-    `INSERT INTO tenant.handyman_join_requests
-      (full_name, business_name, email, phone, postcode, services, has_enhanced_dbs, has_public_liability, message, ip_address, dbs_route, dbs_eligibility_notes)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-     RETURNING id::text`,
-    [data.fullName, data.businessName || null, data.email.toLowerCase(), data.phone, data.postcode.toUpperCase(), data.services,
-      dbsRoute === "already_enhanced", data.hasPublicLiability, data.message || null, req.ip, dbsRoute, dbsNotes]
-  );
+  const created = await withTransaction(null, async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`handyman_join:${email}:${data.phone}`]);
+    const existing = await client.query<{ id: string }>(
+      `SELECT id::text
+       FROM tenant.handyman_join_requests
+       WHERE (lower(email::text) = $1 OR phone = $2)
+         AND status IN ('new', 'reviewing', 'invited')
+         AND created_at > clock_timestamp() - interval '90 days'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [email, data.phone]
+    );
+    if (existing.rows[0]) return { id: existing.rows[0].id, duplicate: true };
+    const inserted = await client.query<{ id: string }>(
+      `INSERT INTO tenant.handyman_join_requests
+        (full_name, business_name, email, phone, postcode, services, has_enhanced_dbs, has_public_liability, message, ip_address, dbs_route, dbs_eligibility_notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       RETURNING id::text`,
+      [data.fullName, data.businessName || null, email, data.phone, postcode, data.services,
+        dbsRoute === "already_enhanced", data.hasPublicLiability, data.message || null, req.ip, dbsRoute, dbsNotes]
+    );
+    return { id: inserted.rows[0].id, duplicate: false };
+  });
+  if (created.duplicate) {
+    return res.status(200).json({ status: "received", requestId: created.id, duplicate: true });
+  }
   const delivery = await sendHandymanLeadNotification({
-    email: data.email.toLowerCase(),
+    email,
     fullName: data.fullName,
     businessName: data.businessName || null,
     phone: data.phone,
-    postcode: data.postcode.toUpperCase(),
+    postcode,
     services: data.services,
     dbsRoute,
     hasEnhancedDbs: dbsRoute === "already_enhanced",
@@ -115,9 +135,11 @@ authRouter.post("/handyman-join-request", signInLimiter, asyncHandler(async (req
     `INSERT INTO integration.notification_deliveries
       (channel, purpose, recipient_reference, provider, provider_message_id, status, metadata)
      VALUES ('email', 'handyman_lead_admin_notification', $1, 'email_provider', $2, $3, $4)`,
-    [config.handymanLeadNotificationEmail, delivery.providerMessageId, delivery.status, { handymanJoinRequestId: created.rows[0].id }]
-  );
-  res.status(201).json({ status: "received", requestId: created.rows[0].id, notificationDeliveryStatus: delivery.status });
+    [config.handymanLeadNotificationEmail, delivery.providerMessageId, delivery.status, { handymanJoinRequestId: created.id }]
+  ).catch((error) => {
+    console.warn("Unable to log handyman lead notification delivery", { message: error instanceof Error ? error.message : "Unknown error" });
+  });
+  res.status(201).json({ status: "received", requestId: created.id, notificationDeliveryStatus: delivery.status });
 }));
 
 authRouter.get("/staff-invitations/:token", asyncHandler(async (req, res) => {
