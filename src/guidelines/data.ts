@@ -128,6 +128,13 @@ export const SUPPORTED_SERVICES: ServiceItem[] = [
     impact: "Guarantees emergency egress while locking out unauthorized entries."
   },
   {
+    id: "key-safe-installation",
+    name: "Key-Safe Installation",
+    description: "Installing or securely refixing approved key safes so authorised carers, family members or responders can access the home safely.",
+    category: "Home Security",
+    impact: "Improves planned care access while keeping codes and access instructions controlled by the care team."
+  },
+  {
     id: "deep-clean",
     name: "Targeted Deep Cleaning",
     description: "Specialist sanitization around high-traffic points, cooker areas, and sanitizing bathrooms to avert contamination.",

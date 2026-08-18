@@ -36,7 +36,7 @@ import ServicesGuideline from "../guidelines/ServicesGuideline";
 
 const services = [
   { title: "Reduce slips and falls", detail: "Falls-risk triage, trip hazards, loose rails, mossy paths and unsafe thresholds." },
-  { title: "Keep access safe", detail: "Key safes, locks, handles, door concerns and safer emergency access arrangements." },
+  { title: "Keep access safe", detail: "Key-safe installation, locks, handles, door concerns and safer emergency access arrangements." },
   { title: "Support safe daily living", detail: "Minor adaptations, smoke/CO alarm checks, fittings and practical safety jobs." },
   { title: "Tackle changing home risks", detail: "Seasonal safety checks, repeat visit reviews, lawn care and visible outdoor hazards." }
 ];
@@ -79,6 +79,7 @@ const handymanServices = [
   "Minor adaptations",
   "Falls-risk triage",
   "Smoke/CO alarm checks",
+  "Key-safe installation",
   "Key-safe and lock safety",
   "Seasonal safety checks",
   "Repeat visit reviews",
@@ -653,7 +654,7 @@ export function JoinHandymanPage() {
               <div className="field-row"><label>Full name<input name="fullName" required autoComplete="name" /></label><label>Business name<input name="businessName" autoComplete="organization" /></label></div>
               <div className="field-row"><label>Trading status<select name="tradingStatus" value={tradingStatus} onChange={(event) => setTradingStatus(event.target.value)}><option value="sole_trader">Sole trader</option><option value="limited_company">Limited company</option><option value="partnership">Partnership</option><option value="llp">LLP</option><option value="other">Other</option></select></label><label>Company registration number<input name="companyRegistrationNumber" required={["limited_company", "llp"].includes(tradingStatus)} placeholder={["limited_company", "llp"].includes(tradingStatus) ? "Required" : "If applicable"} /></label></div>
               <label>VAT number<input name="vatNumber" placeholder="Optional" /></label>
-              <div className="field-row"><label>Email<input name="email" type="email" required autoComplete="email" /></label><label>Mobile number<input name="phone" required autoComplete="tel" /></label></div>
+              <div className="field-row"><label>Email<input name="email" type="email" required autoComplete="email" /></label><label>Mobile number<input name="phone" required autoComplete="tel" placeholder="07760 861579 or +447760861579" /></label></div>
               <label>Primary postcode<input name="postcode" required autoComplete="postal-code" /></label>
               <fieldset className="join-service-picker"><legend>Services you can offer</legend>{handymanServices.map((service) => <label key={service} className={selectedServices.includes(service) ? "selected" : ""}><input type="checkbox" checked={selectedServices.includes(service)} onChange={() => toggleService(service)} />{service}</label>)}</fieldset>
               <fieldset className="join-dbs-route"><legend>DBS position</legend>

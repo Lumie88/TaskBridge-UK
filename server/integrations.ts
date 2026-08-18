@@ -80,6 +80,15 @@ function twilioSenderOptions() {
   return Array.from(new Set([config.twilioFromNumber, config.twilioFallbackFromNumber].map((value) => value.trim()).filter(Boolean)));
 }
 
+export function normalizeSmsMobile(value: string) {
+  const compact = value.trim().replace(/[^\d+]/g, "");
+  if (/^\+44\d{10}$/.test(compact)) return compact;
+  if (/^44\d{10}$/.test(compact)) return `+${compact}`;
+  if (/^0\d{10}$/.test(compact)) return `+44${compact.slice(1)}`;
+  if (/^7\d{9}$/.test(compact)) return `+44${compact}`;
+  return compact;
+}
+
 async function twilioErrorMessage(response: Response) {
   const text = await response.text().catch(() => "");
   if (!text) return `Twilio request failed with status ${response.status}`;
@@ -94,6 +103,15 @@ async function twilioErrorMessage(response: Response) {
 
 export async function sendTwilioSms(to: string, body: string): Promise<SmsDeliveryResult> {
   if (!twilioConfigured()) return { status: "not_configured", provider: "none", providerMessageId: null };
+  const normalizedTo = normalizeSmsMobile(to);
+  if (!/^\+[1-9]\d{7,14}$/.test(normalizedTo)) {
+    return {
+      status: "failed",
+      provider: "twilio",
+      providerMessageId: null,
+      providerError: "Enter the mobile number with country code, for example +447760861579"
+    };
+  }
   let lastError = "Twilio SMS failed";
   for (const from of twilioSenderOptions()) {
     try {
@@ -105,7 +123,7 @@ export async function sendTwilioSms(to: string, body: string): Promise<SmsDelive
         },
         body: new URLSearchParams({
           From: from,
-          To: to,
+          To: normalizedTo,
           Body: body,
           ...(config.twilioStatusCallbackUrl ? { StatusCallback: config.twilioStatusCallbackUrl } : {})
         }),
@@ -453,8 +471,8 @@ export async function sendHandymanOnboardingInvite(input: {
   return sendEmail({
     to: input.email,
     subject: "Your TaskBridge handyman onboarding invite",
-    text: `Hello ${input.fullName},\n\nThank you for your interest in joining TaskBridge.\n\nWe have reviewed your application and would like you to complete the next stage of handyman onboarding. Use this secure one-use link before ${expiry}:\n${input.invitationUrl}\n\nWhat you will need:\n- Proof of identity\n- Public liability insurance details\n- Any DBS evidence you already hold\n- Trade or business details where relevant\n\nEnhanced DBS evidence is reviewed only where the role is legally eligible.\n\nTaskBridge Support`,
-    html: `<div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827"><p>Hello ${safeName},</p><p>Thank you for your interest in joining <strong>TaskBridge</strong>.</p><p>We have reviewed your application and would like you to complete the next stage of handyman onboarding.</p><p><a href="${safeUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:6px;font-weight:700">Complete handyman onboarding</a></p><p>This secure one-use link expires on <strong>${escapeHtml(expiry)}</strong>.</p><p>Please have these ready:</p><ul><li>Proof of identity</li><li>Public liability insurance details</li><li>Any DBS evidence you already hold</li><li>Trade or business details where relevant</li></ul><p>Enhanced DBS evidence is reviewed only where the role is legally eligible.</p><p>TaskBridge Support</p></div>`
+    text: `Hello ${input.fullName},\n\nThank you for your interest in joining TaskBridge.\n\nWe have reviewed your application and would like you to complete the next stage of handyman onboarding. Use this secure one-use link before ${expiry}:\n${input.invitationUrl}\n\nWhat you will need:\n- Proof of identity\n- Public liability insurance details\n- Any DBS evidence you already hold\n- Trade or business details where relevant\n\nTaskBridge Support`,
+    html: `<div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827"><p>Hello ${safeName},</p><p>Thank you for your interest in joining <strong>TaskBridge</strong>.</p><p>We have reviewed your application and would like you to complete the next stage of handyman onboarding.</p><p><a href="${safeUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:6px;font-weight:700">Complete handyman onboarding</a></p><p>This secure one-use link expires on <strong>${escapeHtml(expiry)}</strong>.</p><p>Please have these ready:</p><ul><li>Proof of identity</li><li>Public liability insurance details</li><li>Any DBS evidence you already hold</li><li>Trade or business details where relevant</li></ul><p>TaskBridge Support</p></div>`
   });
 }
 
@@ -561,6 +579,46 @@ export async function sendCareIntegrationRequirementsEmail(input: {
     subject: `TaskBridge care-management integration details for ${input.organisationName}`,
     text: `Hello ${input.contactName},\n\nThank you for onboarding ${input.organisationName} with TaskBridge.\n\nYou indicated that you want to connect your care-management system to TaskBridge. Please reply with the details below, or forward this to your care-management provider or integration contact.\n\nRequired details:\n${textChecklist}\n\nTaskBridge supports per-agency credentials, so each care agency can use its own provider workspace, token, webhook secret and callback settings.\n\nTaskBridge Support`,
     html: `<div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827"><p>Hello ${escapeHtml(input.contactName)},</p><p>Thank you for onboarding <strong>${escapeHtml(input.organisationName)}</strong> with TaskBridge.</p><p>You indicated that you want to connect your care-management system to TaskBridge. Please reply with the details below, or forward this to your care-management provider or integration contact.</p><p><strong>Required details</strong></p><ol>${htmlChecklist}</ol><p>TaskBridge supports per-agency credentials, so each care agency can use its own provider workspace, token, webhook secret and callback settings.</p><p>TaskBridge Support</p></div>`
+  });
+}
+
+export async function sendHandymanLeadNotification(input: {
+  email: string;
+  fullName: string;
+  businessName?: string | null;
+  phone: string;
+  postcode: string;
+  services: string[];
+  dbsRoute: string;
+  hasEnhancedDbs: boolean;
+  hasPublicLiability: boolean;
+  message?: string | null;
+  adminUrl: string;
+}) {
+  const businessLine = input.businessName?.trim() || "Not provided";
+  const services = input.services.length ? input.services.join(", ") : "No services selected";
+  const text = [
+    "A new handyman lead has registered online.",
+    "",
+    `Name: ${input.fullName}`,
+    `Business: ${businessLine}`,
+    `Email: ${input.email}`,
+    `Phone: ${input.phone}`,
+    `Postcode: ${input.postcode}`,
+    `Services: ${services}`,
+    `DBS route: ${input.dbsRoute.replace(/_/g, " ")}`,
+    `Enhanced DBS declared: ${input.hasEnhancedDbs ? "Yes" : "No"}`,
+    `Public liability declared: ${input.hasPublicLiability ? "Yes" : "No"}`,
+    input.message ? `Message: ${input.message}` : "",
+    "",
+    `Review the lead in TaskBridge: ${input.adminUrl}`
+  ].filter(Boolean).join("\n");
+  const htmlServices = input.services.map((service) => `<li>${escapeHtml(service)}</li>`).join("");
+  return sendEmail({
+    to: config.handymanLeadNotificationEmail,
+    subject: `New TaskBridge handyman lead: ${input.fullName}`,
+    text,
+    html: `<div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827"><p><strong>A new handyman lead has registered online.</strong></p><table style="border-collapse:collapse;width:100%;max-width:680px"><tbody><tr><td><strong>Name</strong></td><td>${escapeHtml(input.fullName)}</td></tr><tr><td><strong>Business</strong></td><td>${escapeHtml(businessLine)}</td></tr><tr><td><strong>Email</strong></td><td>${escapeHtml(input.email)}</td></tr><tr><td><strong>Phone</strong></td><td>${escapeHtml(input.phone)}</td></tr><tr><td><strong>Postcode</strong></td><td>${escapeHtml(input.postcode)}</td></tr><tr><td><strong>DBS route</strong></td><td>${escapeHtml(input.dbsRoute.replace(/_/g, " "))}</td></tr><tr><td><strong>Enhanced DBS declared</strong></td><td>${input.hasEnhancedDbs ? "Yes" : "No"}</td></tr><tr><td><strong>Public liability declared</strong></td><td>${input.hasPublicLiability ? "Yes" : "No"}</td></tr></tbody></table><p><strong>Services</strong></p><ul>${htmlServices || "<li>No services selected</li>"}</ul>${input.message ? `<p><strong>Applicant message</strong><br>${escapeHtml(input.message)}</p>` : ""}<p><a href="${escapeHtml(input.adminUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:6px;font-weight:700">Review in TaskBridge</a></p></div>`
   });
 }
 

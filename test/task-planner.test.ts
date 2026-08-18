@@ -40,6 +40,13 @@ test("actual keysafe or lock faults still become a safety task", () => {
   assert.ok(plan.some((item) => item.category === "Key safe and lock safety"));
 });
 
+test("explicit key safe installation request becomes an installation task", () => {
+  const plan = deterministicTaskPlan("Please install a new key safe by the front door for carer access.", true);
+
+  assert.ok(plan.some((item) => item.category === "Key safe installation"));
+  assert.ok(plan.every((item) => !/\b\d{4,8}\b/.test(item.summary)));
+});
+
 test("keysafe repair wording is not mistaken for an access code", async () => {
   const note = "Got the key from the keysafe, Janet was fine. did her personal care. we noticed the keysafe is loose, screw is out of the wall. locked the door and secured the key in the keysafe";
   const analysis = await analyzeCareNote(note, true);

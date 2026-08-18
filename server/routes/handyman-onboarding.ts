@@ -25,6 +25,7 @@ const serviceOptions = [
   "Deep cleaning",
   "Appliance safety checks",
   "Trip hazard removal",
+  "Key safe installation",
   "Home safety inspection"
 ] as const;
 

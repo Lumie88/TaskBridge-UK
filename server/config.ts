@@ -68,6 +68,7 @@ export const config = {
   emailProviderApiUrl: process.env.EMAIL_PROVIDER_API_URL || "https://api.resend.com/emails",
   emailProviderApiKey: process.env.EMAIL_PROVIDER_API_KEY || "",
   emailFromAddress: process.env.EMAIL_FROM_ADDRESS || "",
+  handymanLeadNotificationEmail: process.env.HANDYMAN_LEAD_NOTIFICATION_EMAIL || "integrations@growingfig.com",
   zohoAccountsBaseUrl: process.env.ZOHO_ACCOUNTS_BASE_URL || "https://accounts.zoho.eu",
   zohoMailApiBaseUrl: process.env.ZOHO_MAIL_API_BASE_URL || "https://mail.zoho.eu",
   zohoMailAccountId: process.env.ZOHO_MAIL_ACCOUNT_ID || "",

@@ -44,6 +44,7 @@ const categoryRules = [
   { category: "Minor adaptations", terms: ["minor adaptation", "grab rail", "threshold ramp", "raised toilet", "bath board", "adaptation"] },
   { category: "Falls-risk triage", terms: ["fall", "falls", "unsteady", "mobility", "walking aid", "balance", "near miss"] },
   { category: "Lock repairs", terms: ["lock", "door security", "sticking door"] },
+  { category: "Key safe installation", terms: ["install key safe", "fit key safe", "mount key safe", "new key safe", "key safe installation", "keysafe installation", "install keysafe", "fit keysafe", "mount keysafe", "new keysafe"] },
   { category: "Key safe and lock safety", terms: ["key safe", "keysafe", "spare key", "access code", "door access", "thumbturn"] },
   { category: "Deep cleaning", terms: ["deep clean", "grease", "dirty oven", "cleaning"] },
   { category: "Electrical safety checks", terms: ["electrical", "socket", "plug", "light", "bulb", "wiring", "fuse"] },
@@ -55,6 +56,7 @@ const categoryRules = [
 ];
 
 const keysafeAccessPattern = /\b(?:key\s*safe|keysafe|spare\s+key|access\s+code|door\s+code|entry\s+code)\b/i;
+const keysafeInstallPattern = /\b(?:install|fit|mount|supply|put\s+in|add|new)\b.*\b(?:key\s*safe|keysafe)\b|\b(?:key\s*safe|keysafe)\b.*\b(?:install|fitting|installation|fit|mounted|supplied|new)\b/i;
 const keysafeWorkPattern = /\b(?:key\s*safe|keysafe|spare\s+key|access\s+code|door\s+access|thumbturn|lock)\b.*\b(?:broken|stuck|jammed|loose|damaged|faulty|not\s+working|cannot\s+open|won't\s+open|wont\s+open|replace|repair|check|inspect|review|unsafe|concern)\b|\b(?:broken|stuck|jammed|loose|damaged|faulty|unsafe|check|inspect|review|repair|replace)\b.*\b(?:key\s*safe|keysafe|lock|door\s+access|thumbturn)\b/i;
 const railWorkPattern = /\b(?:rail|handrail|grab\s*rail|banister)\b.*\b(?:loose|broken|damaged|repair|fix|unsafe|wobbly)\b|\b(?:loose|broken|damaged|wobbly|unsafe)\b.*\b(?:rail|handrail|grab\s*rail|banister)\b/i;
 const lockWorkPattern = /\b(?:lock|door\s+security|sticking\s+door)\b.*\b(?:broken|stuck|jammed|loose|damaged|faulty|not\s+working|cannot\s+open|won't\s+open|wont\s+open|replace|repair|check|inspect|review|unsafe|concern)\b|\b(?:broken|stuck|jammed|loose|damaged|faulty|unsafe|check|inspect|review|repair|replace)\b.*\b(?:lock|door\s+security|sticking\s+door)\b/i;
@@ -68,13 +70,14 @@ function inferredUrgency(note: string): TaskSuggestion["urgency"] {
 
 function noteForTaskMatching(note: string) {
   return sentenceParts(note)
-    .filter((part) => !(keysafeAccessPattern.test(part) && !keysafeWorkPattern.test(part)))
+    .filter((part) => !(keysafeAccessPattern.test(part) && !keysafeWorkPattern.test(part) && !keysafeInstallPattern.test(part)))
     .join(". ");
 }
 
 function shouldUseCategory(rule: { category: string }, note: string) {
   if (rule.category === "Loose rail repair") return railWorkPattern.test(note);
   if (rule.category === "Lock repairs") return lockWorkPattern.test(note);
+  if (rule.category === "Key safe installation") return keysafeInstallPattern.test(note);
   if (rule.category !== "Key safe and lock safety") return true;
   return keysafeWorkPattern.test(note);
 }
@@ -91,6 +94,11 @@ function hasTerm(note: string, term: string) {
 
 function taskSummaryForCategory(category: string, note = "") {
   const detail = note ? explicitDetailForCategory(category, note) : "";
+  if (category === "Key safe installation") {
+    return detail
+      ? `Install a suitable key safe and confirm it is securely fixed: ${detail}. Key-safe codes must be recorded separately by the care coordinator.`
+      : "Install a suitable key safe, confirm it is securely fixed, and record completion evidence. Key-safe codes must be recorded separately by the care coordinator.";
+  }
   if (category === "Key safe and lock safety") {
     return detail
       ? `Check and make safe the reported key-safe/access issue: ${detail}. Do not include any access code in the task summary.`
@@ -178,6 +186,7 @@ function taskPlannerPrompt(note: string, vulnerable: boolean) {
     "- Split separate practical issues into separate tasks only when the note clearly describes separate hazards.",
     "- Keep summaries free of keysafe codes, entry codes, phone numbers, and unnecessary resident personal data.",
     "- Treat keysafe codes, spare-key locations, and access instructions as coordinator-entered access information, not as a work task.",
+    "- Create a Key safe installation task only when the note explicitly asks for a key safe to be installed, fitted, mounted, supplied, or added.",
     "- Create a Key safe and lock safety task only when the note says the keysafe, lock, door access, or thumbturn is broken, unsafe, stuck, damaged, or needs checking/repair.",
     "- Use only the allowed categories.",
     "- Mark safeguardingApplies from the vulnerableAdult flag.",
@@ -249,7 +258,7 @@ async function createGeminiTaskPlan(note: string, vulnerable: boolean) {
 }
 
 export function postProcessSuggestions(note: string, suggestions: TaskSuggestion[]) {
-  const accessOnlyKeysafe = hasKeysafeAccessInfo(note) && !keysafeWorkPattern.test(note);
+  const accessOnlyKeysafe = hasKeysafeAccessInfo(note) && !keysafeWorkPattern.test(note) && !keysafeInstallPattern.test(note);
   const redacted = suggestions
     .filter((suggestion) => isGroundedSuggestion(note, suggestion, accessOnlyKeysafe))
     .map((suggestion) => ({
@@ -267,6 +276,7 @@ function isGroundedSuggestion(note: string, suggestion: TaskSuggestion, accessOn
   if (accessOnlyKeysafe && /key\s*safe|keysafe|lock|access/i.test(suggestion.category)) return false;
   if (/loose\s+rail|handrail|grab\s*rail|banister/i.test(suggestion.category) && !railWorkPattern.test(note)) return false;
   if (/lock\s+repair|door\s+lock/i.test(suggestion.category) && !lockWorkPattern.test(note)) return false;
+  if (/key\s*safe\s+installation/i.test(suggestion.category) && !keysafeInstallPattern.test(note)) return false;
   if (/seasonal\s+safety/i.test(suggestion.category) && !categoryHasTerm("Seasonal safety checks", taskNote)) return false;
   if (/appliance\s+safety/i.test(suggestion.category) && !categoryHasTerm("Appliance safety checks", taskNote)) return false;
   return true;

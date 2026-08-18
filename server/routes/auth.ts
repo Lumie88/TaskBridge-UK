@@ -5,9 +5,10 @@ import { audit } from "../audit.js";
 import { asyncHandler } from "../async-handler.js";
 import { createSession, publicUser, revokeSession } from "../auth.js";
 import { query, withTransaction } from "../db.js";
-import { sendDemoRequestReceipt } from "../integrations.js";
+import { normalizeSmsMobile, sendDemoRequestReceipt, sendHandymanLeadNotification } from "../integrations.js";
 import { hashPassword, hashToken, isWorkEmail, verifyPassword } from "../security.js";
 import type { UserRole } from "../types.js";
+import { config } from "../config.js";
 
 interface UserRow {
   id: string;
@@ -37,7 +38,10 @@ const handymanJoinRequestSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
   businessName: z.string().trim().max(160).optional().default(""),
   email: z.string().trim().email().max(200),
-  phone: z.string().trim().min(8).max(30),
+  phone: z.preprocess(
+    (value) => typeof value === "string" ? normalizeSmsMobile(value) : value,
+    z.string().regex(/^\+[1-9]\d{7,14}$/, "Enter a valid mobile number, for example +447760861579 or 07760861579")
+  ),
   postcode: z.string().trim().min(4).max(12),
   services: z.array(z.string().trim().min(2).max(80)).min(1).max(12),
   dbsRoute: z.enum(["already_enhanced", "needs_application", "basic_or_not_sure"]).optional(),
@@ -94,13 +98,26 @@ authRouter.post("/handyman-join-request", signInLimiter, asyncHandler(async (req
     [data.fullName, data.businessName || null, data.email.toLowerCase(), data.phone, data.postcode.toUpperCase(), data.services,
       dbsRoute === "already_enhanced", data.hasPublicLiability, data.message || null, req.ip, dbsRoute, dbsNotes]
   );
+  const delivery = await sendHandymanLeadNotification({
+    email: data.email.toLowerCase(),
+    fullName: data.fullName,
+    businessName: data.businessName || null,
+    phone: data.phone,
+    postcode: data.postcode.toUpperCase(),
+    services: data.services,
+    dbsRoute,
+    hasEnhancedDbs: dbsRoute === "already_enhanced",
+    hasPublicLiability: data.hasPublicLiability,
+    message: data.message || null,
+    adminUrl: `${config.appOrigin}/internal/taskbridge`
+  });
   await query(
     `INSERT INTO integration.notification_deliveries
       (channel, purpose, recipient_reference, provider, provider_message_id, status, metadata)
-     VALUES ('internal', 'handyman_join_request', $1, 'taskbridge', $2, 'queued', $3)`,
-    [data.email.toLowerCase(), created.rows[0].id, { services: data.services, postcode: data.postcode.toUpperCase(), dbsRoute }]
+     VALUES ('email', 'handyman_lead_admin_notification', $1, 'email_provider', $2, $3, $4)`,
+    [config.handymanLeadNotificationEmail, delivery.providerMessageId, delivery.status, { handymanJoinRequestId: created.rows[0].id }]
   );
-  res.status(201).json({ status: "received", requestId: created.rows[0].id });
+  res.status(201).json({ status: "received", requestId: created.rows[0].id, notificationDeliveryStatus: delivery.status });
 }));
 
 authRouter.get("/staff-invitations/:token", asyncHandler(async (req, res) => {

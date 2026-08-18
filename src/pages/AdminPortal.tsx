@@ -268,6 +268,7 @@ interface HandymanInviteResult {
   expiresAt: string;
   emailDeliveryStatus: string;
   smsDeliveryStatus?: string;
+  smsProviderError?: string | null;
 }
 
 interface BillingCharge {
@@ -752,7 +753,7 @@ function HandymanJoinRequestDesk({ requests, onChanged, embedded = false }: { re
     {embedded && <div className="panel-heading"><div><h2>Lead intake</h2><p>Review website applications, then invite suitable handymen into onboarding and compliance.</p></div></div>}
     {!embedded && <nav className="task-filter-links" aria-label="Filter handyman join requests">{[["open", "Open"], ["new", "New"], ["reviewing", "Reviewing"], ["invited", "Invited"], ["declined", "Declined"], ["closed", "Closed"], ["all", "All"]].map(([key, label]) => <button key={key} className={filter === key ? "active" : ""} onClick={() => setFilter(key)}>{label}<span>{requests.filter((item) => key === "open" ? ["new", "reviewing"].includes(item.status) : key === "all" ? true : item.status === key).length}</span></button>)}</nav>}
     <section className="panel table-panel">
-      {inviteResult && <div className={`invitation-result ${inviteResult.emailDeliveryStatus === "sent" ? "sent" : "attention"}`}><div><strong>{inviteResult.fullName} moved into onboarding</strong><span>Email: {humanize(inviteResult.emailDeliveryStatus)} / SMS: {humanize(inviteResult.smsDeliveryStatus || "not_configured")} / expires {formatDate(inviteResult.expiresAt, true)}</span></div><div className="invitation-link"><input readOnly value={inviteResult.invitationUrl} aria-label="Handyman onboarding invitation URL" /><button className="icon-button" type="button" onClick={copyLeadInviteLink} aria-label="Copy invitation link"><Copy size={18} /></button><a className="icon-button" href={inviteResult.invitationUrl} target="_blank" rel="noreferrer" aria-label="Open onboarding invitation"><ExternalLink size={18} /></a></div></div>}
+      {inviteResult && <div className={`invitation-result ${inviteResult.emailDeliveryStatus === "sent" ? "sent" : "attention"}`}><div><strong>{inviteResult.fullName} moved into onboarding</strong><span>Email: {humanize(inviteResult.emailDeliveryStatus)} / SMS: {humanize(inviteResult.smsDeliveryStatus || "not_configured")} / expires {formatDate(inviteResult.expiresAt, true)}</span>{inviteResult.smsProviderError && <small>SMS reason: {inviteResult.smsProviderError}</small>}</div><div className="invitation-link"><input readOnly value={inviteResult.invitationUrl} aria-label="Handyman onboarding invitation URL" /><button className="icon-button" type="button" onClick={copyLeadInviteLink} aria-label="Copy invitation link"><Copy size={18} /></button><a className="icon-button" href={inviteResult.invitationUrl} target="_blank" rel="noreferrer" aria-label="Open onboarding invitation"><ExternalLink size={18} /></a></div></div>}
       <div className="responsive-table"><table><thead><tr><th>Applicant</th><th>Source / score</th><th>Business</th><th>Contact</th><th>Services</th><th>Safeguarding</th><th>Message</th><th>Actions</th></tr></thead><tbody>{filtered.map((item) => {
         const score = handymanLeadScore(item);
         return <tr key={item.id}>
@@ -845,7 +846,7 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteResult, setInviteResult] = useState<{ invitationUrl: string; expiresAt: string; emailDeliveryStatus: string; smsDeliveryStatus?: string } | null>(null);
+  const [inviteResult, setInviteResult] = useState<{ invitationUrl: string; expiresAt: string; emailDeliveryStatus: string; smsDeliveryStatus?: string; smsProviderError?: string | null } | null>(null);
   const [reviewingTrader, setReviewingTrader] = useState<Trader | null>(null);
   const [documents, setDocuments] = useState<ComplianceDocument[]>([]);
   const [ddcPack, setDdcPack] = useState<DdcPack | null>(null);
@@ -985,7 +986,7 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
     const values = new FormData(event.currentTarget);
     setBusy("invite"); setError(""); setInviteResult(null);
     try {
-      const result = await api<{ invitationUrl: string; expiresAt: string; emailDeliveryStatus: string; smsDeliveryStatus?: string }>("/api/admin/traders/invitations", {
+      const result = await api<{ invitationUrl: string; expiresAt: string; emailDeliveryStatus: string; smsDeliveryStatus?: string; smsProviderError?: string | null }>("/api/admin/traders/invitations", {
         method: "POST",
         body: JSON.stringify({ fullName: values.get("fullName"), email: values.get("email"), mobile: values.get("mobile") })
       });
@@ -1051,7 +1052,7 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
     {inviteOpen && <section className="panel invite-handyman-panel">
       <div className="panel-heading"><div><h2>Register and invite a handyman</h2><p>An expiring one-use registration link will be sent to their email address.</p></div></div>
       <form className="invite-handyman-form" onSubmit={inviteHandyman}><label>Full name<input required name="fullName" minLength={2} autoComplete="off" /></label><label>Email address<input required name="email" type="email" autoComplete="off" /></label><label>Mobile number<input name="mobile" type="tel" placeholder="+44..." autoComplete="off" /></label><button className="button button-primary" disabled={busy === "invite"} type="submit">{busy === "invite" ? <><LoaderCircle className="spin" size={17} /> Sending...</> : <><Send size={17} /> Send registration link</>}</button></form>
-      {inviteResult && <div className={`invitation-result ${inviteResult.emailDeliveryStatus === "sent" ? "sent" : "attention"}`}><div><strong>{inviteResult.emailDeliveryStatus === "sent" ? "Invitation email sent" : "Invitation created; email delivery needs configuration"}</strong><span>SMS: {humanize(inviteResult.smsDeliveryStatus || "not_configured")} · Expires {formatDate(inviteResult.expiresAt, true)}</span></div><div className="invitation-link"><input readOnly value={inviteResult.invitationUrl} aria-label="Handyman invitation URL" /><button className="icon-button" onClick={copyInvitationLink} type="button" aria-label="Copy invitation link"><Copy size={18} /></button><a className="icon-button" href={inviteResult.invitationUrl} target="_blank" rel="noreferrer" aria-label="Open invitation"><ExternalLink size={18} /></a></div></div>}
+      {inviteResult && <div className={`invitation-result ${inviteResult.emailDeliveryStatus === "sent" ? "sent" : "attention"}`}><div><strong>{inviteResult.emailDeliveryStatus === "sent" ? "Invitation email sent" : "Invitation created; email delivery needs configuration"}</strong><span>SMS: {humanize(inviteResult.smsDeliveryStatus || "not_configured")} · Expires {formatDate(inviteResult.expiresAt, true)}</span>{inviteResult.smsProviderError && <small>SMS reason: {inviteResult.smsProviderError}</small>}</div><div className="invitation-link"><input readOnly value={inviteResult.invitationUrl} aria-label="Handyman invitation URL" /><button className="icon-button" onClick={copyInvitationLink} type="button" aria-label="Copy invitation link"><Copy size={18} /></button><a className="icon-button" href={inviteResult.invitationUrl} target="_blank" rel="noreferrer" aria-label="Open invitation"><ExternalLink size={18} /></a></div></div>}
     </section>}
     <nav className="task-filter-links" aria-label="Filter handyman pipeline">{[
       ["all", "All"],

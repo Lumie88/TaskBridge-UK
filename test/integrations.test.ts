@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { config } from "../server/config.js";
-import { familyPaymentSmsBody, normalizeDbsProviderCallback, sendTwilioSms } from "../server/integrations.js";
+import { familyPaymentSmsBody, normalizeDbsProviderCallback, normalizeSmsMobile, sendTwilioSms } from "../server/integrations.js";
 
 test("normalises nested DBS provider completion into an approved DBS result", () => {
   const result = normalizeDbsProviderCallback({
@@ -66,6 +66,13 @@ test("family payment SMS includes the secure payment link and amount", () => {
   assert.match(body, /https:\/\/www\.growingfig\.com\/family-payment\/token/);
 });
 
+test("normalises UK mobile numbers before SMS delivery", () => {
+  assert.equal(normalizeSmsMobile("07760 861579"), "+447760861579");
+  assert.equal(normalizeSmsMobile("7760861579"), "+447760861579");
+  assert.equal(normalizeSmsMobile("447760861579"), "+447760861579");
+  assert.equal(normalizeSmsMobile("+447760861579"), "+447760861579");
+});
+
 test("Twilio SMS retries with fallback sender when alphanumeric sender is rejected", async () => {
   const previous = {
     sid: config.twilioAccountSid,
@@ -82,6 +89,7 @@ test("Twilio SMS retries with fallback sender when alphanumeric sender is reject
   globalThis.fetch = async (_url, init) => {
     const body = init?.body as URLSearchParams;
     senders.push(body.get("From") || "");
+    assert.equal(body.get("To"), "+447760861579");
     if (senders.length === 1) {
       return new Response(JSON.stringify({ code: 21612, message: "The From phone number is not a valid, SMS-capable inbound phone number or short code for your account." }), { status: 400 });
     }
@@ -89,7 +97,7 @@ test("Twilio SMS retries with fallback sender when alphanumeric sender is reject
   };
 
   try {
-    const result = await sendTwilioSms("+447760861579", "TaskBridge test");
+    const result = await sendTwilioSms("07760 861579", "TaskBridge test");
     assert.deepEqual(senders, ["TaskBridge", "+447460077297"]);
     assert.equal(result.status, "queued");
     assert.equal(result.providerMessageId, "SM123");

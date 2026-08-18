@@ -474,12 +474,12 @@ adminRouter.post("/handyman-join-requests/:id/invite", requireRoles("taskbridge_
        (channel, purpose, recipient_reference, provider, provider_message_id, status, metadata)
      VALUES ('sms', 'handyman_onboarding_invite', $1, $2, $3, $4, $5)`,
     [hashToken(created.mobile || created.email), String(smsDelivery.provider || "none"),
-      smsDelivery.providerMessageId || null, smsStatus, { leadId: created.leadId, traderId: created.traderId }]
+      smsDelivery.providerMessageId || null, smsStatus, { leadId: created.leadId, traderId: created.traderId, providerError: smsDelivery.providerError || null }]
   );
   await audit(req, "super_admin.handyman_join_request.invited", "handyman_join_request", created.leadId, {
-    traderId: created.traderId, invitationId: created.invitationId, emailDeliveryStatus: delivery.status, smsDeliveryStatus: smsStatus
+    traderId: created.traderId, invitationId: created.invitationId, emailDeliveryStatus: delivery.status, smsDeliveryStatus: smsStatus, smsProviderError: smsDelivery.providerError || null
   });
-  res.status(201).json({ traderId: created.traderId, invitationUrl, expiresAt: expiresAt.toISOString(), emailDeliveryStatus: delivery.status, smsDeliveryStatus: smsStatus });
+  res.status(201).json({ traderId: created.traderId, invitationUrl, expiresAt: expiresAt.toISOString(), emailDeliveryStatus: delivery.status, smsDeliveryStatus: smsStatus, smsProviderError: smsDelivery.providerError || null });
 }));
 
 adminRouter.get("/tasks", async (_req, res) => {
@@ -1398,19 +1398,21 @@ adminRouter.post("/traders/invitations", requireRoles("taskbridge_super_admin"),
        (channel, purpose, recipient_reference, provider, provider_message_id, status, metadata)
      VALUES ('sms', 'handyman_onboarding_invite', $1, $2, $3, $4, $5)`,
     [hashToken(mobile || email), String(smsDelivery.provider || "none"),
-      smsDelivery.providerMessageId || null, smsStatus, { traderId: created.traderId, source: "manual_invite" }]
+      smsDelivery.providerMessageId || null, smsStatus, { traderId: created.traderId, source: "manual_invite", providerError: smsDelivery.providerError || null }]
   );
   await audit(req, "super_admin.handyman.invited", "trader", created.traderId, {
     invitationId: created.invitationId,
     emailDeliveryStatus: delivery.status,
-    smsDeliveryStatus: smsStatus
+    smsDeliveryStatus: smsStatus,
+    smsProviderError: smsDelivery.providerError || null
   });
   res.status(201).json({
     traderId: created.traderId,
     invitationUrl,
     expiresAt: expiresAt.toISOString(),
     emailDeliveryStatus: delivery.status,
-    smsDeliveryStatus: smsStatus
+    smsDeliveryStatus: smsStatus,
+    smsProviderError: smsDelivery.providerError || null
   });
 }));
 

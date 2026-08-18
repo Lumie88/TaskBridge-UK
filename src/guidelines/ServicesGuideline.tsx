@@ -13,6 +13,7 @@ function serviceIcon(id: string) {
     case "path-clear":
       return Sparkles;
     case "lock-repair":
+    case "key-safe-installation":
       return Key;
     case "deep-clean":
       return Droplet;
