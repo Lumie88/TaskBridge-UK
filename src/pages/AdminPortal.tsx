@@ -942,7 +942,7 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
       } }>(`/api/admin/traders/${trader.id}/passport`);
       const passport = result.passport;
       window.alert([
-        `${passport.displayName} compliance passport`,
+        `${passport.displayName} compliance ID profile`,
         `Reliability score: ${passport.reliability.score}/100`,
         `Services: ${passport.services.join(", ") || "Awaiting registration"}`,
         `DBS: ${humanize(passport.compliance.dbsStatus)}${passport.compliance.dbsExpiryDate ? ` until ${formatDate(passport.compliance.dbsExpiryDate)}` : ""}`,
@@ -950,7 +950,7 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
         `Radius: ${passport.serviceRadiusMiles} miles · Rate: £${passport.hourlyRate}/hr`,
         `Assignments: ${passport.reliability.totalAssignments}; completed ${passport.reliability.completed}; care-approved ${passport.reliability.careApproved}; complaints ${passport.reliability.complaints}`
       ].join("\n"));
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load handyman passport"); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load handyman ID profile"); }
     finally { setBusy(""); }
   }
   async function reviewDocument(document: ComplianceDocument, status: "approved" | "rejected") {
@@ -1117,7 +1117,7 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
         <td><StatusBadge status={trader.dbsStatus}>{humanize(trader.dbsStatus)}</StatusBadge><small>{trader.dbsExpiryDate ? `Expires ${formatDate(trader.dbsExpiryDate)}` : dbsRouteLabel(trader)}</small>{trader.dbsOutcome && <small className="table-note">{trader.dbsOutcome}</small>}</td>
         <td><StatusBadge status={trader.insuranceStatus}>{humanize(trader.insuranceStatus)}</StatusBadge><small>{trader.insuranceExpiryDate ? `Expires ${formatDate(trader.insuranceExpiryDate)}` : "No active expiry"}</small></td>
         <td><span className="rating"><Star size={15} /> {trader.qualityScore}</span></td>
-        <td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === `passport-${trader.id}`} onClick={() => openPassport(trader)}>Passport</button><button className="button button-secondary button-small" disabled={busy === `rate-${trader.id}`} onClick={() => upsertRateCard(trader)}><CreditCard size={15} /> Rate card</button><button className="button button-secondary button-small" disabled={documentsLoading && reviewingTrader?.id === trader.id} onClick={() => openDocuments(trader)}><FileCheck2 size={15} /> Review documents</button><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start DBS route</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td>
+        <td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === `passport-${trader.id}`} onClick={() => openPassport(trader)}>ID</button><button className="button button-secondary button-small" disabled={busy === `rate-${trader.id}`} onClick={() => upsertRateCard(trader)}><CreditCard size={15} /> Rate card</button><button className="button button-secondary button-small" disabled={documentsLoading && reviewingTrader?.id === trader.id} onClick={() => openDocuments(trader)}><FileCheck2 size={15} /> Review documents</button><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start DBS route</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td>
       </tr>)}</tbody></table></div>
       {!filteredTraders.length && <EmptyState icon={<BadgeCheck />} title="No handymen in this view" detail="Choose another compliance filter to review the registry." />}
     </section>

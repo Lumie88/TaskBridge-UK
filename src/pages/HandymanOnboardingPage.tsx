@@ -190,7 +190,7 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
 
                 <section className="onboarding-form-section">
                   <div className="onboarding-section-title"><span><FileCheck2 size={20} /></span><div><h2>Compliance evidence</h2><p>PDF, JPEG or PNG. Maximum 15 MB per document.</p></div></div>
-                  <DocumentField label="Proof of identity" detail="Passport or driving licence" required onFile={(file) => setFiles((current) => ({ ...current, identity: file }))} />
+                  <DocumentField label="Proof of identity" detail="Accepted form of ID, such as a driving licence or passport" required onFile={(file) => setFiles((current) => ({ ...current, identity: file }))} />
                   <div className="document-block"><DocumentField label="Public liability insurance certificate" detail="Current insurance evidence" required onFile={(file) => setFiles((current) => ({ ...current, public_liability_insurance: file }))} /><div className="field-row"><label>Insurance provider<input required name="insuranceProvider" /></label><label>Policy reference<input required name="insuranceReference" /></label></div><label>Insurance expiry date<input required name="insuranceExpiry" type="date" /></label></div>
                   <div className="document-block">
                     <fieldset><legend>DBS route</legend><div className="service-choice-grid">
