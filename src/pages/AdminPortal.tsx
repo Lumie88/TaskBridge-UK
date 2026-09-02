@@ -639,7 +639,8 @@ function IncidentDesk({ incidents, tasks, onChanged, embedded = false }: { incid
   const [createOpen, setCreateOpen] = useState(false);
   async function createIncident(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const values = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const values = new FormData(form);
     const taskPublicId = String(values.get("taskPublicId") || "");
     const type = String(values.get("type") || "");
     const severity = String(values.get("severity") || "");
@@ -652,7 +653,7 @@ function IncidentDesk({ incidents, tasks, onChanged, embedded = false }: { incid
         method: "POST",
         body: JSON.stringify({ taskPublicId: taskPublicId || null, type, severity, title, description })
       });
-      event.currentTarget.reset();
+      form?.reset?.();
       setCreateOpen(false);
       await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to create incident"); }
@@ -992,7 +993,7 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
         body: JSON.stringify({ fullName: values.get("fullName"), email: values.get("email"), mobile: values.get("mobile") })
       });
       setInviteResult(result);
-      form.reset();
+      form?.reset?.();
       await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to invite handyman"); }
     finally { setBusy(""); }
@@ -1227,7 +1228,8 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
   async function createAgency(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true); setError(""); setSuccess(""); setIssuedKey(""); setStaffInvitation(null);
-    const values = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const values = new FormData(form);
     try {
       const result = await api<{ apiKey: string; invitationUrl: string; emailDeliveryStatus: string; careIntegrationEmailDeliveryStatus?: string | null }>("/api/admin/agencies", { method: "POST", body: JSON.stringify({
         name: values.get("name"),
@@ -1245,7 +1247,7 @@ function AgencyOnboarding({ agencies, onChanged }: { agencies: Agency[]; onChang
       setSuccess(`${baseMessage}${integrationMessage}`);
       setIssuedKey(result.apiKey);
       setStaffInvitation({ url: result.invitationUrl, delivery: result.emailDeliveryStatus });
-      event.currentTarget.reset();
+      form?.reset?.();
       await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to onboard care agency"); }
     finally { setBusy(false); }
@@ -1404,7 +1406,7 @@ function AccessControl({ currentUser, users, invitations, agencies, onChanged, e
           agencyId: role.startsWith("care_") ? values.get("agencyId") : null
         })
       });
-      setInviteResult(result); form.reset(); await onChanged();
+      setInviteResult(result); form?.reset?.(); await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to send invitation"); }
     finally { setBusy(""); }
   }
