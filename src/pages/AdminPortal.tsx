@@ -983,7 +983,8 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
   }
   async function inviteHandyman(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const values = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const values = new FormData(form);
     setBusy("invite"); setError(""); setInviteResult(null);
     try {
       const result = await api<{ invitationUrl: string; expiresAt: string; emailDeliveryStatus: string; smsDeliveryStatus?: string; smsProviderError?: string | null }>("/api/admin/traders/invitations", {
@@ -991,7 +992,7 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
         body: JSON.stringify({ fullName: values.get("fullName"), email: values.get("email"), mobile: values.get("mobile") })
       });
       setInviteResult(result);
-      event.currentTarget.reset();
+      form.reset();
       await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to invite handyman"); }
     finally { setBusy(""); }
