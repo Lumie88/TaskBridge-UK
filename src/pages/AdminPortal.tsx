@@ -91,6 +91,41 @@ interface TraderRateCard {
   approvedAt: string | null;
 }
 
+const defaultRateCards: Record<string, {
+  fixedPrice: number | null;
+  hourlyRate: number | null;
+  minimumHours: number;
+  callOutFee: number;
+  materialsRule: "included" | "charged_with_receipt" | "capped" | "not_included";
+}> = {
+  "Lawn mowing": { fixedPrice: 45, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
+  "Garden clearance": { fixedPrice: null, hourlyRate: 35, minimumHours: 2, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Window cleaning": { fixedPrice: 35, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
+  "Gutter cleaning": { fixedPrice: 65, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
+  "Pressure washing": { fixedPrice: 75, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
+  "Path clearing": { fixedPrice: 55, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
+  "Loose rail repair": { fixedPrice: 65, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Lock repairs": { fixedPrice: 75, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Door and handle repairs": { fixedPrice: 65, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Minor plumbing": { fixedPrice: 70, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Painting and decorating": { fixedPrice: null, hourlyRate: 35, minimumHours: 2, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Furniture assembly": { fixedPrice: 55, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
+  "Curtain and blind fitting": { fixedPrice: 55, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Smoke and carbon monoxide alarm fitting": { fixedPrice: 45, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "not_included" },
+  "Deep cleaning": { fixedPrice: null, hourlyRate: 30, minimumHours: 2, callOutFee: 0, materialsRule: "included" },
+  "Appliance safety checks": { fixedPrice: 45, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
+  "Trip hazard removal": { fixedPrice: 65, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Key safe installation": { fixedPrice: 75, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "not_included" },
+  "Home safety inspection": { fixedPrice: 55, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
+  "Minor adaptations": { fixedPrice: 70, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Grab rail fitting": { fixedPrice: 65, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "not_included" },
+  "Seasonal safety checks": { fixedPrice: 55, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
+  "Repeat visit reviews": { fixedPrice: 45, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
+  "Electrical safety checks": { fixedPrice: 85, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" }
+};
+
+const fallbackRateCard = { fixedPrice: null, hourlyRate: 40, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" as const };
+
 interface ComplianceDocument {
   id: string;
   documentType: string;
@@ -1049,6 +1084,33 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to save rate card"); }
     finally { setBusy(""); }
   }
+  async function priceAllServices(trader: Trader) {
+    const services = trader.services.length ? trader.services : ["All services"];
+    if (!window.confirm(`Apply approved standard prices to ${services.length} service${services.length === 1 ? "" : "s"} for ${trader.displayName}?`)) return;
+    setBusy(`rate-all-${trader.id}`); setError("");
+    try {
+      for (const serviceCategory of services) {
+        const template = defaultRateCards[serviceCategory] || fallbackRateCard;
+        await api(`/api/admin/traders/${trader.id}/rate-cards`, {
+          method: "POST",
+          body: JSON.stringify({
+            serviceCategory,
+            postcodeArea: trader.postcodeArea || "ALL",
+            callOutFee: template.callOutFee,
+            hourlyRate: template.hourlyRate,
+            fixedPrice: template.fixedPrice,
+            minimumHours: template.minimumHours,
+            materialsRule: template.materialsRule,
+            vatRegistered: false,
+            status: "approved",
+            adminNotes: "Approved standard TaskBridge price. Confirmed with handyman before dispatch."
+          })
+        });
+      }
+      await onChanged();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to price all services"); }
+    finally { setBusy(""); }
+  }
   return <>
     <div className="page-title-row"><div><span className="eyebrow">Handyman</span><h1>Leads, onboarding and compliance</h1><p>Move a handyman from website application to invite, document review, DBS, insurance and activation in one place.</p></div>{user.role === "taskbridge_super_admin" && <button className="button button-primary" onClick={() => { setInviteOpen(!inviteOpen); setInviteResult(null); }}><UserPlus size={18} /> Register handyman</button>}</div>
     {error && <div className="alert alert-danger">{error}</div>}
@@ -1119,7 +1181,7 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
         <td><StatusBadge status={trader.dbsStatus}>{humanize(trader.dbsStatus)}</StatusBadge><small>{trader.dbsExpiryDate ? `Expires ${formatDate(trader.dbsExpiryDate)}` : dbsRouteLabel(trader)}</small>{trader.dbsOutcome && <small className="table-note">{trader.dbsOutcome}</small>}</td>
         <td><StatusBadge status={trader.insuranceStatus}>{humanize(trader.insuranceStatus)}</StatusBadge><small>{trader.insuranceExpiryDate ? `Expires ${formatDate(trader.insuranceExpiryDate)}` : "No active expiry"}</small></td>
         <td><span className="rating"><Star size={15} /> {trader.qualityScore}</span></td>
-        <td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === `passport-${trader.id}`} onClick={() => openPassport(trader)}>ID</button><button className="button button-secondary button-small" disabled={busy === `rate-${trader.id}`} onClick={() => upsertRateCard(trader)}><CreditCard size={15} /> Rate card</button><button className="button button-secondary button-small" disabled={documentsLoading && reviewingTrader?.id === trader.id} onClick={() => openDocuments(trader)}><FileCheck2 size={15} /> Review documents</button><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start DBS route</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td>
+        <td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === `passport-${trader.id}`} onClick={() => openPassport(trader)}>ID</button><button className="button button-secondary button-small" disabled={busy === `rate-all-${trader.id}`} onClick={() => priceAllServices(trader)}><CreditCard size={15} /> Price all</button><button className="button button-secondary button-small" disabled={busy === `rate-${trader.id}`} onClick={() => upsertRateCard(trader)}><CreditCard size={15} /> Edit rate</button><button className="button button-secondary button-small" disabled={documentsLoading && reviewingTrader?.id === trader.id} onClick={() => openDocuments(trader)}><FileCheck2 size={15} /> Review documents</button><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start DBS route</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td>
       </tr>)}</tbody></table></div>
       {!filteredTraders.length && <EmptyState icon={<BadgeCheck />} title="No handymen in this view" detail="Choose another compliance filter to review the registry." />}
     </section>
