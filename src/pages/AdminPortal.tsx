@@ -98,33 +98,33 @@ const defaultRateCards: Record<string, {
   callOutFee: number;
   materialsRule: "included" | "charged_with_receipt" | "capped" | "not_included";
 }> = {
-  "Lawn mowing": { fixedPrice: 40, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
-  "Garden clearance": { fixedPrice: 75, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Lawn mowing": { fixedPrice: 35, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
+  "Garden clearance": { fixedPrice: 80, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
   "Window cleaning": { fixedPrice: 35, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
   "Gutter cleaning": { fixedPrice: 85, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
   "Pressure washing": { fixedPrice: 85, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
   "Path clearing": { fixedPrice: 55, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
-  "Loose rail repair": { fixedPrice: 75, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
-  "Lock repairs": { fixedPrice: 85, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
-  "Door and handle repairs": { fixedPrice: 65, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
-  "Minor plumbing": { fixedPrice: 70, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Loose rail repair": { fixedPrice: 65, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Lock repairs": { fixedPrice: 70, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Door and handle repairs": { fixedPrice: 60, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Minor plumbing": { fixedPrice: 65, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
   "Painting and decorating": { fixedPrice: 120, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
-  "Furniture assembly": { fixedPrice: 65, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
-  "Curtain and blind fitting": { fixedPrice: 60, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
-  "Smoke and carbon monoxide alarm fitting": { fixedPrice: 50, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "not_included" },
+  "Furniture assembly": { fixedPrice: 60, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
+  "Curtain and blind fitting": { fixedPrice: 55, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Smoke and carbon monoxide alarm fitting": { fixedPrice: 40, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "not_included" },
   "Deep cleaning": { fixedPrice: 65, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
   "Appliance safety checks": { fixedPrice: 45, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
-  "Trip hazard removal": { fixedPrice: 75, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
-  "Key safe installation": { fixedPrice: 75, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "not_included" },
-  "Home safety inspection": { fixedPrice: 55, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
-  "Minor adaptations": { fixedPrice: 85, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
-  "Grab rail fitting": { fixedPrice: 55, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "not_included" },
-  "Seasonal safety checks": { fixedPrice: 55, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
-  "Repeat visit reviews": { fixedPrice: 45, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
+  "Trip hazard removal": { fixedPrice: 60, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Key safe installation": { fixedPrice: 60, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "not_included" },
+  "Home safety inspection": { fixedPrice: 45, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
+  "Minor adaptations": { fixedPrice: 75, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" },
+  "Grab rail fitting": { fixedPrice: 50, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "not_included" },
+  "Seasonal safety checks": { fixedPrice: 45, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
+  "Repeat visit reviews": { fixedPrice: 35, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "included" },
   "Electrical safety checks": { fixedPrice: 85, hourlyRate: null, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" }
 };
 
-const fallbackRateCard = { fixedPrice: null, hourlyRate: 40, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" as const };
+const fallbackRateCard = { fixedPrice: null, hourlyRate: 35, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" as const };
 
 interface ComplianceDocument {
   id: string;
