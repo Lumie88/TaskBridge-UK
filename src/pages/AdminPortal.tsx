@@ -125,6 +125,22 @@ const defaultRateCards: Record<string, {
 };
 
 const fallbackRateCard = { fixedPrice: null, hourlyRate: 35, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" as const };
+const TASKBRIDGE_MARGIN_RATE = 0.15;
+const STANDARD_LABOUR_MINUTES = 60;
+
+function splitIncludedMargin(customerPrice: number) {
+  const handymanPayout = Number((customerPrice / (1 + TASKBRIDGE_MARGIN_RATE)).toFixed(2));
+  const taskbridgeMargin = Number((customerPrice - handymanPayout).toFixed(2));
+  return { handymanPayout, taskbridgeMargin };
+}
+
+function materialRuleLabel(rule: string | null) {
+  if (rule === "included") return "Materials included where stated";
+  if (rule === "not_included") return "Materials are separate";
+  if (rule === "capped") return "Materials capped and agreed";
+  if (rule === "charged_with_receipt") return "Materials separate with receipt";
+  return "Materials rule required";
+}
 
 interface ComplianceDocument {
   id: string;
@@ -587,9 +603,13 @@ function CandidatePanel({ task, onChanged }: { task: AdminTask | null; onChanged
 
   async function dispatch(candidate: Candidate) {
     if (!task) return;
+    const largerJobApproved = candidate.largerJobApprovalRequired
+      ? window.confirm("This job may take longer than the standard 60-minute visit. Confirm that the larger-job scope and price have been approved before release.")
+      : false;
+    if (candidate.largerJobApprovalRequired && !largerJobApproved) return;
     setDispatching(candidate.id); setError("");
     try {
-      const result = await api<{ visitUrl: string }>(`/api/admin/tasks/${task.id}/dispatch`, { method: "POST", body: JSON.stringify({ traderId: candidate.id }) });
+      const result = await api<{ visitUrl: string }>(`/api/admin/tasks/${task.id}/dispatch`, { method: "POST", body: JSON.stringify({ traderId: candidate.id, largerJobApproved }) });
       setVisitUrl(result.visitUrl); await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Dispatch failed"); }
     finally { setDispatching(""); }
@@ -658,8 +678,8 @@ function CandidatePanel({ task, onChanged }: { task: AdminTask | null; onChanged
       {visitUrl && <div className="alert alert-success"><span>Dispatch complete. The secure link is shown once.</span><a href={visitUrl} target="_blank" rel="noreferrer">Open visit link <ExternalLink size={15} /></a></div>}
       {loading ? <div className="app-loading"><LoaderCircle className="spin" /> Evaluating eligibility...</div> : <div className="candidate-list">{candidates.map((candidate) => <article key={candidate.id} className={`candidate ${candidate.eligible ? "eligible" : "ineligible"}`}>
         <div className="candidate-name"><span className="avatar"><Wrench size={18} /></span><div><h3>{candidate.displayName}</h3><p>{candidate.network || "Direct network"}</p></div><StatusBadge status={candidate.eligible ? "approved" : "rejected"}>{candidate.eligible ? "Eligible" : "Blocked"}</StatusBadge></div>
-        <div className="candidate-facts"><span><MapPin size={15} /> {candidate.distanceMiles} mi</span><span><Star size={15} /> {candidate.qualityScore}</span><span className={candidate.agreedQuote ? "agreed-quote" : "missing-quote"}>{candidate.agreedQuote ? `Agreed GBP ${candidate.agreedQuote.toFixed(2)}` : "No agreed price"}</span></div>
-        <div className="candidate-price-note"><strong>{candidate.rateCardLabel || "Rate card required"}</strong><span>{candidate.materialsRule ? `Materials: ${humanize(candidate.materialsRule)}` : "Add approved rate card before dispatch"}{candidate.vatRegistered ? " / VAT registered" : ""}</span></div>
+        <div className="candidate-facts"><span><MapPin size={15} /> {candidate.distanceMiles} mi</span><span><Star size={15} /> {candidate.qualityScore}</span><span className={candidate.agreedQuote ? "agreed-quote" : "missing-quote"}>{candidate.agreedQuote ? `Customer GBP ${candidate.agreedQuote.toFixed(2)}` : "No agreed price"}</span></div>
+        <div className="candidate-price-note"><strong>{candidate.rateCardLabel || "Rate card required"}</strong><span>Fixed price covers up to {candidate.fixedPriceCoversMinutes || STANDARD_LABOUR_MINUTES} minutes. {materialRuleLabel(candidate.materialsRule)}. TaskBridge margin is included{candidate.vatRegistered ? " / VAT registered" : ""}.</span>{candidate.handymanPayout !== null && candidate.taskbridgeMargin !== null && <small>Handyman payout: GBP {candidate.handymanPayout.toFixed(2)} / TaskBridge margin: GBP {candidate.taskbridgeMargin.toFixed(2)}</small>}{candidate.largerJobApprovalRequired && <small className="table-note">Larger-job approval required before release.</small>}</div>
         <div className="candidate-checks"><span><BadgeCheck size={15} /> DBS: {humanize(candidate.dbsStatus)}</span><span><ShieldCheck size={15} /> Insurance: {humanize(candidate.insuranceStatus)}</span></div>
         {!candidate.eligible && <ul className="reason-list">{candidate.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>}
         <button className="button button-primary button-full button-small" disabled={!candidate.eligible || Boolean(dispatching)} onClick={() => dispatch(candidate)}>{dispatching === candidate.id ? "Dispatching..." : "Approve and dispatch"}</button>
@@ -1077,7 +1097,7 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
           materialsRule,
           vatRegistered,
           status: "approved",
-          adminNotes: "Approved by TaskBridge operations"
+          adminNotes: `Approved by TaskBridge operations. Fixed price covers up to ${STANDARD_LABOUR_MINUTES} minutes; materials are separate unless included. TaskBridge margin is included. Larger jobs require approval before release.`
         })
       });
       await onChanged();
@@ -1103,7 +1123,7 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
             materialsRule: template.materialsRule,
             vatRegistered: false,
             status: "approved",
-            adminNotes: "Approved standard TaskBridge price. Confirmed with handyman before dispatch."
+            adminNotes: `Approved standard TaskBridge price. Fixed price covers up to ${STANDARD_LABOUR_MINUTES} minutes; materials are separate unless included. TaskBridge margin is included. Larger jobs require approval before release.`
           })
         });
       }
@@ -1207,10 +1227,13 @@ function RateCardSummary({ trader }: { trader: Trader }) {
   const callOut = Number(primary.callOutFee || 0);
   const minimumHours = Number(primary.minimumHours || 1);
   const estimate = fixedPrice !== null ? fixedPrice : callOut + (hourlyRate || 0) * minimumHours;
+  const split = splitIncludedMargin(estimate);
   return <>
     <StatusBadge status={primary.status}>{humanize(primary.status)}</StatusBadge>
     <small>{primary.serviceCategory} / {primary.postcodeArea || "ALL"}</small>
-    <small>Agreed: GBP {estimate.toFixed(2)}{fixedPrice === null && hourlyRate !== null ? ` (${minimumHours}h min)` : ""}</small>
+    <small>Customer: GBP {estimate.toFixed(2)}{fixedPrice === null && hourlyRate !== null ? ` (${minimumHours}h min)` : ""}</small>
+    <small>Payout: GBP {split.handymanPayout.toFixed(2)} / margin: GBP {split.taskbridgeMargin.toFixed(2)}</small>
+    <small>Up to {STANDARD_LABOUR_MINUTES} mins labour. {materialRuleLabel(primary.materialsRule)}.</small>
     {approved.length > 1 && <small>{approved.length} approved cards</small>}
   </>;
 }

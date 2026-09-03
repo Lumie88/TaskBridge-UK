@@ -73,6 +73,10 @@ export interface Candidate {
   network: string | null;
   hourlyRate: number;
   agreedQuote: number | null;
+  handymanPayout: number | null;
+  taskbridgeMargin: number | null;
+  fixedPriceCoversMinutes: number;
+  largerJobApprovalRequired: boolean;
   rateCardStatus: string | null;
   rateCardLabel: string | null;
   materialsRule: string | null;

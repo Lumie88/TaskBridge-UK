@@ -11,6 +11,7 @@ import { query, withTransaction } from "../db.js";
 import { dispatchToHandymanNetwork, sendCareIntegrationRequirementsEmail, sendFamilyPaymentSms, sendHandymanOnboardingInvite, sendHandymanOnboardingSms, sendSecureVisitLink, sendStaffOnboardingInvite, startDbsVerification } from "../integrations.js";
 import { evaluateTrader, requiresElectricalQualification, type MatchableTask, type MatchableTrader } from "../matching.js";
 import { createComplianceDocumentReviewUrl } from "../media.js";
+import { STANDARD_LABOUR_MINUTES, TASKBRIDGE_MARGIN_RATE, requiresLargerJobApproval, splitIncludedMargin } from "../pricing.js";
 import { processRetryQueue } from "../retry-worker.js";
 import { createOpaqueToken, decryptField, encryptField, hashToken, isWorkEmail, publicId, safeInitials, slugify } from "../security.js";
 import type { UserRole } from "../types.js";
@@ -65,7 +66,7 @@ interface EvaluatedCandidate {
   evaluation: ReturnType<typeof evaluateTrader>;
 }
 
-const dispatchSchema = z.object({ traderId: z.string().uuid() });
+const dispatchSchema = z.object({ traderId: z.string().uuid(), largerJobApproved: z.boolean().optional().default(false) });
 const rateCardSchema = z.object({
   serviceCategory: z.string().trim().min(2).max(120),
   postcodeArea: z.string().trim().max(16).optional().nullable(),
@@ -653,14 +654,28 @@ adminRouter.get("/tasks/:publicId/candidates", asyncHandler(async (req, res) => 
   const candidates = await evaluateCandidates(req.params.publicId);
   if (!candidates) return res.status(404).json({ error: "Task not found" });
   await persistCandidates(candidates.task, candidates.evaluated);
+  const largerJobApprovalRequired = requiresLargerJobApproval(candidates.task.category, candidates.task.summary);
   res.json({
     task: { id: candidates.task.public_id, category: candidates.task.category, vulnerableAdult: candidates.task.vulnerable_adult },
-    candidates: candidates.evaluated.map(({ trader, evaluation }) => ({
+    pricingPolicy: {
+      fixedPriceCoversMinutes: STANDARD_LABOUR_MINUTES,
+      taskbridgeMarginPercent: TASKBRIDGE_MARGIN_RATE * 100,
+      materialsAreSeparate: true,
+      largerJobApprovalRequired
+    },
+    candidates: candidates.evaluated.map(({ trader, evaluation }) => {
+      const quote = trader.agreed_quote ? Number(trader.agreed_quote) : null;
+      const priceSplit = quote ? splitIncludedMargin(quote) : null;
+      return ({
       id: trader.id,
       displayName: trader.display_name,
       network: trader.network_name,
       hourlyRate: Number(trader.hourly_rate),
-      agreedQuote: trader.agreed_quote ? Number(trader.agreed_quote) : null,
+      agreedQuote: quote,
+      handymanPayout: priceSplit?.handymanAmount ?? null,
+      taskbridgeMargin: priceSplit?.platformFee ?? null,
+      fixedPriceCoversMinutes: STANDARD_LABOUR_MINUTES,
+      largerJobApprovalRequired,
       rateCardStatus: trader.rate_card_status,
       rateCardLabel: trader.rate_card_label,
       materialsRule: trader.materials_rule,
@@ -673,7 +688,8 @@ adminRouter.get("/tasks/:publicId/candidates", asyncHandler(async (req, res) => 
       reasons: evaluation.reasons,
       distanceMiles: evaluation.distanceMiles,
       score: evaluation.score
-    }))
+      });
+    })
   });
 }));
 
@@ -689,6 +705,10 @@ adminRouter.post("/tasks/:publicId/dispatch", asyncHandler(async (req, res) => {
   if (paymentError) return res.status(409).json({ error: paymentError });
   const quote = Number(selected.trader.agreed_quote || 0);
   if (!selected.trader.rate_card_id || quote <= 0) return res.status(409).json({ error: "Approved pre-agreed rate card is required before dispatch." });
+  const largerJobApprovalRequired = requiresLargerJobApproval(candidates.task.category, candidates.task.summary);
+  if (largerJobApprovalRequired && !parsed.data.largerJobApproved) {
+    return res.status(409).json({ error: "This job may take longer than 60 minutes. Confirm the larger-job scope and price before release." });
+  }
   const precheck = candidates.task.payment_route === "agency" ? await monthlyCapCheck(candidates.task.agency_id, quote) : null;
   if (precheck && !precheck.allowed) {
     return res.status(409).json({
@@ -728,11 +748,22 @@ adminRouter.post("/tasks/:publicId/dispatch", asyncHandler(async (req, res) => {
         quote, candidates.task.preferred_window_start, candidates.task.preferred_window_end]
     );
     await client.query("UPDATE ops.tasks SET status = 'assignment_review' WHERE id = $1", [task.id]);
+    const reservedPriceSplit = splitIncludedMargin(quote);
     await client.query(
       `INSERT INTO ops.task_status_events
         (task_id, agency_id, previous_status, new_status, changed_by_user_id, reason, metadata)
        VALUES ($1, $2, $3, 'assignment_review', $4, 'Assignment reserved before provider dispatch', $5)`,
-      [task.id, task.agency_id, task.status, req.auth!.userId, { traderId: selected.trader.id, assignmentId: assignment.rows[0].id, rateCardId: selected.trader.rate_card_id, agreedQuote: quote }]
+      [task.id, task.agency_id, task.status, req.auth!.userId, {
+        traderId: selected.trader.id,
+        assignmentId: assignment.rows[0].id,
+        rateCardId: selected.trader.rate_card_id,
+        agreedQuote: quote,
+        handymanPayout: reservedPriceSplit.handymanAmount,
+        taskbridgeMargin: reservedPriceSplit.platformFee,
+        fixedPriceCoversMinutes: STANDARD_LABOUR_MINUTES,
+        materialsAreSeparate: true,
+        largerJobApprovalRequired
+      }]
     );
     return { taskId: task.id, agencyId: task.agency_id, assignmentId: assignment.rows[0].id };
   });
@@ -783,7 +814,7 @@ adminRouter.post("/tasks/:publicId/dispatch", asyncHandler(async (req, res) => {
     }
     const paymentError = paymentClearanceError(task.payment_route, task.payment_status);
     if (paymentError) throw Object.assign(new Error(paymentError), { statusCode: 409 });
-    const totalAmount = Number((quote * 1.15).toFixed(2));
+    const { handymanAmount, platformFee, totalAmount } = splitIncludedMargin(quote);
     if (task.payment_route === "agency") {
     const cap = await client.query<{ monthly_cap: string | null; used: string }>(
       `SELECT bp.monthly_cap::text,
@@ -827,14 +858,14 @@ adminRouter.post("/tasks/:publicId/dispatch", asyncHandler(async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8)
        ON CONFLICT (task_id) DO UPDATE SET assignment_id = EXCLUDED.assignment_id
        RETURNING id::text`,
-      [task.id, task.agency_id, assignment.rows[0].id, quote, Number((quote * 0.05).toFixed(2)),
-        Number((quote * 0.10).toFixed(2)), totalAmount, task.payment_route === "agency" ? "not_invoiced" : "agency_paid"]
+      [task.id, task.agency_id, assignment.rows[0].id, handymanAmount, 0,
+        platformFee, totalAmount, task.payment_route === "agency" ? "not_invoiced" : "agency_paid"]
     );
     await client.query(
       `INSERT INTO billing.payouts (trader_id, assignment_id, amount, currency, status, hold_reason)
        VALUES ($1, $2, $3, 'GBP', 'hold', 'Awaiting visit evidence and care confirmation')
        ON CONFLICT (assignment_id) DO NOTHING`,
-      [selected.trader.id, assignment.rows[0].id, quote]
+      [selected.trader.id, assignment.rows[0].id, handymanAmount]
     );
     const visit = await client.query<{ id: string }>(
       `INSERT INTO ops.visits (task_id, agency_id, assignment_id, trader_id, status)
@@ -851,7 +882,16 @@ adminRouter.post("/tasks/:publicId/dispatch", asyncHandler(async (req, res) => {
       `INSERT INTO ops.task_status_events
         (task_id, agency_id, previous_status, new_status, changed_by_user_id, reason, metadata)
        VALUES ($1, $2, $3, 'dispatched', $4, 'Handyman approved and released by TaskBridge admin', $5)`,
-      [task.id, task.agency_id, task.status, req.auth!.userId, { traderId: selected.trader.id, rateCardId: selected.trader.rate_card_id, agreedQuote: quote }]
+      [task.id, task.agency_id, task.status, req.auth!.userId, {
+        traderId: selected.trader.id,
+        rateCardId: selected.trader.rate_card_id,
+        agreedQuote: quote,
+        handymanPayout: handymanAmount,
+        taskbridgeMargin: platformFee,
+        fixedPriceCoversMinutes: STANDARD_LABOUR_MINUTES,
+        materialsAreSeparate: true,
+        largerJobApproved: largerJobApprovalRequired ? parsed.data.largerJobApproved : false
+      }]
     );
     return { taskId: task.id, visitId: visit.rows[0].id };
   });
@@ -2230,8 +2270,8 @@ adminRouter.get("/audit", requireRoles("taskbridge_super_admin"), async (_req, r
   res.json({ events: result.rows });
 });
 
-async function monthlyCapCheck(agencyId: string, handymanAmount: number) {
-  const totalAmount = Number((handymanAmount * 1.15).toFixed(2));
+async function monthlyCapCheck(agencyId: string, customerPrice: number) {
+  const totalAmount = splitIncludedMargin(customerPrice).totalAmount;
   const result = await query<{ monthly_cap: string | null; used: string }>(
     `SELECT bp.monthly_cap::text,
             COALESCE(SUM(tc.total_amount) FILTER (
