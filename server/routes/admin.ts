@@ -878,7 +878,7 @@ adminRouter.post("/tasks/:publicId/dispatch", asyncHandler(async (req, res) => {
 
 adminRouter.get("/traders", async (_req, res) => {
   const result = await query<{
-    id: string; display_name: string; email: string | null; network_name: string | null; hourly_rate: string;
+    id: string; display_name: string; encrypted_mobile: string; email: string | null; network_name: string | null; hourly_rate: string;
     postcode_area: string | null;
     quality_score: string; status: string; dbs_status: string; dbs_expiry_date: string | null;
     dbs_outcome: string | null; dbs_route: string | null; update_service_status: string | null;
@@ -888,7 +888,7 @@ adminRouter.get("/traders", async (_req, res) => {
     business_name: string | null; trading_status: string; company_registration_number: string | null; vat_number: string | null;
     lead_id: string | null; lead_status: string | null; lead_created_at: string | null; lead_message: string | null;
   }>(
-    `SELECT t.id::text, t.display_name, t.email::text, n.name AS network_name, t.hourly_rate::text, t.postcode_area,
+    `SELECT t.id::text, t.display_name, t.encrypted_mobile, t.email::text, n.name AS network_name, t.hourly_rate::text, t.postcode_area,
             t.quality_score::text,
             t.status::text, COALESCE(d.status::text, 'not_started') AS dbs_status, d.expiry_date::text AS dbs_expiry_date,
             d.outcome AS dbs_outcome, d.verification_route AS dbs_route, d.update_service_status,
@@ -942,6 +942,7 @@ adminRouter.get("/traders", async (_req, res) => {
     id: row.id,
     displayName: row.display_name,
     email: row.email,
+    mobile: row.encrypted_mobile ? decryptField(row.encrypted_mobile) : null,
     network: row.network_name,
     hourlyRate: Number(row.hourly_rate),
     postcodeArea: row.postcode_area,

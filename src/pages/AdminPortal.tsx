@@ -46,6 +46,7 @@ interface Trader {
   id: string;
   displayName: string;
   email: string | null;
+  mobile: string | null;
   network: string | null;
   hourlyRate: number;
   postcodeArea: string | null;
@@ -1109,7 +1110,7 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
     {filter !== "leads" && <>
     <section className="panel table-panel">
       <div className="responsive-table"><table><thead><tr><th>Handyman</th><th>Lead source</th><th>Business</th><th>Onboarding</th><th>Services</th><th>Rate card</th><th>DBS route</th><th>Insurance</th><th>Quality</th><th>Action</th></tr></thead><tbody>{filteredTraders.map((trader) => <tr key={trader.id}>
-        <td><strong>{trader.displayName}</strong><small>{trader.email || trader.network || "Direct network"}</small></td>
+        <td><strong>{trader.displayName}</strong><small>Email: {trader.email || "Not provided"}</small><small>Mobile: {trader.mobile || "Not provided"}</small></td>
         <td>{trader.leadId ? <><StatusBadge status={trader.leadStatus || "invited"}>{humanize(trader.leadStatus || "invited")}</StatusBadge><small>Website lead {trader.leadCreatedAt ? formatDate(trader.leadCreatedAt, true) : ""}</small></> : <small>Manual compliance record</small>}</td>
         <td><strong>{trader.businessName || "No business name"}</strong><small>{humanize(trader.tradingStatus || "sole_trader")}</small>{trader.companyRegistrationNumber && <small>Company reg: {trader.companyRegistrationNumber}</small>}{trader.vatNumber && <small>VAT: {trader.vatNumber}</small>}</td>
         <td><StatusBadge status={trader.onboardingStatus}>{humanize(trader.onboardingStatus)}</StatusBadge><small>{trader.emailDeliveryStatus ? `Email: ${humanize(trader.emailDeliveryStatus)}` : "Marketplace record"}</small></td>
