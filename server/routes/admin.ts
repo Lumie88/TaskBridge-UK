@@ -102,7 +102,10 @@ const createHandymanInvitationSchema = z.object({
   mobile: z.string().trim().max(40).optional().or(z.literal(""))
 });
 const traderBusinessProfileSchema = z.object({
-  businessName: z.string().trim().max(160).optional().nullable()
+  displayName: z.string().trim().min(2).max(160).optional(),
+  businessName: z.string().trim().max(160).optional().nullable(),
+  mobile: z.string().trim().max(40).optional().nullable(),
+  postcodeArea: z.string().trim().max(16).optional().nullable()
 });
 const createStaffInvitationSchema = z.object({
   fullName: z.string().trim().min(2).max(160),
@@ -1031,27 +1034,43 @@ adminRouter.get("/traders", async (_req, res) => {
 adminRouter.patch("/traders/:id/business-profile", requireRoles("taskbridge_super_admin", "taskbridge_admin"), asyncHandler(async (req, res) => {
   const parsed = traderBusinessProfileSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid business details" });
+  const displayName = parsed.data.displayName?.trim();
   const businessName = parsed.data.businessName?.trim() || null;
+  const mobile = parsed.data.mobile?.trim() || "";
+  const postcodeArea = parsed.data.postcodeArea?.trim().toUpperCase() || null;
   const result = await withTransaction(req.auth!, async (client) => {
-    const updated = await client.query<{ id: string; business_name: string | null; source_join_request_id: string | null }>(
+    const updated = await client.query<{ id: string; display_name: string; business_name: string | null; source_join_request_id: string | null }>(
       `UPDATE trader.traders
-       SET business_name = $2
+       SET display_name = COALESCE($2, display_name),
+           encrypted_full_name = CASE WHEN $2 IS NULL THEN encrypted_full_name ELSE $3 END,
+           business_name = $4,
+           encrypted_mobile = CASE WHEN $5 = '' THEN encrypted_mobile ELSE $6 END,
+           postcode_area = COALESCE($7, postcode_area)
        WHERE id = $1 AND deleted_at IS NULL
-       RETURNING id::text, business_name, source_join_request_id::text`,
-      [req.params.id, businessName]
+       RETURNING id::text, display_name, business_name, source_join_request_id::text`,
+      [req.params.id, displayName || null, displayName ? encryptField(displayName) : null, businessName, mobile, mobile ? encryptField(mobile) : null, postcodeArea]
     );
     const trader = updated.rows[0];
     if (!trader) throw Object.assign(new Error("Handyman not found"), { statusCode: 404 });
     if (trader.source_join_request_id) {
       await client.query(
-        "UPDATE tenant.handyman_join_requests SET business_name = $2 WHERE id = $1",
-        [trader.source_join_request_id, businessName]
+        `UPDATE tenant.handyman_join_requests
+         SET full_name = COALESCE($2, full_name),
+             business_name = $3,
+             phone = CASE WHEN $4 = '' THEN phone ELSE $4 END
+         WHERE id = $1`,
+        [trader.source_join_request_id, displayName || null, businessName, mobile]
       );
     }
     return trader;
   });
-  await audit(req, "admin.trader_business_profile.updated", "trader", result.id, { businessNameSet: Boolean(result.business_name) });
-  res.json({ id: result.id, businessName: result.business_name });
+  await audit(req, "admin.trader_business_profile.updated", "trader", result.id, {
+    displayNameSet: Boolean(displayName),
+    businessNameSet: Boolean(result.business_name),
+    mobileSet: Boolean(mobile),
+    postcodeAreaSet: Boolean(postcodeArea)
+  });
+  res.json({ id: result.id, displayName: result.display_name, businessName: result.business_name });
 }));
 
 adminRouter.post("/traders/:id/rate-cards", requireRoles("taskbridge_super_admin", "taskbridge_admin"), asyncHandler(async (req, res) => {

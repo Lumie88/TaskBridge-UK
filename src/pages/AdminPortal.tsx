@@ -91,6 +91,21 @@ interface TraderRateCard {
   approvedAt: string | null;
 }
 
+interface RateCardPayload {
+  serviceCategory: string;
+  postcodeArea: string;
+  callOutFee: number;
+  hourlyRate: number | null;
+  fixedPrice: number | null;
+  minimumHours: number;
+  materialsRule: "included" | "charged_with_receipt" | "capped" | "not_included";
+  materialsCap: number | null;
+  emergencyUpliftPercent: number;
+  vatRegistered: boolean;
+  status: "approved";
+  adminNotes: string;
+}
+
 const defaultRateCards: Record<string, {
   fixedPrice: number | null;
   hourlyRate: number | null;
@@ -917,6 +932,9 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteResult, setInviteResult] = useState<{ invitationUrl: string; expiresAt: string; emailDeliveryStatus: string; smsDeliveryStatus?: string; smsProviderError?: string | null } | null>(null);
   const [reviewingTrader, setReviewingTrader] = useState<Trader | null>(null);
+  const [businessEditingTrader, setBusinessEditingTrader] = useState<Trader | null>(null);
+  const [rateEditingTrader, setRateEditingTrader] = useState<Trader | null>(null);
+  const [priceReviewTrader, setPriceReviewTrader] = useState<Trader | null>(null);
   const [documents, setDocuments] = useState<ComplianceDocument[]>([]);
   const [ddcPack, setDdcPack] = useState<DdcPack | null>(null);
   const [ddcMessage, setDdcMessage] = useState("");
@@ -1022,17 +1040,16 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load handyman ID profile"); }
     finally { setBusy(""); }
   }
-  async function editBusinessName(trader: Trader) {
-    const businessName = window.prompt("Business name", trader.businessName || "");
-    if (businessName === null) return;
+  async function saveBusinessProfile(trader: Trader, payload: { displayName: string; businessName: string; mobile: string; postcodeArea: string }) {
     setBusy(`business-${trader.id}`); setError("");
     try {
       await api(`/api/admin/traders/${trader.id}/business-profile`, {
         method: "PATCH",
-        body: JSON.stringify({ businessName })
+        body: JSON.stringify(payload)
       });
+      setBusinessEditingTrader(null);
       await onChanged();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to update business name"); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to update handyman details"); }
     finally { setBusy(""); }
   }
   async function reviewDocument(document: ComplianceDocument, status: "approved" | "rejected") {
@@ -1120,52 +1137,24 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
     catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to revoke invitation"); }
     finally { setBusy(""); }
   }
-  async function upsertRateCard(trader: Trader) {
-    const existing = trader.rateCards.find((card) => card.status === "approved") || trader.rateCards[0];
-    const serviceCategory = window.prompt("Service category for this agreed rate card", existing?.serviceCategory || trader.services[0] || "All services");
-    if (!serviceCategory) return;
-    const postcodeArea = window.prompt("Postcode area coverage, or ALL", existing?.postcodeArea || trader.postcodeArea || "ALL") || "ALL";
-    const fixedPriceText = window.prompt("Fixed labour price in GBP. Leave blank if hourly", existing?.fixedPrice ? String(existing.fixedPrice) : "");
-    const hourlyRateText = !fixedPriceText ? window.prompt("Hourly rate in GBP", existing?.hourlyRate ? String(existing.hourlyRate) : String(trader.hourlyRate || 45)) : "";
-    const callOutFeeText = window.prompt("Call-out fee in GBP", existing?.callOutFee ? String(existing.callOutFee) : "0");
-    const minimumHoursText = window.prompt("Minimum billable hours", existing?.minimumHours ? String(existing.minimumHours) : "1");
-    const materialsRule = window.prompt("Materials rule: included, charged_with_receipt, capped, not_included", existing?.materialsRule || "charged_with_receipt") || "charged_with_receipt";
-    const vatRegistered = (window.prompt("VAT registered? yes or no", existing?.vatRegistered ? "yes" : "no") || "no").trim().toLowerCase().startsWith("y");
-    const fixedPrice = fixedPriceText ? Number(fixedPriceText) : null;
-    const hourlyRate = hourlyRateText ? Number(hourlyRateText) : null;
-    const callOutFee = Number(callOutFeeText || 0);
-    const minimumHours = Number(minimumHoursText || 1);
-    if ((fixedPrice === null && hourlyRate === null) || !Number.isFinite(callOutFee) || !Number.isFinite(minimumHours)) {
-      setError("Add a valid fixed price or hourly rate before saving the rate card.");
-      return;
-    }
+  async function saveRateCard(trader: Trader, payload: RateCardPayload) {
     setBusy(`rate-${trader.id}`); setError("");
     try {
       await api(`/api/admin/traders/${trader.id}/rate-cards`, {
         method: "POST",
-        body: JSON.stringify({
-          serviceCategory,
-          postcodeArea,
-          callOutFee,
-          hourlyRate,
-          fixedPrice,
-          minimumHours,
-          materialsRule,
-          vatRegistered,
-          status: "approved",
-          adminNotes: `Approved by TaskBridge operations. Fixed price covers up to ${STANDARD_LABOUR_MINUTES} minutes; materials are separate unless included. TaskBridge margin is included. Larger jobs require approval before release.`
-        })
+        body: JSON.stringify(payload)
       });
+      setRateEditingTrader(null);
       await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to save rate card"); }
     finally { setBusy(""); }
   }
-  async function priceAllServices(trader: Trader) {
+  async function priceAllServices(trader: Trader, selectedServices?: string[]) {
     const services = trader.services.length ? trader.services : ["All services"];
-    if (!window.confirm(`Apply approved standard prices to ${services.length} service${services.length === 1 ? "" : "s"} for ${trader.displayName}?`)) return;
+    const categories = selectedServices?.length ? selectedServices : services;
     setBusy(`rate-all-${trader.id}`); setError("");
     try {
-      for (const serviceCategory of services) {
+      for (const serviceCategory of categories) {
         const template = defaultRateCards[serviceCategory] || fallbackRateCard;
         await api(`/api/admin/traders/${trader.id}/rate-cards`, {
           method: "POST",
@@ -1183,6 +1172,7 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
           })
         });
       }
+      setPriceReviewTrader(null);
       await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to price all services"); }
     finally { setBusy(""); }
@@ -1250,19 +1240,22 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
       <div className="responsive-table"><table><thead><tr><th>Handyman</th><th>Lead source</th><th>Business</th><th>Onboarding</th><th>Services</th><th>Rate card</th><th>DBS route</th><th>Insurance</th><th>Quality</th><th>Action</th></tr></thead><tbody>{filteredTraders.map((trader) => <tr key={trader.id}>
         <td><strong>{trader.displayName}</strong><small>Email: {trader.email || "Not provided"}</small><small>Mobile: {trader.mobile || "Not provided"}</small></td>
         <td>{trader.leadId ? <><StatusBadge status={trader.leadStatus || "invited"}>{humanize(trader.leadStatus || "invited")}</StatusBadge><small>Website lead {trader.leadCreatedAt ? formatDate(trader.leadCreatedAt, true) : ""}</small></> : <small>Manual compliance record</small>}</td>
-        <td><strong>{trader.businessName || "No business name"}</strong><small>{humanize(trader.tradingStatus || "sole_trader")}</small>{trader.companyRegistrationNumber && <small>Company reg: {trader.companyRegistrationNumber}</small>}{trader.vatNumber && <small>VAT: {trader.vatNumber}</small>}<button className="button button-secondary button-small" disabled={busy === `business-${trader.id}`} onClick={() => editBusinessName(trader)}>{busy === `business-${trader.id}` ? "Saving..." : "Edit business"}</button></td>
+        <td><strong>{trader.businessName || "No business name"}</strong><small>{humanize(trader.tradingStatus || "sole_trader")}</small>{trader.companyRegistrationNumber && <small>Company reg: {trader.companyRegistrationNumber}</small>}{trader.vatNumber && <small>VAT: {trader.vatNumber}</small>}</td>
         <td><StatusBadge status={trader.onboardingStatus}>{humanize(trader.onboardingStatus)}</StatusBadge><small>{trader.emailDeliveryStatus ? `Email: ${humanize(trader.emailDeliveryStatus)}` : "Marketplace record"}</small></td>
         <td><span className="service-summary" title={trader.services.join(", ")}>{trader.services.length ? `${trader.services.slice(0, 2).join(", ")}${trader.services.length > 2 ? ` +${trader.services.length - 2}` : ""}` : "Awaiting registration"}</span></td>
         <td><RateCardSummary trader={trader} /></td>
         <td><StatusBadge status={trader.dbsStatus}>{humanize(trader.dbsStatus)}</StatusBadge><small>{trader.dbsExpiryDate ? `Expires ${formatDate(trader.dbsExpiryDate)}` : dbsRouteLabel(trader)}</small>{trader.dbsOutcome && <small className="table-note">{trader.dbsOutcome}</small>}</td>
         <td><StatusBadge status={trader.insuranceStatus}>{humanize(trader.insuranceStatus)}</StatusBadge><small>{trader.insuranceExpiryDate ? `Expires ${formatDate(trader.insuranceExpiryDate)}` : "No active expiry"}</small></td>
         <td><span className="rating"><Star size={15} /> {trader.qualityScore}</span></td>
-        <td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === `passport-${trader.id}`} onClick={() => openPassport(trader)}>ID</button><button className="button button-secondary button-small" disabled={busy === `rate-all-${trader.id}`} onClick={() => priceAllServices(trader)}><CreditCard size={15} /> Price all</button><button className="button button-secondary button-small" disabled={busy === `rate-${trader.id}`} onClick={() => upsertRateCard(trader)}><CreditCard size={15} /> Edit rate</button><button className="button button-secondary button-small" disabled={documentsLoading && reviewingTrader?.id === trader.id} onClick={() => openDocuments(trader)}><FileCheck2 size={15} /> Review documents</button><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start DBS route</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td>
+        <td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === `passport-${trader.id}`} onClick={() => openPassport(trader)}>ID</button><button className="button button-secondary button-small" disabled={busy === `rate-all-${trader.id}`} onClick={() => setPriceReviewTrader(trader)}><CreditCard size={15} /> Price all</button><button className="button button-secondary button-small" disabled={busy === `rate-${trader.id}`} onClick={() => setRateEditingTrader(trader)}><CreditCard size={15} /> Edit rate</button><button className="button button-secondary button-small" disabled={documentsLoading && reviewingTrader?.id === trader.id} onClick={() => openDocuments(trader)}><FileCheck2 size={15} /> Review documents</button><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start DBS route</button><button className="button button-secondary button-small" disabled={busy === `business-${trader.id}`} onClick={() => setBusinessEditingTrader(trader)}>{busy === `business-${trader.id}` ? "Saving..." : "Edit business"}</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td>
       </tr>)}</tbody></table></div>
       {!filteredTraders.length && <EmptyState icon={<BadgeCheck />} title="No handymen in this view" detail="Choose another compliance filter to review the registry." />}
     </section>
     </>}
-    {reviewingTrader && <ComplianceDocumentReview trader={reviewingTrader} documents={documents} ddcPack={ddcPack} ddcMessage={ddcMessage} loading={documentsLoading} busy={busy} onClose={() => { setReviewingTrader(null); setDocuments([]); setDdcPack(null); setDdcMessage(""); }} onReview={reviewDocument} onDdcStatus={updateDdcStatus} />}
+    {businessEditingTrader && <BusinessProfileModal trader={businessEditingTrader} busy={busy === `business-${businessEditingTrader.id}`} onClose={() => setBusinessEditingTrader(null)} onSave={saveBusinessProfile} />}
+    {rateEditingTrader && <RateCardModal trader={rateEditingTrader} busy={busy === `rate-${rateEditingTrader.id}`} onClose={() => setRateEditingTrader(null)} onSave={saveRateCard} />}
+    {priceReviewTrader && <PriceAllServicesModal trader={priceReviewTrader} busy={busy === `rate-all-${priceReviewTrader.id}`} onClose={() => setPriceReviewTrader(null)} onConfirm={priceAllServices} />}
+    {reviewingTrader && <div className="modal-backdrop"><ComplianceDocumentReview trader={reviewingTrader} documents={documents} ddcPack={ddcPack} ddcMessage={ddcMessage} loading={documentsLoading} busy={busy} onClose={() => { setReviewingTrader(null); setDocuments([]); setDdcPack(null); setDdcMessage(""); }} onReview={reviewDocument} onDdcStatus={updateDdcStatus} /></div>}
   </>;
 }
 
@@ -1288,6 +1281,134 @@ function dbsCheckFields(document: ComplianceDocument) {
     ["Certificate issue date", document.dbsCheck?.issueDate || document.issueDate || ""]
   ].filter(([, value]) => value);
   return fields;
+}
+
+function BusinessProfileModal({ trader, busy, onClose, onSave }: {
+  trader: Trader;
+  busy: boolean;
+  onClose: () => void;
+  onSave: (trader: Trader, payload: { displayName: string; businessName: string; mobile: string; postcodeArea: string }) => Promise<void>;
+}) {
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    await onSave(trader, {
+      displayName: String(values.get("displayName") || ""),
+      businessName: String(values.get("businessName") || ""),
+      mobile: String(values.get("mobile") || ""),
+      postcodeArea: String(values.get("postcodeArea") || "")
+    });
+  }
+  return <div className="modal-backdrop">
+    <form className="modal admin-modal" onSubmit={submit}>
+      <button className="icon-button modal-close" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
+      <span className="eyebrow">Handyman profile</span>
+      <h2>Edit business details</h2>
+      <p>Update the details TaskBridge admins use for compliance, follow-up and matching.</p>
+      <div className="field-row"><label>Display name<input name="displayName" required minLength={2} defaultValue={trader.displayName} /></label><label>Business or company name<input name="businessName" defaultValue={trader.businessName || ""} placeholder="Optional" /></label></div>
+      <div className="field-row"><label>Mobile number<input name="mobile" type="tel" defaultValue={trader.mobile || ""} placeholder="+447712345678" /></label><label>Postcode area<input name="postcodeArea" defaultValue={trader.postcodeArea || ""} placeholder="PE1 or ALL" /></label></div>
+      <div className="modal-action-row"><button className="button button-secondary" type="button" onClick={onClose}>Cancel</button><button className="button button-primary" disabled={busy} type="submit">{busy ? "Saving..." : "Save details"}</button></div>
+    </form>
+  </div>;
+}
+
+function RateCardModal({ trader, busy, onClose, onSave }: {
+  trader: Trader;
+  busy: boolean;
+  onClose: () => void;
+  onSave: (trader: Trader, payload: RateCardPayload) => Promise<void>;
+}) {
+  const existing = trader.rateCards.find((card) => card.status === "approved") || trader.rateCards[0];
+  const defaultService = existing?.serviceCategory || trader.services[0] || "All services";
+  const template = defaultRateCards[defaultService] || fallbackRateCard;
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    const fixedPriceText = String(values.get("fixedPrice") || "").trim();
+    const hourlyRateText = String(values.get("hourlyRate") || "").trim();
+    const fixedPrice = fixedPriceText ? Number(fixedPriceText) : null;
+    const hourlyRate = hourlyRateText ? Number(hourlyRateText) : null;
+    const callOutFee = Number(values.get("callOutFee") || 0);
+    const minimumHours = Number(values.get("minimumHours") || 1);
+    const materialsCapText = String(values.get("materialsCap") || "").trim();
+    if ((fixedPrice === null && hourlyRate === null) || !Number.isFinite(callOutFee) || !Number.isFinite(minimumHours)) return;
+    await onSave(trader, {
+      serviceCategory: String(values.get("serviceCategory") || defaultService),
+      postcodeArea: String(values.get("postcodeArea") || trader.postcodeArea || "ALL"),
+      callOutFee,
+      hourlyRate,
+      fixedPrice,
+      minimumHours,
+      materialsRule: String(values.get("materialsRule") || "charged_with_receipt") as RateCardPayload["materialsRule"],
+      materialsCap: materialsCapText ? Number(materialsCapText) : null,
+      emergencyUpliftPercent: Number(values.get("emergencyUpliftPercent") || 0),
+      vatRegistered: values.get("vatRegistered") === "on",
+      status: "approved",
+      adminNotes: String(values.get("adminNotes") || `Approved by TaskBridge operations. Fixed price covers up to ${STANDARD_LABOUR_MINUTES} minutes; materials are separate unless included. TaskBridge margin is included. Larger jobs require approval before release.`)
+    });
+  }
+  return <div className="modal-backdrop">
+    <form className="modal admin-modal admin-modal-wide" onSubmit={submit}>
+      <button className="icon-button modal-close" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
+      <span className="eyebrow">Rate card</span>
+      <h2>Edit agreed rate</h2>
+      <p>Set the unit price, payout basis and material rule in one place. VAT is not included here; it is added at invoice stage where applicable.</p>
+      <div className="field-row"><label>Service category<select name="serviceCategory" defaultValue={defaultService}>{Array.from(new Set([defaultService, ...trader.services, "All services", ...Object.keys(defaultRateCards)])).map((service) => <option key={service} value={service}>{service}</option>)}</select></label><label>Postcode area<input name="postcodeArea" defaultValue={existing?.postcodeArea || trader.postcodeArea || "ALL"} /></label></div>
+      <div className="field-row"><label>Fixed unit price GBP<input name="fixedPrice" type="number" min="0" step="0.01" defaultValue={existing?.fixedPrice ?? template.fixedPrice ?? ""} /></label><label>Hourly rate GBP<input name="hourlyRate" type="number" min="0" step="0.01" defaultValue={existing?.hourlyRate ?? template.hourlyRate ?? ""} /></label></div>
+      <div className="field-row"><label>Call-out fee GBP<input name="callOutFee" type="number" min="0" step="0.01" defaultValue={existing?.callOutFee ?? template.callOutFee} /></label><label>Minimum billable hours<input name="minimumHours" type="number" min="0" max="24" step="0.25" defaultValue={existing?.minimumHours ?? template.minimumHours} /></label></div>
+      <div className="field-row"><label>Materials rule<select name="materialsRule" defaultValue={existing?.materialsRule || template.materialsRule}><option value="included">Included where stated</option><option value="charged_with_receipt">Separate with receipt</option><option value="capped">Capped and agreed</option><option value="not_included">Not included</option></select></label><label>Materials cap GBP<input name="materialsCap" type="number" min="0" step="0.01" defaultValue={existing?.materialsCap ?? ""} placeholder="Optional" /></label></div>
+      <div className="field-row"><label>Emergency uplift %<input name="emergencyUpliftPercent" type="number" min="0" max="300" step="1" defaultValue={existing?.emergencyUpliftPercent ?? 0} /></label><label className="toggle-row compact-toggle"><input name="vatRegistered" type="checkbox" defaultChecked={Boolean(existing?.vatRegistered)} /><span><strong>VAT registered handyman</strong><small>Shown for admin awareness; VAT is applied separately on invoice.</small></span></label></div>
+      <label>Admin notes<textarea name="adminNotes" rows={3} defaultValue={existing?.adminNotes || `Approved by TaskBridge operations. Fixed price covers up to ${STANDARD_LABOUR_MINUTES} minutes; materials are separate unless included. TaskBridge margin is included. Larger jobs require approval before release.`} /></label>
+      <RatePreview fixedPrice={existing?.fixedPrice ?? template.fixedPrice} hourlyRate={existing?.hourlyRate ?? template.hourlyRate} callOutFee={existing?.callOutFee ?? template.callOutFee} minimumHours={existing?.minimumHours ?? template.minimumHours} />
+      <div className="modal-action-row"><button className="button button-secondary" type="button" onClick={onClose}>Cancel</button><button className="button button-primary" disabled={busy} type="submit">{busy ? "Saving..." : "Approve rate"}</button></div>
+    </form>
+  </div>;
+}
+
+function PriceAllServicesModal({ trader, busy, onClose, onConfirm }: {
+  trader: Trader;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: (trader: Trader, selectedServices: string[]) => Promise<void>;
+}) {
+  const services = trader.services.length ? trader.services : ["All services"];
+  const [selected, setSelected] = useState(services);
+  const rows = services.map((service) => {
+    const template = defaultRateCards[service] || fallbackRateCard;
+    const unitPrice = template.fixedPrice ?? template.callOutFee + (template.hourlyRate || 0) * template.minimumHours;
+    const split = splitIncludedMargin(unitPrice);
+    return { service, template, unitPrice, split };
+  });
+  function toggle(service: string) {
+    setSelected((current) => current.includes(service) ? current.filter((item) => item !== service) : [...current, service]);
+  }
+  return <div className="modal-backdrop">
+    <section className="modal admin-modal admin-modal-wide">
+      <button className="icon-button modal-close" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
+      <span className="eyebrow">Standard pricing</span>
+      <h2>Review prices before applying</h2>
+      <p>These are TaskBridge standard unit prices. Each fixed price covers up to {STANDARD_LABOUR_MINUTES} minutes, with materials handled separately unless stated.</p>
+      <div className="price-review-table"><table><thead><tr><th>Apply</th><th>Service</th><th>Unit price</th><th>Handyman payout</th><th>TaskBridge margin</th><th>Materials</th></tr></thead><tbody>{rows.map((row) => <tr key={row.service}><td><input type="checkbox" checked={selected.includes(row.service)} onChange={() => toggle(row.service)} /></td><td>{row.service}</td><td>GBP {row.unitPrice.toFixed(2)}</td><td>GBP {row.split.handymanPayout.toFixed(2)}</td><td>GBP {row.split.taskbridgeMargin.toFixed(2)}</td><td>{materialRuleLabel(row.template.materialsRule)}</td></tr>)}</tbody></table></div>
+      <div className="modal-action-row"><button className="button button-secondary" type="button" onClick={onClose}>Cancel</button><button className="button button-primary" disabled={busy || !selected.length} onClick={() => onConfirm(trader, selected)}>{busy ? "Applying..." : `Apply ${selected.length} price${selected.length === 1 ? "" : "s"}`}</button></div>
+    </section>
+  </div>;
+}
+
+function RatePreview({ fixedPrice, hourlyRate, callOutFee, minimumHours }: {
+  fixedPrice: string | number | null | undefined;
+  hourlyRate: string | number | null | undefined;
+  callOutFee: string | number | null | undefined;
+  minimumHours: string | number | null | undefined;
+}) {
+  const unitPrice = fixedPrice !== null && fixedPrice !== undefined && fixedPrice !== ""
+    ? Number(fixedPrice)
+    : Number(callOutFee || 0) + Number(hourlyRate || 0) * Number(minimumHours || 1);
+  const split = splitIncludedMargin(unitPrice);
+  return <div className="rate-preview-card">
+    <span><strong>Unit price</strong>GBP {unitPrice.toFixed(2)}</span>
+    <span><strong>Handyman payout</strong>GBP {split.handymanPayout.toFixed(2)}</span>
+    <span><strong>TaskBridge margin</strong>GBP {split.taskbridgeMargin.toFixed(2)}</span>
+  </div>;
 }
 
 function RateCardSummary({ trader }: { trader: Trader }) {
@@ -1323,7 +1444,7 @@ function ComplianceDocumentReview({ trader, documents, ddcPack, ddcMessage, load
 }) {
   const identity = documents.find((document) => document.documentType === "identity");
   const insurance = documents.find((document) => document.documentType === "public_liability_insurance");
-  return <section className="panel compliance-review-panel">
+  return <section className="modal admin-modal admin-modal-wide compliance-review-panel">
     <div className="panel-heading"><div><span className="eyebrow">Submitted evidence</span><h2>{trader.displayName}</h2><p>Services: {trader.services.length ? trader.services.join(", ") : "No services selected"}</p></div><button className="button button-secondary button-small" onClick={onClose}>Close</button></div>
     {!loading && <div className="compliance-document-grid">
       <article className="compliance-document-card"><div className="compliance-document-heading"><span><UserCheck size={19} /></span><div><h3>Identity</h3><p>Must be approved before dispatch</p></div><StatusBadge status={identity?.reviewStatus || "pending"}>{humanize(identity?.reviewStatus || "missing")}</StatusBadge></div></article>

@@ -615,6 +615,16 @@ p { line-height: 1.65; }
 .modal-success > svg { width: 52px; height: 52px; margin-bottom: 18px; color: var(--teal); }
 .modal-success .eyebrow { display: flex; justify-content: center; }
 .modal-success p { color: var(--muted); }
+.admin-modal { display: grid; gap: 16px; }
+.admin-modal-wide { width: min(1080px, 100%); }
+.admin-modal .field-row { margin: 0; }
+.modal-action-row { display: flex; justify-content: flex-end; gap: 10px; align-items: center; padding-top: 8px; }
+.rate-preview-card { padding: 13px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; background: #f8fbfb; border: 1px solid #dfe7e5; border-radius: 8px; }
+.rate-preview-card span { min-width: 0; padding: 10px; background: white; border: 1px solid #edf2f7; border-radius: 7px; color: #0f172a; font-size: .82rem; font-weight: 850; }
+.rate-preview-card strong { display: block; margin-bottom: 4px; color: #64748b; font-size: .66rem; text-transform: uppercase; }
+.price-review-table { max-height: 390px; overflow: auto; border: 1px solid #dfe7e5; border-radius: 8px; }
+.price-review-table table { min-width: 850px; }
+.price-review-table th, .price-review-table td { white-space: nowrap; }
 
 .studio-demo-backdrop { position: fixed; inset: 0; z-index: 100; padding: 18px; display: grid; place-items: center; background: rgba(2,6,23,.48); backdrop-filter: blur(6px); }
 .studio-demo-modal { width: min(760px, 100%); max-height: calc(100vh - 36px); display: grid; grid-template-columns: 5fr 7fr; overflow: hidden; background: white; border: 1px solid rgba(241,245,249,.8); border-radius: 24px; box-shadow: 0 30px 90px rgba(15,23,42,.3); position: relative; }
