@@ -1379,12 +1379,44 @@ adminRouter.post("/traders/:id/documents/:documentId/review", asyncHandler(async
       if (!insurance.rowCount) throw Object.assign(new Error("The submitted insurance record could not be linked"), { statusCode: 409 });
     }
     const traderActive = await recalculateTraderActivation(client, req.params.id);
-    return { documentId: document.id, documentType: document.document_type, traderActive };
+    const traderStatus = await client.query<{
+      status: string; dbs_status: string; dbs_expiry_date: string | null;
+      insurance_status: string; insurance_expiry_date: string | null;
+    }>(
+      `SELECT t.status::text,
+              COALESCE(d.status::text, 'not_started') AS dbs_status,
+              d.expiry_date::text AS dbs_expiry_date,
+              COALESCE(i.status::text, 'unverified') AS insurance_status,
+              i.expiry_date::text AS insurance_expiry_date
+       FROM trader.traders t
+       LEFT JOIN LATERAL (
+         SELECT status, expiry_date FROM trader.dbs_verifications
+         WHERE trader_id = t.id ORDER BY created_at DESC LIMIT 1
+       ) d ON true
+       LEFT JOIN LATERAL (
+         SELECT status, expiry_date FROM trader.insurance_records
+         WHERE trader_id = t.id ORDER BY created_at DESC LIMIT 1
+       ) i ON true
+       WHERE t.id = $1`,
+      [req.params.id]
+    );
+    return { documentId: document.id, documentType: document.document_type, traderActive, trader: traderStatus.rows[0] || null };
   });
   await audit(req, "admin.compliance_document.reviewed", "onboarding_document", result.documentId, {
     traderId: req.params.id, documentType: result.documentType, status: data.status, reason: data.reason
   });
-  res.json({ id: result.documentId, status: data.status, traderActive: result.traderActive });
+  res.json({
+    id: result.documentId,
+    status: data.status,
+    traderActive: result.traderActive,
+    trader: result.trader ? {
+      status: result.trader.status,
+      dbsStatus: result.trader.dbs_status,
+      dbsExpiryDate: result.trader.dbs_expiry_date,
+      insuranceStatus: result.trader.insurance_status,
+      insuranceExpiryDate: result.trader.insurance_expiry_date
+    } : null
+  });
 }));
 
 adminRouter.post("/traders/invitations", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {

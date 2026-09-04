@@ -1016,17 +1016,46 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
   }
   async function reviewDocument(document: ComplianceDocument, status: "approved" | "rejected") {
     if (!reviewingTrader) return;
-    const reason = window.prompt(`Record the reason for ${status === "approved" ? "approval" : "rejection"}`);
-    if (!reason || reason.trim().length < 5) return;
+    const reason = status === "approved"
+      ? "Approved by TaskBridge compliance review."
+      : window.prompt("Record the reason for rejection");
+    if (!reason || reason.trim().length < 5) {
+      setError("Record a review reason before rejecting the document.");
+      return;
+    }
     const dbsExpiryDate = document.documentType === "enhanced_dbs" && status === "approved"
-      ? window.prompt("DBS review expiry date (YYYY-MM-DD)") : null;
-    if (document.documentType === "enhanced_dbs" && status === "approved" && !dbsExpiryDate) return;
+      ? window.prompt("DBS review expiry date (YYYY-MM-DD)", nextAnnualReviewDate()) : null;
+    if (document.documentType === "enhanced_dbs" && status === "approved" && !dbsExpiryDate) {
+      setError("Enter the DBS review expiry date before approving DBS evidence.");
+      return;
+    }
     setBusy(document.id); setError("");
     try {
-      await api(`/api/admin/traders/${reviewingTrader.id}/documents/${document.id}/review`, {
+      const result = await api<{
+        status: string;
+        trader: null | {
+          status: string;
+          dbsStatus: string;
+          dbsExpiryDate: string | null;
+          insuranceStatus: string;
+          insuranceExpiryDate: string | null;
+        };
+      }>(`/api/admin/traders/${reviewingTrader.id}/documents/${document.id}/review`, {
         method: "POST", body: JSON.stringify({ status, reason, dbsExpiryDate: dbsExpiryDate || null })
       });
-      await openDocuments(reviewingTrader); await onChanged();
+      const updatedTrader = result.trader ? {
+        ...reviewingTrader,
+        status: result.trader.status,
+        dbsStatus: result.trader.dbsStatus,
+        dbsExpiryDate: result.trader.dbsExpiryDate,
+        insuranceStatus: result.trader.insuranceStatus,
+        insuranceExpiryDate: result.trader.insuranceExpiryDate
+      } : reviewingTrader;
+      setReviewingTrader(updatedTrader);
+      setDocuments((current) => current.map((item) => item.id === document.id
+        ? { ...item, reviewStatus: status, reviewNotes: reason, reviewedAt: new Date().toISOString() }
+        : item));
+      await openDocuments(updatedTrader); await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to record document review"); }
     finally { setBusy(""); }
   }
@@ -1220,6 +1249,12 @@ function dbsRouteLabel(trader: Trader) {
   if (trader.dbsRoute === "basic_dbs_provider_application") return "Basic DBS provider route";
   if (trader.dbsRoute === "basic_or_not_sure") return "Limited to non-vulnerable or supervised work";
   return "No active expiry";
+}
+
+function nextAnnualReviewDate() {
+  const date = new Date();
+  date.setFullYear(date.getFullYear() + 1);
+  return date.toISOString().slice(0, 10);
 }
 
 function RateCardSummary({ trader }: { trader: Trader }) {
