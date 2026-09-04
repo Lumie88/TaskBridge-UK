@@ -1376,7 +1376,16 @@ adminRouter.post("/traders/:id/documents/:documentId/review", asyncHandler(async
         [req.params.id, `private-object://${document.storage_key}`,
           data.status === "approved" ? "verified" : "rejected", req.auth!.userId]
       );
-      if (!insurance.rowCount) throw Object.assign(new Error("The submitted insurance record could not be linked"), { statusCode: 409 });
+      if (!insurance.rowCount) {
+        await client.query(
+          `INSERT INTO trader.insurance_records
+            (trader_id, status, provider_name, expiry_date, evidence_url, verified_by_user_id, verified_at)
+           VALUES ($1, $2, 'Submitted public liability insurance', $3, $4, $5,
+             CASE WHEN $2 = 'verified' THEN clock_timestamp() ELSE NULL END)`,
+          [req.params.id, data.status === "approved" ? "verified" : "rejected",
+            document.expiry_date, `private-object://${document.storage_key}`, req.auth!.userId]
+        );
+      }
     }
     const traderActive = await recalculateTraderActivation(client, req.params.id);
     const traderStatus = await client.query<{
