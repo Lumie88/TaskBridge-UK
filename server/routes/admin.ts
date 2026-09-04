@@ -8,7 +8,7 @@ import { carePlatformCredentialStatus, carePlatformHealthCheck } from "../care-p
 import { normalizeCarePlatformEvent } from "../care-platform-adapters.js";
 import { config } from "../config.js";
 import { query, withTransaction } from "../db.js";
-import { dispatchToHandymanNetwork, sendCareIntegrationRequirementsEmail, sendFamilyPaymentSms, sendHandymanOnboardingInvite, sendHandymanOnboardingSms, sendSecureVisitLink, sendStaffOnboardingInvite, startDbsVerification } from "../integrations.js";
+import { dispatchToHandymanNetwork, sendCareIntegrationRequirementsEmail, sendFamilyPaymentSms, sendHandymanComplianceApprovedEmail, sendHandymanOnboardingInvite, sendHandymanOnboardingSms, sendSecureVisitLink, sendStaffOnboardingInvite, startDbsVerification } from "../integrations.js";
 import { evaluateTrader, requiresElectricalQualification, type MatchableTask, type MatchableTrader } from "../matching.js";
 import { createComplianceDocumentReviewUrl } from "../media.js";
 import { STANDARD_LABOUR_MINUTES, TASKBRIDGE_MARGIN_RATE, requiresLargerJobApproval, splitIncludedMargin } from "../pricing.js";
@@ -219,6 +219,20 @@ async function recalculateTraderActivation(client: PoolClient, traderId: string)
   const active = Boolean(eligibility.rows[0]?.eligible);
   await client.query("UPDATE trader.traders SET status = $2 WHERE id = $1", [traderId, active ? "active" : "inactive"]);
   return active;
+}
+
+type ComplianceApprovalEmail = { email: string; fullName: string };
+
+async function sendComplianceApprovalEmailIfNeeded(input: ComplianceApprovalEmail | null) {
+  if (!input) return null;
+  const delivery = await sendHandymanComplianceApprovedEmail(input);
+  await query(
+    `INSERT INTO integration.notification_deliveries
+       (channel, purpose, recipient_reference, provider, provider_message_id, status, metadata)
+     VALUES ('email', 'handyman_onboarding_approved', $1, 'email_provider', $2, $3, $4)`,
+    [hashToken(input.email), delivery.providerMessageId || null, delivery.status, { email: input.email }]
+  );
+  return delivery.status;
 }
 
 export const adminRouter = Router();
@@ -1365,10 +1379,13 @@ adminRouter.post("/traders/:id/documents/:documentId/review", asyncHandler(async
   const result = await withTransaction(req.auth!, async (client) => {
     const documentResult = await client.query<{
       id: string; document_type: string; storage_key: string; expiry_date: string | null;
+      trader_status: string; trader_email: string | null; trader_name: string;
     }>(
-      `SELECT id::text, document_type, storage_key, expiry_date::text
-       FROM trader.onboarding_documents
-       WHERE id = $1 AND trader_id = $2 FOR UPDATE`,
+      `SELECT d.id::text, d.document_type, d.storage_key, d.expiry_date::text,
+              t.status::text AS trader_status, t.email::text AS trader_email, t.display_name AS trader_name
+       FROM trader.onboarding_documents d
+       JOIN trader.traders t ON t.id = d.trader_id
+       WHERE d.id = $1 AND d.trader_id = $2 FOR UPDATE OF d, t`,
       [req.params.documentId, req.params.id]
     );
     const document = documentResult.rows[0];
@@ -1398,21 +1415,23 @@ adminRouter.post("/traders/:id/documents/:documentId/review", asyncHandler(async
       if (!dbs.rowCount) throw Object.assign(new Error("The submitted DBS record could not be linked"), { statusCode: 409 });
     }
     if (document.document_type === "public_liability_insurance") {
+      const insuranceStatus = data.status === "approved" ? "verified" : "rejected";
       const insurance = await client.query(
-        `UPDATE trader.insurance_records SET status = $3, verified_by_user_id = $4,
-                verified_at = CASE WHEN $3 = 'verified' THEN clock_timestamp() ELSE NULL END
+        `UPDATE trader.insurance_records
+         SET status = $3::trader.insurance_status,
+                verified_by_user_id = $4::uuid,
+                verified_at = CASE WHEN $3::trader.insurance_status = 'verified'::trader.insurance_status THEN clock_timestamp() ELSE NULL END
          WHERE trader_id = $1 AND evidence_url = $2`,
         [req.params.id, `private-object://${document.storage_key}`,
-          data.status === "approved" ? "verified" : "rejected", req.auth!.userId]
+          insuranceStatus, req.auth!.userId]
       );
       if (!insurance.rowCount) {
         await client.query(
           `INSERT INTO trader.insurance_records
             (trader_id, status, provider_name, expiry_date, evidence_url, verified_by_user_id, verified_at)
-           VALUES ($1, $2, 'Submitted public liability insurance', $3, $4, $5,
-             CASE WHEN $2 = 'verified' THEN clock_timestamp() ELSE NULL END)`,
-          [req.params.id, data.status === "approved" ? "verified" : "rejected",
-            document.expiry_date, `private-object://${document.storage_key}`, req.auth!.userId]
+           VALUES ($1, $2::trader.insurance_status, 'Submitted public liability insurance', $3::date, $4, $5::uuid,
+             CASE WHEN $2::trader.insurance_status = 'verified'::trader.insurance_status THEN clock_timestamp() ELSE NULL END)`,
+          [req.params.id, insuranceStatus, document.expiry_date, `private-object://${document.storage_key}`, req.auth!.userId]
         );
       }
     }
@@ -1438,15 +1457,25 @@ adminRouter.post("/traders/:id/documents/:documentId/review", asyncHandler(async
        WHERE t.id = $1`,
       [req.params.id]
     );
-    return { documentId: document.id, documentType: document.document_type, traderActive, trader: traderStatus.rows[0] || null };
+    return {
+      documentId: document.id,
+      documentType: document.document_type,
+      traderActive,
+      trader: traderStatus.rows[0] || null,
+      approvalEmail: traderActive && document.trader_status !== "active" && document.trader_email
+        ? { email: document.trader_email, fullName: document.trader_name }
+        : null
+    };
   });
   await audit(req, "admin.compliance_document.reviewed", "onboarding_document", result.documentId, {
     traderId: req.params.id, documentType: result.documentType, status: data.status, reason: data.reason
   });
+  const approvalEmailDeliveryStatus = await sendComplianceApprovalEmailIfNeeded(result.approvalEmail);
   res.json({
     id: result.documentId,
     status: data.status,
     traderActive: result.traderActive,
+    approvalEmailDeliveryStatus,
     trader: result.trader ? {
       status: result.trader.status,
       dbsStatus: result.trader.dbs_status,
@@ -1587,6 +1616,11 @@ adminRouter.post("/traders/:id/dbs-review", requireRoles("taskbridge_super_admin
   const parsed = dbsReviewSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid DBS review" });
   const result = await withTransaction(req.auth!, async (client) => {
+    const trader = await client.query<{ display_name: string; email: string | null; status: string }>(
+      "SELECT display_name, email::text, status::text FROM trader.traders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+      [req.params.id]
+    );
+    if (!trader.rows[0]) throw Object.assign(new Error("Handyman not found"), { statusCode: 404 });
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO trader.dbs_verifications
         (trader_id, status, outcome, expiry_date, evidence_reference, checked_at, verification_route, enhanced_dbs_eligible, workforce_type, update_service_status)
@@ -1598,10 +1632,16 @@ adminRouter.post("/traders/:id/dbs-review", requireRoles("taskbridge_super_admin
     );
     if (!inserted.rows[0]) throw Object.assign(new Error("Handyman not found"), { statusCode: 404 });
     const traderActive = await recalculateTraderActivation(client, req.params.id);
-    return { traderActive };
+    return {
+      traderActive,
+      approvalEmail: traderActive && trader.rows[0].status !== "active" && trader.rows[0].email
+        ? { email: trader.rows[0].email, fullName: trader.rows[0].display_name }
+        : null
+    };
   });
   await audit(req, "super_admin.dbs.reviewed", "trader", req.params.id, { status: parsed.data.status, reason: parsed.data.reason, traderActive: result.traderActive });
-  res.json({ traderId: req.params.id, status: parsed.data.status, traderActive: result.traderActive });
+  const approvalEmailDeliveryStatus = await sendComplianceApprovalEmailIfNeeded(result.approvalEmail);
+  res.json({ traderId: req.params.id, status: parsed.data.status, traderActive: result.traderActive, approvalEmailDeliveryStatus });
 });
 
 adminRouter.post("/traders/:id/electrical-review", requireRoles("taskbridge_super_admin"), asyncHandler(async (req, res) => {

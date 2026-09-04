@@ -476,6 +476,18 @@ export async function sendHandymanOnboardingInvite(input: {
   });
 }
 
+export async function sendHandymanComplianceApprovedEmail(input: {
+  email: string;
+  fullName: string;
+}) {
+  return sendEmail({
+    to: input.email,
+    subject: "TaskBridge onboarding approved",
+    text: `Hello ${input.fullName},\n\nYour TaskBridge handyman onboarding has been approved.\n\nYou are now on the TaskBridge vetted handyman panel. We will contact you when suitable approved local home-safety tasks are available.\n\nEvery task will include the agreed scope, price, visit instructions and evidence requirements before you accept the work.\n\nTaskBridge Support`,
+    html: `<div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827"><p>Hello ${escapeHtml(input.fullName)},</p><p><strong>Your TaskBridge handyman onboarding has been approved.</strong></p><p>You are now on the TaskBridge vetted handyman panel. We will contact you when suitable approved local home-safety tasks are available.</p><p>Every task will include the agreed scope, price, visit instructions and evidence requirements before you accept the work.</p><p>TaskBridge Support</p></div>`
+  });
+}
+
 async function sendEmail(input: { to: string; subject: string; text: string; html: string }) {
   const provider = config.emailProviderKind.toLowerCase();
   if (provider === "zoho") {
