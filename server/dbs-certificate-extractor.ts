@@ -122,7 +122,7 @@ export async function extractDbsCertificateDetails(input: {
         {
           type: "input_file",
           filename: input.filename,
-          file_data: fileData
+          file_data: `data:application/pdf;base64,${fileData}`
         }
       ]
     : [
@@ -158,7 +158,7 @@ export async function extractDbsCertificateDetails(input: {
       signal: AbortSignal.timeout(30_000)
     });
     if (!response.ok) {
-      return { ...emptyExtraction, manualReviewReason: `OpenAI extraction failed with status ${response.status}.` };
+      return { ...emptyExtraction, manualReviewReason: "Automatic DBS reading is temporarily unavailable. Please enter the certificate details manually." };
     }
     const payload = await response.json() as Record<string, unknown>;
     const outputText = parseOutputText(payload);
