@@ -3,8 +3,9 @@ import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { asyncHandler } from "../async-handler.js";
 import { audit } from "../audit.js";
+import { extractDbsCertificateDetails } from "../dbs-certificate-extractor.js";
 import { query, withTransaction } from "../db.js";
-import { createComplianceDocumentUpload, storeComplianceDocumentUpload, verifyComplianceDocumentUpload } from "../media.js";
+import { createComplianceDocumentUpload, getComplianceDocumentObjectBuffer, storeComplianceDocumentUpload, verifyComplianceDocumentUpload } from "../media.js";
 import { encryptField, hashToken, publicId } from "../security.js";
 
 const serviceOptions = [
@@ -36,6 +37,12 @@ const uploadSchema = z.object({
   documentType,
   contentType,
   sizeBytes: z.number().int().positive().max(15 * 1024 * 1024)
+});
+
+const extractionSchema = uploadSchema.extend({
+  documentType: z.literal("enhanced_dbs"),
+  storageKey: z.string().min(20).max(500),
+  originalFilename: z.string().min(1).max(255)
 });
 
 const submittedDocumentSchema = z.object({
@@ -190,6 +197,26 @@ handymanOnboardingRouter.post("/:token/server-upload", asyncHandler(async (req, 
     req.body as Buffer
   );
   res.json(upload);
+}));
+
+handymanOnboardingRouter.post("/:token/extract-dbs", asyncHandler(async (req, res) => {
+  const parsed = extractionSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid DBS document" });
+  const access = await activeInvitation(req.params.token);
+  if (!("invitation" in access)) return res.status(access.status).json({ error: access.error });
+  const body = await getComplianceDocumentObjectBuffer(
+    access.invitation.id,
+    parsed.data.documentType,
+    parsed.data.storageKey,
+    parsed.data.contentType,
+    parsed.data.sizeBytes
+  );
+  const extracted = await extractDbsCertificateDetails({
+    filename: parsed.data.originalFilename,
+    contentType: parsed.data.contentType,
+    body
+  });
+  res.json({ extracted });
 }));
 
 handymanOnboardingRouter.post("/:token/complete", asyncHandler(async (req, res) => {

@@ -45,6 +45,14 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
   });
   const [dbsRoute, setDbsRoute] = useState<DbsRoute>("basic_or_not_sure");
   const [qualificationFile, setQualificationFile] = useState<File | null>(null);
+  const [uploadedDbsDocument, setUploadedDbsDocument] = useState<UploadedDocument | null>(null);
+  const [dbsReference, setDbsReference] = useState("");
+  const [dbsIssueDate, setDbsIssueDate] = useState("");
+  const [dbsCurrentSurname, setDbsCurrentSurname] = useState("");
+  const [dbsDateOfBirth, setDbsDateOfBirth] = useState("");
+  const [dbsWorkforceType, setDbsWorkforceType] = useState("adult");
+  const [dbsExtracting, setDbsExtracting] = useState(false);
+  const [dbsExtractionNotice, setDbsExtractionNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
@@ -88,6 +96,56 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
     };
   }
 
+  async function extractDbsDocument(document: UploadedDocument) {
+    setDbsExtracting(true);
+    setDbsExtractionNotice("Reading DBS certificate...");
+    try {
+      const result = await api<{ extracted: {
+        certificateNumber: string;
+        issueDate: string | null;
+        currentSurname: string;
+        dateOfBirth: string | null;
+        workforceType: string;
+        confidence: number;
+        missingFields: string[];
+        manualReviewReason: string | null;
+      } }>(`/api/handyman-onboarding/${token}/extract-dbs`, {
+        method: "POST",
+        body: JSON.stringify(document)
+      });
+      const extracted = result.extracted;
+      if (extracted.certificateNumber) setDbsReference(extracted.certificateNumber);
+      if (extracted.issueDate) setDbsIssueDate(extracted.issueDate);
+      if (extracted.currentSurname) setDbsCurrentSurname(extracted.currentSurname);
+      if (extracted.dateOfBirth) setDbsDateOfBirth(extracted.dateOfBirth);
+      if (["adult", "child", "adult_and_child", "unknown"].includes(extracted.workforceType)) setDbsWorkforceType(extracted.workforceType);
+      setDbsExtractionNotice(extracted.manualReviewReason
+        ? `TaskBridge read part of the certificate. Please check or complete the fields below.`
+        : "TaskBridge has filled the DBS details. Please check they match your certificate.");
+    } catch {
+      setDbsExtractionNotice("TaskBridge could not read this DBS certificate automatically. Please enter the details below.");
+    } finally {
+      setDbsExtracting(false);
+    }
+  }
+
+  async function handleDbsFile(file: File | null) {
+    setFiles((current) => ({ ...current, enhanced_dbs: file }));
+    setUploadedDbsDocument(null);
+    setDbsExtractionNotice("");
+    if (!file) return;
+    setProgress("Uploading DBS evidence...");
+    try {
+      const uploaded = await uploadDocument("enhanced_dbs", file);
+      setUploadedDbsDocument(uploaded);
+      await extractDbsDocument(uploaded);
+    } catch (caught) {
+      setDbsExtractionNotice(caught instanceof Error ? caught.message : "TaskBridge could not upload this DBS certificate.");
+    } finally {
+      setProgress("");
+    }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -115,9 +173,8 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
         { ...insurance, reference: String(values.get("insuranceReference")), expiryDate: String(values.get("insuranceExpiry")) }
       ];
       if (dbsRoute === "already_enhanced" && files.enhanced_dbs) {
-        setProgress("Uploading DBS evidence...");
-        const dbs = await uploadDocument("enhanced_dbs", files.enhanced_dbs);
-        documents.push({ ...dbs, reference: String(values.get("dbsReference")), issueDate: String(values.get("dbsIssueDate")) });
+        const dbs = uploadedDbsDocument || await uploadDocument("enhanced_dbs", files.enhanced_dbs);
+        documents.push({ ...dbs, reference: dbsReference, issueDate: dbsIssueDate || null });
       }
       if (qualificationFile) {
         setProgress("Uploading qualification evidence...");
@@ -144,11 +201,11 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
           },
           dbs: {
             route: dbsRoute,
-            certificateReference: values.get("dbsReference") || "",
-            issueDate: values.get("dbsIssueDate") || null,
-            currentSurname: values.get("dbsCurrentSurname") || "",
-            dateOfBirth: values.get("dbsDateOfBirth") || null,
-            workforceType: values.get("dbsWorkforceType") || "unknown",
+            certificateReference: dbsReference,
+            issueDate: dbsIssueDate || null,
+            currentSurname: dbsCurrentSurname,
+            dateOfBirth: dbsDateOfBirth || null,
+            workforceType: dbsWorkforceType,
             updateServiceConsent: values.get("updateServiceConsent") === "on",
             applicationRequested: dbsRoute === "needs_application"
           },
@@ -213,10 +270,11 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
                       <label className="service-choice"><input type="radio" name="dbsRouteChoice" checked={dbsRoute === "basic_or_not_sure"} onChange={() => setDbsRoute("basic_or_not_sure")} /><span>I only have Basic DBS, no DBS, or I am not sure</span></label>
                     </div></fieldset>
                     {dbsRoute === "already_enhanced" ? <>
-                      <DocumentField label="DBS certificate" detail="Enhanced DBS evidence for a legally eligible role" required onFile={(file) => setFiles((current) => ({ ...current, enhanced_dbs: file }))} />
-                      <div className="field-row"><label>Certificate reference<input required name="dbsReference" /></label><label>Certificate issue date<input required name="dbsIssueDate" type="date" /></label></div>
-                      <div className="field-row"><label>Surname on certificate<input required name="dbsCurrentSurname" autoComplete="family-name" /></label><label>Date of birth on certificate<input required name="dbsDateOfBirth" type="date" /></label></div>
-                      <div className="field-row"><label>Workforce type<select name="dbsWorkforceType" defaultValue="adult"><option value="adult">Adult workforce</option><option value="child">Child workforce</option><option value="adult_and_child">Adult and child workforce</option><option value="unknown">Not sure</option></select></label><label className="toggle-row compact-toggle"><input name="updateServiceConsent" type="checkbox" /><span><strong>Update Service consent</strong><small>I consent to TaskBridge checking my DBS Update Service status.</small></span></label></div>
+                      <DocumentField label="DBS certificate" detail={dbsExtracting ? "Reading certificate details..." : "Upload once and TaskBridge will try to fill the DBS fields"} required onFile={handleDbsFile} />
+                      {dbsExtractionNotice && <p className={`dbs-extraction-notice ${dbsExtracting ? "loading" : ""}`}>{dbsExtracting ? <LoaderCircle className="spin" size={15} /> : <BadgeCheck size={15} />} {dbsExtractionNotice}</p>}
+                      <div className="field-row"><label>Certificate reference<input required name="dbsReference" value={dbsReference} onChange={(event) => setDbsReference(event.target.value)} /></label><label>Certificate issue date<input required name="dbsIssueDate" type="date" value={dbsIssueDate} onChange={(event) => setDbsIssueDate(event.target.value)} /></label></div>
+                      <div className="field-row"><label>Surname on certificate<input required name="dbsCurrentSurname" autoComplete="family-name" value={dbsCurrentSurname} onChange={(event) => setDbsCurrentSurname(event.target.value)} /></label><label>Date of birth on certificate<input required name="dbsDateOfBirth" type="date" value={dbsDateOfBirth} onChange={(event) => setDbsDateOfBirth(event.target.value)} /></label></div>
+                      <div className="field-row"><label>Workforce type<select name="dbsWorkforceType" value={dbsWorkforceType} onChange={(event) => setDbsWorkforceType(event.target.value)}><option value="adult">Adult workforce</option><option value="child">Child workforce</option><option value="adult_and_child">Adult and child workforce</option><option value="unknown">Not sure</option></select></label><label className="toggle-row compact-toggle"><input name="updateServiceConsent" type="checkbox" /><span><strong>Update Service consent</strong><small>I consent to TaskBridge checking my DBS Update Service status.</small></span></label></div>
                     </> : <div className="onboarding-advisory"><strong>{dbsRoute === "needs_application" ? "DBS route review requested" : "Limited access route"}</strong><p>{dbsRoute === "needs_application" ? "TaskBridge admin will review whether your proposed work is eligible for Enhanced DBS. If it is not, you can still be considered for non-vulnerable or supervised tasks once Basic DBS, identity and insurance checks are approved." : "You may be considered only for non-vulnerable or supervised tasks once Basic DBS, identity and insurance checks are approved. Lone vulnerable-adult work remains blocked unless Enhanced DBS eligibility is verified."}</p></div>}
                     {dbsRoute === "needs_application" && <div className="document-block ddc-helper-block">
                       <div className="onboarding-section-title compact-title"><span><BadgeCheck size={18} /></span><div><h3>DDC DBS application details</h3><p>These fields help TaskBridge prepare your DDC DBS registration. They are encrypted and visible only to authorised compliance admins.</p></div></div>

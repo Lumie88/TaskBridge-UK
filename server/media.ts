@@ -206,6 +206,21 @@ export async function verifyComplianceDocumentUpload(
   }
 }
 
+export async function getComplianceDocumentObjectBuffer(
+  invitationId: string,
+  documentType: string,
+  storageKey: string,
+  contentType: string,
+  sizeBytes: number
+) {
+  await verifyComplianceDocumentUpload(invitationId, documentType, storageKey, contentType, sizeBytes);
+  const object = await storageClient().send(new GetObjectCommand({ Bucket: config.objectStorageBucket, Key: storageKey }));
+  const body = object.Body;
+  if (!body) throw Object.assign(new Error("Compliance document was not found"), { statusCode: 404 });
+  const bytes = await new Response(body as BodyInit).arrayBuffer();
+  return Buffer.from(bytes);
+}
+
 export async function createComplianceDocumentReviewUrl(storageKey: string) {
   if (!storageKey.startsWith("handyman-onboarding/")) {
     throw Object.assign(new Error("Compliance document path is invalid"), { statusCode: 422 });

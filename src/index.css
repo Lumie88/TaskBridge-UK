@@ -1051,6 +1051,9 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 .document-upload input { min-height: auto; padding: 0; border: 0; background: transparent; font-size: .72rem; }
 .document-block { margin-top: 18px; padding-top: 18px; display: grid; gap: 14px; border-top: 1px solid #edf1f4; }
 .document-block:first-of-type { margin-top: 0; }
+.dbs-extraction-notice { margin: 0; padding: 10px 12px; display: flex; align-items: flex-start; gap: 8px; color: #164e63; background: #ecfeff; border: 1px solid #a5f3fc; border-radius: 7px; font-size: .76rem; line-height: 1.45; }
+.dbs-extraction-notice.loading { color: #7c4a03; background: #fff7ed; border-color: #fed7aa; }
+.dbs-extraction-notice svg { flex: 0 0 auto; margin-top: 1px; }
 .onboarding-advisory { padding: 16px; color: #334155; background: #f8fafc; border: 1px solid #dbe6ef; border-radius: 8px; }
 .onboarding-advisory strong { display: block; margin-bottom: 4px; color: #0f172a; font-size: .86rem; }
 .onboarding-advisory p { margin: 0; font-size: .78rem; line-height: 1.65; }
