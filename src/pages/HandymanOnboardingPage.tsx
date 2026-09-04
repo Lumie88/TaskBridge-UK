@@ -64,12 +64,21 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
 
   async function uploadDocument(documentType: UploadedDocument["documentType"], file: File) {
     if (!["application/pdf", "image/jpeg", "image/png"].includes(file.type)) throw new Error("Documents must be PDF, JPEG or PNG");
-    const signed = await api<{ uploadUrl: string; storageKey: string; headers: Record<string, string> }>(
-      `/api/handyman-onboarding/${token}/upload-url`,
-      { method: "POST", body: JSON.stringify({ documentType, contentType: file.type, sizeBytes: file.size }) }
-    );
-    const uploaded = await fetch(signed.uploadUrl, { method: "PUT", headers: signed.headers, body: file });
-    if (!uploaded.ok) throw new Error(`The ${documentLabel(documentType)} document did not upload`);
+    let signed: { uploadUrl: string; storageKey: string; headers: Record<string, string> } | null = null;
+    try {
+      signed = await api<{ uploadUrl: string; storageKey: string; headers: Record<string, string> }>(
+        `/api/handyman-onboarding/${token}/upload-url`,
+        { method: "POST", body: JSON.stringify({ documentType, contentType: file.type, sizeBytes: file.size }) }
+      );
+      const uploaded = await fetch(signed.uploadUrl, { method: "PUT", headers: signed.headers, body: file });
+      if (!uploaded.ok) throw new Error(`The ${documentLabel(documentType)} document did not upload`);
+    } catch {
+      setProgress(`Uploading ${documentLabel(documentType)} securely through TaskBridge...`);
+      signed = await api<{ storageKey: string; headers: Record<string, string> }>(
+        `/api/handyman-onboarding/${token}/server-upload?documentType=${encodeURIComponent(documentType)}`,
+        { method: "POST", headers: { "content-type": file.type }, body: file }
+      ) as { uploadUrl: string; storageKey: string; headers: Record<string, string> };
+    }
     return {
       documentType,
       storageKey: signed.storageKey,
@@ -160,7 +169,10 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
       setSubmitted(true);
       setProgress("");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Registration could not be submitted");
+      const message = caught instanceof Error ? caught.message : "Registration could not be submitted";
+      setError(message === "Failed to fetch"
+        ? "The document upload could not reach TaskBridge. Please check the internet connection and try again."
+        : message);
       setProgress("");
     } finally {
       setBusy(false);

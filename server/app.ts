@@ -48,6 +48,10 @@ export function createApp() {
     res.setHeader("x-request-id", requestId);
     next();
   });
+  app.use("/api/handyman-onboarding/:token/server-upload", express.raw({
+    type: ["application/pdf", "image/jpeg", "image/png"],
+    limit: "15mb"
+  }));
   app.use(express.json({
     limit: "1mb",
     verify: (req, _res, buffer) => {

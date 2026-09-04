@@ -4,7 +4,7 @@ import { z } from "zod";
 import { asyncHandler } from "../async-handler.js";
 import { audit } from "../audit.js";
 import { query, withTransaction } from "../db.js";
-import { createComplianceDocumentUpload, verifyComplianceDocumentUpload } from "../media.js";
+import { createComplianceDocumentUpload, storeComplianceDocumentUpload, verifyComplianceDocumentUpload } from "../media.js";
 import { encryptField, hashToken, publicId } from "../security.js";
 
 const serviceOptions = [
@@ -157,6 +157,26 @@ handymanOnboardingRouter.post("/:token/upload-url", asyncHandler(async (req, res
     parsed.data.documentType,
     parsed.data.contentType,
     parsed.data.sizeBytes
+  );
+  res.json(upload);
+}));
+
+handymanOnboardingRouter.post("/:token/server-upload", asyncHandler(async (req, res) => {
+  const documentTypeValue = typeof req.query.documentType === "string" ? req.query.documentType : "";
+  const contentTypeValue = req.get("content-type")?.split(";")[0] || "";
+  const parsed = uploadSchema.safeParse({
+    documentType: documentTypeValue,
+    contentType: contentTypeValue,
+    sizeBytes: Buffer.isBuffer(req.body) ? req.body.length : 0
+  });
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid document" });
+  const access = await activeInvitation(req.params.token);
+  if (!("invitation" in access)) return res.status(access.status).json({ error: access.error });
+  const upload = await storeComplianceDocumentUpload(
+    access.invitation.id,
+    parsed.data.documentType,
+    parsed.data.contentType,
+    req.body as Buffer
   );
   res.json(upload);
 }));

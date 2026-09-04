@@ -156,6 +156,34 @@ export async function createComplianceDocumentUpload(
   };
 }
 
+export async function storeComplianceDocumentUpload(
+  invitationId: string,
+  documentType: string,
+  contentType: string,
+  body: Buffer
+) {
+  const extension = allowedComplianceTypes[contentType];
+  if (!extension || !complianceDocumentTypes.has(documentType)) {
+    throw Object.assign(new Error("Compliance documents must be PDF, JPEG or PNG"), { statusCode: 422 });
+  }
+  if (body.length <= 0 || body.length > 15 * 1024 * 1024) {
+    throw Object.assign(new Error("Each compliance document must be smaller than 15 MB"), { statusCode: 422 });
+  }
+  const key = `handyman-onboarding/${invitationId}/${documentType}/${randomUUID()}.${extension}`;
+  await storageClient().send(new PutObjectCommand({
+    Bucket: config.objectStorageBucket,
+    Key: key,
+    Body: body,
+    ContentType: contentType,
+    ContentLength: body.length,
+    Metadata: { invitation: invitationId, document: documentType }
+  }));
+  return {
+    storageKey: key,
+    headers: { "content-type": contentType }
+  };
+}
+
 export async function verifyComplianceDocumentUpload(
   invitationId: string,
   documentType: string,
