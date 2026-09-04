@@ -932,6 +932,9 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteResult, setInviteResult] = useState<{ invitationUrl: string; expiresAt: string; emailDeliveryStatus: string; smsDeliveryStatus?: string; smsProviderError?: string | null } | null>(null);
   const [reviewingTrader, setReviewingTrader] = useState<Trader | null>(null);
+  const [identityPreviewTrader, setIdentityPreviewTrader] = useState<Trader | null>(null);
+  const [identityPreviewDocument, setIdentityPreviewDocument] = useState<ComplianceDocument | null>(null);
+  const [identityPreviewLoading, setIdentityPreviewLoading] = useState(false);
   const [businessEditingTrader, setBusinessEditingTrader] = useState<Trader | null>(null);
   const [rateEditingTrader, setRateEditingTrader] = useState<Trader | null>(null);
   const [priceReviewTrader, setPriceReviewTrader] = useState<Trader | null>(null);
@@ -1018,26 +1021,32 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load compliance documents"); setDocuments([]); }
     finally { setDocumentsLoading(false); }
   }
-  async function openPassport(trader: Trader) {
-    setBusy(`passport-${trader.id}`); setError("");
+  async function openIdentityPreview(trader: Trader) {
+    setIdentityPreviewTrader(trader); setIdentityPreviewDocument(null); setIdentityPreviewLoading(true); setError("");
     try {
-      const result = await api<{ passport: {
-        displayName: string; email: string | null; mobile: string; status: string; hourlyRate: number;
-        serviceRadiusMiles: number; services: string[];
-        compliance: { dbsStatus: string; dbsExpiryDate: string | null; insuranceStatus: string; insuranceExpiryDate: string | null };
-        reliability: { score: number; totalAssignments: number; accepted: number; completed: number; declined: number; careApproved: number; complaints: number };
-      } }>(`/api/admin/traders/${trader.id}/passport`);
-      const passport = result.passport;
-      window.alert([
-        `${passport.displayName} compliance ID profile`,
-        `Reliability score: ${passport.reliability.score}/100`,
-        `Services: ${passport.services.join(", ") || "Awaiting registration"}`,
-        `DBS: ${humanize(passport.compliance.dbsStatus)}${passport.compliance.dbsExpiryDate ? ` until ${formatDate(passport.compliance.dbsExpiryDate)}` : ""}`,
-        `Insurance: ${humanize(passport.compliance.insuranceStatus)}${passport.compliance.insuranceExpiryDate ? ` until ${formatDate(passport.compliance.insuranceExpiryDate)}` : ""}`,
-        `Radius: ${passport.serviceRadiusMiles} miles · Rate: £${passport.hourlyRate}/hr`,
-        `Assignments: ${passport.reliability.totalAssignments}; completed ${passport.reliability.completed}; care-approved ${passport.reliability.careApproved}; complaints ${passport.reliability.complaints}`
-      ].join("\n"));
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load handyman ID profile"); }
+      const result = await api<{ documents: ComplianceDocument[] }>(`/api/admin/traders/${trader.id}/documents`);
+      setIdentityPreviewDocument(result.documents.find((document) => document.documentType === "identity") || null);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load submitted ID"); }
+    finally { setIdentityPreviewLoading(false); }
+  }
+  async function reviewIdentityDocument(document: ComplianceDocument, status: "approved" | "rejected") {
+    if (!identityPreviewTrader) return;
+    const reason = status === "approved" ? "Identity document approved by TaskBridge compliance review." : window.prompt("Record the reason for rejection");
+    if (!reason || reason.trim().length < 5) {
+      setError("Record a review reason before rejecting the ID document.");
+      return;
+    }
+    setBusy(document.id); setError("");
+    try {
+      await api(`/api/admin/traders/${identityPreviewTrader.id}/documents/${document.id}/review`, {
+        method: "POST", body: JSON.stringify({ status, reason })
+      });
+      setIdentityPreviewDocument({ ...document, reviewStatus: status, reviewNotes: reason, reviewedAt: new Date().toISOString() });
+      setDocuments((current) => current.map((item) => item.id === document.id
+        ? { ...item, reviewStatus: status, reviewNotes: reason, reviewedAt: new Date().toISOString() }
+        : item));
+      await onChanged();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to record ID review"); }
     finally { setBusy(""); }
   }
   async function saveBusinessProfile(trader: Trader, payload: { displayName: string; businessName: string; mobile: string; postcodeArea: string }) {
@@ -1247,11 +1256,12 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
         <td><StatusBadge status={trader.dbsStatus}>{humanize(trader.dbsStatus)}</StatusBadge><small>{trader.dbsExpiryDate ? `Expires ${formatDate(trader.dbsExpiryDate)}` : dbsRouteLabel(trader)}</small>{trader.dbsOutcome && <small className="table-note">{trader.dbsOutcome}</small>}</td>
         <td><StatusBadge status={trader.insuranceStatus}>{humanize(trader.insuranceStatus)}</StatusBadge><small>{trader.insuranceExpiryDate ? `Expires ${formatDate(trader.insuranceExpiryDate)}` : "No active expiry"}</small></td>
         <td><span className="rating"><Star size={15} /> {trader.qualityScore}</span></td>
-        <td><div className="row-actions"><button className="button button-secondary button-small" disabled={busy === `passport-${trader.id}`} onClick={() => openPassport(trader)}>ID</button><button className="button button-secondary button-small" disabled={busy === `rate-all-${trader.id}`} onClick={() => setPriceReviewTrader(trader)}><CreditCard size={15} /> Price all</button><button className="button button-secondary button-small" disabled={busy === `rate-${trader.id}`} onClick={() => setRateEditingTrader(trader)}><CreditCard size={15} /> Edit rate</button><button className="button button-secondary button-small" disabled={documentsLoading && reviewingTrader?.id === trader.id} onClick={() => openDocuments(trader)}><FileCheck2 size={15} /> Review documents</button><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start DBS route</button><button className="button button-secondary button-small" disabled={busy === `business-${trader.id}`} onClick={() => setBusinessEditingTrader(trader)}>{busy === `business-${trader.id}` ? "Saving..." : "Edit business"}</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td>
+        <td><div className="row-actions"><button className="button button-secondary button-small" disabled={identityPreviewLoading && identityPreviewTrader?.id === trader.id} onClick={() => openIdentityPreview(trader)}>ID</button><button className="button button-secondary button-small" disabled={busy === `rate-all-${trader.id}`} onClick={() => setPriceReviewTrader(trader)}><CreditCard size={15} /> Price all</button><button className="button button-secondary button-small" disabled={busy === `rate-${trader.id}`} onClick={() => setRateEditingTrader(trader)}><CreditCard size={15} /> Edit rate</button><button className="button button-secondary button-small" disabled={documentsLoading && reviewingTrader?.id === trader.id} onClick={() => openDocuments(trader)}><FileCheck2 size={15} /> Review documents</button><button className="button button-secondary button-small" disabled={busy === trader.id || trader.onboardingStatus === "pending"} onClick={() => startCheck(trader)}>Start DBS route</button><button className="button button-secondary button-small" disabled={busy === `business-${trader.id}`} onClick={() => setBusinessEditingTrader(trader)}>{busy === `business-${trader.id}` ? "Saving..." : "Edit business"}</button>{user.role === "taskbridge_super_admin" && trader.onboardingStatus === "pending" ? <button className="icon-button danger-icon" disabled={busy === trader.id} onClick={() => revokeInvitation(trader)} aria-label="Revoke invitation"><Trash2 size={18} /></button> : user.role === "taskbridge_super_admin" && <><button className="icon-button success-icon" onClick={() => review(trader, "approved")} aria-label="Approve DBS"><BadgeCheck size={18} /></button><button className="icon-button danger-icon" onClick={() => review(trader, "rejected")} aria-label="Reject DBS"><CircleAlert size={18} /></button></>}</div></td>
       </tr>)}</tbody></table></div>
       {!filteredTraders.length && <EmptyState icon={<BadgeCheck />} title="No handymen in this view" detail="Choose another compliance filter to review the registry." />}
     </section>
     </>}
+    {identityPreviewTrader && <IdentityDocumentPreviewModal trader={identityPreviewTrader} document={identityPreviewDocument} loading={identityPreviewLoading} busy={busy} onClose={() => { setIdentityPreviewTrader(null); setIdentityPreviewDocument(null); }} onReview={reviewIdentityDocument} />}
     {businessEditingTrader && <BusinessProfileModal trader={businessEditingTrader} busy={busy === `business-${businessEditingTrader.id}`} onClose={() => setBusinessEditingTrader(null)} onSave={saveBusinessProfile} />}
     {rateEditingTrader && <RateCardModal trader={rateEditingTrader} busy={busy === `rate-${rateEditingTrader.id}`} onClose={() => setRateEditingTrader(null)} onSave={saveRateCard} />}
     {priceReviewTrader && <PriceAllServicesModal trader={priceReviewTrader} busy={busy === `rate-all-${priceReviewTrader.id}`} onClose={() => setPriceReviewTrader(null)} onConfirm={priceAllServices} />}
@@ -1281,6 +1291,51 @@ function dbsCheckFields(document: ComplianceDocument) {
     ["Certificate issue date", document.dbsCheck?.issueDate || document.issueDate || ""]
   ].filter(([, value]) => value);
   return fields;
+}
+
+function IdentityDocumentPreviewModal({ trader, document, loading, busy, onClose, onReview }: {
+  trader: Trader;
+  document: ComplianceDocument | null;
+  loading: boolean;
+  busy: string;
+  onClose: () => void;
+  onReview: (document: ComplianceDocument, status: "approved" | "rejected") => Promise<void>;
+}) {
+  const canPreviewImage = Boolean(document?.reviewUrl && document.contentType.startsWith("image/"));
+  const canPreviewFrame = Boolean(document?.reviewUrl && !canPreviewImage);
+  return <div className="modal-backdrop">
+    <section className="modal admin-modal admin-modal-wide identity-preview-modal">
+      <button className="icon-button modal-close" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
+      <div className="panel-heading"><div><span className="eyebrow">Submitted ID</span><h2>{trader.displayName}</h2><p>Preview the identity evidence submitted during onboarding.</p></div>{document && <StatusBadge status={document.reviewStatus}>{humanize(document.reviewStatus)}</StatusBadge>}</div>
+      {loading && <div className="app-loading"><LoaderCircle className="spin" /> Loading submitted ID...</div>}
+      {!loading && !document && <EmptyState icon={<UserCheck />} title="No ID submitted" detail="This handyman has not uploaded an identity document yet." />}
+      {!loading && document && <div className="identity-preview-layout">
+        <div className="identity-preview-frame">
+          {canPreviewImage && <img src={document.reviewUrl || ""} alt={`${trader.displayName} submitted ID`} />}
+          {canPreviewFrame && <iframe src={document.reviewUrl || ""} title={`${trader.displayName} submitted ID`} />}
+          {!document.reviewUrl && <div className="document-unavailable">Secure preview unavailable</div>}
+        </div>
+        <aside className="identity-preview-details">
+          <h3>{document.originalFilename}</h3>
+          <dl>
+            <div><dt>Submitted</dt><dd>{formatDate(document.createdAt, true)}</dd></div>
+            {document.reference && <div><dt>Reference</dt><dd>{document.reference}</dd></div>}
+            {document.issueDate && <div><dt>Issue date</dt><dd>{formatDate(document.issueDate)}</dd></div>}
+            {document.expiryDate && <div><dt>Expiry date</dt><dd>{formatDate(document.expiryDate)}</dd></div>}
+            <div><dt>File size</dt><dd>{Math.max(1, Math.round(document.sizeBytes / 1024))} KB</dd></div>
+          </dl>
+          {document.reviewNotes && <p className="review-note"><strong>Review note:</strong> {document.reviewNotes}</p>}
+          <div className="compliance-document-actions">
+            {document.reviewUrl && <a className="button button-secondary button-small" href={document.reviewUrl} target="_blank" rel="noreferrer">Open full file <ExternalLink size={15} /></a>}
+            {document.reviewStatus === "pending" && <>
+              <button className="button button-success button-small" disabled={busy === document.id || !document.reviewUrl} onClick={() => onReview(document, "approved")}>Approve ID</button>
+              <button className="button button-secondary button-small document-reject" disabled={busy === document.id} onClick={() => onReview(document, "rejected")}>Reject</button>
+            </>}
+          </div>
+        </aside>
+      </div>}
+    </section>
+  </div>;
 }
 
 function BusinessProfileModal({ trader, busy, onClose, onSave }: {
