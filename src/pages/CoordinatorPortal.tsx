@@ -85,6 +85,16 @@ interface TaskDetail {
 interface AnalyticsDashboard {
   enabled: boolean;
   summary: { serviceUsersTracked: number; observations: number; deteriorating: number; stable: number; improving: number };
+  impact?: {
+    hazardsIdentified: number;
+    tasksApproved: number;
+    tasksCompleted: number;
+    averageCompletionHours: number | null;
+    fallsRiskTasksCompleted: number;
+    familyFeedbackCount: number;
+    familySatisfactionAverage: number | null;
+    familyFeltSaferPercent: number | null;
+  };
   uploads: Array<{ id: string; fileName: string; rowCount: number; createdAt: string }>;
   serviceUsers: Array<{
     serviceUserId: string;
@@ -1544,6 +1554,24 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
   const analyticsScopeCopy = selectedAnalyticsServiceUserId === "all"
     ? "Select a service user to focus the trend dashboard on one person's observations."
     : `Showing analytics for ${selectedAnalyticsName} only.`;
+  const impact = analytics?.impact || {
+    hazardsIdentified: 0,
+    tasksApproved: 0,
+    tasksCompleted: 0,
+    averageCompletionHours: null,
+    fallsRiskTasksCompleted: 0,
+    familyFeedbackCount: 0,
+    familySatisfactionAverage: null,
+    familyFeltSaferPercent: null
+  };
+  const impactMetrics = [
+    { label: "Hazards identified", value: impact.hazardsIdentified, detail: "Safety tasks created from care notes and coordinator entries.", icon: <ShieldAlert size={18} /> },
+    { label: "Tasks approved", value: impact.tasksApproved, detail: "Tasks released beyond care review for TaskBridge action.", icon: <ClipboardList size={18} /> },
+    { label: "Tasks completed", value: impact.tasksCompleted, detail: "Work confirmed complete by the care team.", icon: <CheckCircle2 size={18} /> },
+    { label: "Average completion time", value: impact.averageCompletionHours === null ? "No data" : `${impact.averageCompletionHours}h`, detail: "From task creation to care-team completion.", icon: <Clock3 size={18} /> },
+    { label: "Falls-risk tasks completed", value: impact.fallsRiskTasksCompleted, detail: "Completed work linked to falls, trip hazards, rails, key safes or mobility risk.", icon: <TrendingDown size={18} /> },
+    { label: "Family satisfaction", value: impact.familySatisfactionAverage === null ? "No ratings" : `${impact.familySatisfactionAverage}/5`, detail: impact.familyFeedbackCount ? `${impact.familyFeedbackCount} response${impact.familyFeedbackCount === 1 ? "" : "s"}${impact.familyFeltSaferPercent === null ? "" : ` / ${impact.familyFeltSaferPercent}% felt safer`}` : "Collected from family update links after completion.", icon: <UsersRound size={18} /> }
+  ];
 
   const analyticsPanelCopy = analyticsFilter === "observations"
     ? `${selectedSummary.observations} imported health observation row${selectedSummary.observations === 1 ? "" : "s"} for ${selectedAnalyticsName}.`
@@ -1887,6 +1915,16 @@ function CareAnalyticsDashboard({ serviceUsers }: { serviceUsers: ServiceUser[] 
         <span>{analyticsScopeCopy}</span>
         <button className="button button-secondary button-small" type="button" onClick={loadAnalytics}><RefreshCw size={15} /> Refresh</button>
       </div>
+
+      <section className="analytics-phase-one-impact">
+        <div className="panel-heading"><div><h2>Phase 1 impact metrics</h2><p>Core proof that TaskBridge is turning home-safety risks into completed, evidenced work.</p></div></div>
+        <div>
+          {impactMetrics.map((metric) => <article key={metric.label}>
+            <span>{metric.icon}</span>
+            <div><strong>{metric.value}</strong><small>{metric.label}</small><p>{metric.detail}</p></div>
+          </article>)}
+        </div>
+      </section>
 
       <div className="analytics-canvas-grid">
         <div className="analytics-main-canvas">

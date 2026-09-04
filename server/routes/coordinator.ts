@@ -487,7 +487,7 @@ coordinatorRouter.get("/cqc/evidence-pack.csv", asyncHandler(async (req, res) =>
 coordinatorRouter.get("/analytics", asyncHandler(async (req, res) => {
   const enabled = await healthAnalyticsEnabled(req.auth!.agencyId!);
   if (!enabled) return res.json({ enabled: false, uploads: [], serviceUsers: [], summary: emptyAnalyticsSummary() });
-  const [observations, uploads] = await Promise.all([
+  const [observations, uploads, impact] = await Promise.all([
     query<HealthObservationRow>(
       `SELECT o.service_user_id::text, su.external_service_user_id, su.encrypted_name,
               o.observation_date::text, o.metric_type, o.metric_value::text,
@@ -504,11 +504,53 @@ coordinatorRouter.get("/analytics", asyncHandler(async (req, res) => {
        WHERE agency_id = $1
        ORDER BY created_at DESC LIMIT 8`,
       [req.auth!.agencyId]
+    ),
+    query<{
+      hazards_identified: string;
+      tasks_approved: string;
+      tasks_completed: string;
+      average_completion_hours: string | null;
+      falls_risk_completed: string;
+      family_feedback_count: string;
+      family_satisfaction_average: string | null;
+      family_felt_safer_percent: string | null;
+    }>(
+      `SELECT
+         count(DISTINCT t.id)::text AS hazards_identified,
+         count(DISTINCT t.id) FILTER (
+           WHERE t.status::text NOT IN ('awaiting_care_approval', 'cancelled')
+         )::text AS tasks_approved,
+         count(DISTINCT t.id) FILTER (WHERE t.status::text = 'completed')::text AS tasks_completed,
+         ROUND((AVG(EXTRACT(EPOCH FROM (t.completed_at - t.created_at)) / 3600) FILTER (
+           WHERE t.status::text = 'completed' AND t.completed_at IS NOT NULL
+         ))::numeric, 1)::text AS average_completion_hours,
+         count(DISTINCT t.id) FILTER (
+           WHERE t.status::text = 'completed'
+             AND lower(t.category || ' ' || COALESCE(t.summary, '')) ~ '(fall|falls|trip|grab rail|loose rail|key safe|keysafe|mobility|lighting|stair|threshold)'
+         )::text AS falls_risk_completed,
+         count(f.id)::text AS family_feedback_count,
+         ROUND(AVG(f.rating)::numeric, 1)::text AS family_satisfaction_average,
+         ROUND((count(f.id) FILTER (WHERE f.felt_safer IS TRUE)::numeric / NULLIF(count(f.id), 0)) * 100, 0)::text AS family_felt_safer_percent
+       FROM ops.tasks t
+       LEFT JOIN ops.family_feedback f ON f.task_id = t.id
+       WHERE t.agency_id = $1 AND t.deleted_at IS NULL`,
+      [req.auth!.agencyId]
     )
   ]);
+  const impactRow = impact.rows[0];
   res.json({
     enabled: true,
     summary: buildAnalyticsSummary(observations.rows),
+    impact: {
+      hazardsIdentified: Number(impactRow?.hazards_identified || 0),
+      tasksApproved: Number(impactRow?.tasks_approved || 0),
+      tasksCompleted: Number(impactRow?.tasks_completed || 0),
+      averageCompletionHours: impactRow?.average_completion_hours === null ? null : Number(impactRow?.average_completion_hours || 0),
+      fallsRiskTasksCompleted: Number(impactRow?.falls_risk_completed || 0),
+      familyFeedbackCount: Number(impactRow?.family_feedback_count || 0),
+      familySatisfactionAverage: impactRow?.family_satisfaction_average === null ? null : Number(impactRow?.family_satisfaction_average || 0),
+      familyFeltSaferPercent: impactRow?.family_felt_safer_percent === null ? null : Number(impactRow?.family_felt_safer_percent || 0)
+    },
     serviceUsers: buildServiceUserAnalytics(observations.rows),
     uploads: uploads.rows.map((upload) => ({
       id: upload.id,

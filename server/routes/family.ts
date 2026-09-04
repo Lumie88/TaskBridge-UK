@@ -13,6 +13,12 @@ const confirmPaymentSchema = z.object({
   confirmationReference: z.string().trim().min(3).max(160)
 });
 
+const familyFeedbackSchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  feltSafer: z.boolean().optional().nullable(),
+  comment: z.string().trim().max(500).optional().default("")
+});
+
 export const familyRouter = Router();
 
 familyRouter.get("/payments/:token", asyncHandler(async (req, res) => {
@@ -171,12 +177,13 @@ familyRouter.get("/updates/:token", asyncHandler(async (req, res) => {
     id: string; task_id: string; task_public_id: string; agency_name: string; encrypted_name: string;
     category: string; summary: string; status: string; completion_notes: string | null;
     before_photo_url: string | null; after_photo_url: string | null; link_status: string; expires_at: string;
-    confirmed_at: string | null;
+    confirmed_at: string | null; feedback_rating: number | null; feedback_felt_safer: boolean | null;
   }>(
     `SELECT l.id::text, t.id::text AS task_id, t.public_id AS task_public_id,
             ag.name AS agency_name, su.encrypted_name, t.category, t.summary,
             t.status::text, v.completion_notes, t.before_photo_url, t.after_photo_url,
-            l.status AS link_status, l.expires_at::text, v.confirmed_at::text
+            l.status AS link_status, l.expires_at::text, v.confirmed_at::text,
+            f.rating AS feedback_rating, f.felt_safer AS feedback_felt_safer
      FROM ops.family_update_links l
      JOIN ops.tasks t ON t.id = l.task_id
      JOIN tenant.agencies ag ON ag.id = l.agency_id
@@ -185,6 +192,7 @@ familyRouter.get("/updates/:token", asyncHandler(async (req, res) => {
        SELECT completion_notes, confirmed_at FROM ops.visits vv
        WHERE vv.task_id = t.id ORDER BY vv.created_at DESC LIMIT 1
      ) v ON true
+     LEFT JOIN ops.family_feedback f ON f.family_update_link_id = l.id
      WHERE l.token_hash = $1`,
     [tokenHash]
   );
@@ -211,9 +219,55 @@ familyRouter.get("/updates/:token", asyncHandler(async (req, res) => {
       completionNotes: update.completion_notes,
       beforePhotoUrl: update.before_photo_url,
       afterPhotoUrl: update.after_photo_url,
-      confirmedAt: update.confirmed_at
+      confirmedAt: update.confirmed_at,
+      feedback: update.feedback_rating ? {
+        rating: Number(update.feedback_rating),
+        feltSafer: update.feedback_felt_safer
+      } : null
     }
   });
+}));
+
+familyRouter.post("/updates/:token/feedback", asyncHandler(async (req, res) => {
+  const parsed = familyFeedbackSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Feedback is invalid" });
+  const tokenHash = hashToken(req.params.token);
+  const result = await withTransaction(null, async (client) => {
+    const linkResult = await client.query<{
+      id: string; task_id: string; agency_id: string; task_status: string; link_status: string; expires_at: string;
+    }>(
+      `SELECT l.id::text, l.task_id::text, l.agency_id::text, t.status::text AS task_status,
+              l.status AS link_status, l.expires_at::text
+       FROM ops.family_update_links l
+       JOIN ops.tasks t ON t.id = l.task_id
+       WHERE l.token_hash = $1 FOR UPDATE`,
+      [tokenHash]
+    );
+    const link = linkResult.rows[0];
+    if (!link) return { status: 404, error: "Family update link not found" } as const;
+    if (new Date(link.expires_at).getTime() < Date.now() && link.link_status !== "opened") {
+      await client.query("UPDATE ops.family_update_links SET status = 'expired' WHERE id = $1 AND status = 'created'", [link.id]);
+      return { status: 410, error: "Family update link has expired" } as const;
+    }
+    if (link.task_status !== "completed") {
+      return { status: 409, error: "Family feedback can be recorded after the care team confirms completion" } as const;
+    }
+    await client.query(
+      `INSERT INTO ops.family_feedback
+        (task_id, agency_id, family_update_link_id, rating, felt_safer, comment)
+       VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''))
+       ON CONFLICT (task_id, family_update_link_id) DO UPDATE SET
+         rating = EXCLUDED.rating,
+         felt_safer = EXCLUDED.felt_safer,
+         comment = EXCLUDED.comment,
+         created_at = clock_timestamp()`,
+      [link.task_id, link.agency_id, link.id, parsed.data.rating, parsed.data.feltSafer ?? null, parsed.data.comment]
+    );
+    return { status: 201, taskId: link.task_id } as const;
+  });
+  if ("error" in result) return res.status(result.status).json({ error: result.error });
+  await audit(req, "family.feedback.recorded", "task", result.taskId, { rating: parsed.data.rating, feltSafer: parsed.data.feltSafer ?? null });
+  res.status(201).json({ status: "recorded" });
 }));
 
 function initials(name: string) {
