@@ -101,6 +101,9 @@ const createHandymanInvitationSchema = z.object({
   email: z.string().trim().email().max(200),
   mobile: z.string().trim().max(40).optional().or(z.literal(""))
 });
+const traderBusinessProfileSchema = z.object({
+  businessName: z.string().trim().max(160).optional().nullable()
+});
 const createStaffInvitationSchema = z.object({
   fullName: z.string().trim().min(2).max(160),
   email: z.string().trim().email().max(200),
@@ -1010,6 +1013,32 @@ adminRouter.get("/traders", async (_req, res) => {
     rateCards: row.rate_cards
   })) });
 });
+
+adminRouter.patch("/traders/:id/business-profile", requireRoles("taskbridge_super_admin", "taskbridge_admin"), asyncHandler(async (req, res) => {
+  const parsed = traderBusinessProfileSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid business details" });
+  const businessName = parsed.data.businessName?.trim() || null;
+  const result = await withTransaction(req.auth!, async (client) => {
+    const updated = await client.query<{ id: string; business_name: string | null; source_join_request_id: string | null }>(
+      `UPDATE trader.traders
+       SET business_name = $2
+       WHERE id = $1 AND deleted_at IS NULL
+       RETURNING id::text, business_name, source_join_request_id::text`,
+      [req.params.id, businessName]
+    );
+    const trader = updated.rows[0];
+    if (!trader) throw Object.assign(new Error("Handyman not found"), { statusCode: 404 });
+    if (trader.source_join_request_id) {
+      await client.query(
+        "UPDATE tenant.handyman_join_requests SET business_name = $2 WHERE id = $1",
+        [trader.source_join_request_id, businessName]
+      );
+    }
+    return trader;
+  });
+  await audit(req, "admin.trader_business_profile.updated", "trader", result.id, { businessNameSet: Boolean(result.business_name) });
+  res.json({ id: result.id, businessName: result.business_name });
+}));
 
 adminRouter.post("/traders/:id/rate-cards", requireRoles("taskbridge_super_admin", "taskbridge_admin"), asyncHandler(async (req, res) => {
   const parsed = rateCardSchema.safeParse(req.body);

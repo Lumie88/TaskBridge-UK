@@ -1014,6 +1014,19 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load handyman ID profile"); }
     finally { setBusy(""); }
   }
+  async function editBusinessName(trader: Trader) {
+    const businessName = window.prompt("Business name", trader.businessName || "");
+    if (businessName === null) return;
+    setBusy(`business-${trader.id}`); setError("");
+    try {
+      await api(`/api/admin/traders/${trader.id}/business-profile`, {
+        method: "PATCH",
+        body: JSON.stringify({ businessName })
+      });
+      await onChanged();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to update business name"); }
+    finally { setBusy(""); }
+  }
   async function reviewDocument(document: ComplianceDocument, status: "approved" | "rejected") {
     if (!reviewingTrader) return;
     const reason = status === "approved"
@@ -1227,7 +1240,7 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
       <div className="responsive-table"><table><thead><tr><th>Handyman</th><th>Lead source</th><th>Business</th><th>Onboarding</th><th>Services</th><th>Rate card</th><th>DBS route</th><th>Insurance</th><th>Quality</th><th>Action</th></tr></thead><tbody>{filteredTraders.map((trader) => <tr key={trader.id}>
         <td><strong>{trader.displayName}</strong><small>Email: {trader.email || "Not provided"}</small><small>Mobile: {trader.mobile || "Not provided"}</small></td>
         <td>{trader.leadId ? <><StatusBadge status={trader.leadStatus || "invited"}>{humanize(trader.leadStatus || "invited")}</StatusBadge><small>Website lead {trader.leadCreatedAt ? formatDate(trader.leadCreatedAt, true) : ""}</small></> : <small>Manual compliance record</small>}</td>
-        <td><strong>{trader.businessName || "No business name"}</strong><small>{humanize(trader.tradingStatus || "sole_trader")}</small>{trader.companyRegistrationNumber && <small>Company reg: {trader.companyRegistrationNumber}</small>}{trader.vatNumber && <small>VAT: {trader.vatNumber}</small>}</td>
+        <td><strong>{trader.businessName || "No business name"}</strong><small>{humanize(trader.tradingStatus || "sole_trader")}</small>{trader.companyRegistrationNumber && <small>Company reg: {trader.companyRegistrationNumber}</small>}{trader.vatNumber && <small>VAT: {trader.vatNumber}</small>}<button className="button button-secondary button-small" disabled={busy === `business-${trader.id}`} onClick={() => editBusinessName(trader)}>{busy === `business-${trader.id}` ? "Saving..." : "Edit business"}</button></td>
         <td><StatusBadge status={trader.onboardingStatus}>{humanize(trader.onboardingStatus)}</StatusBadge><small>{trader.emailDeliveryStatus ? `Email: ${humanize(trader.emailDeliveryStatus)}` : "Marketplace record"}</small></td>
         <td><span className="service-summary" title={trader.services.join(", ")}>{trader.services.length ? `${trader.services.slice(0, 2).join(", ")}${trader.services.length > 2 ? ` +${trader.services.length - 2}` : ""}` : "Awaiting registration"}</span></td>
         <td><RateCardSummary trader={trader} /></td>
