@@ -23,8 +23,19 @@ const brandSvgAssets: Record<string, string> = {
 export function createApp() {
   const app = express();
   const connectSources = ["'self'"];
+  const storagePreviewSources: string[] = [];
   if (config.objectStorageEndpoint) {
-    try { connectSources.push(new URL(config.objectStorageEndpoint).origin); } catch { /* Invalid endpoint is rejected by the storage client. */ }
+    try {
+      const storageOrigin = new URL(config.objectStorageEndpoint).origin;
+      connectSources.push(storageOrigin);
+      storagePreviewSources.push(storageOrigin);
+    } catch { /* Invalid endpoint is rejected by the storage client. */ }
+  }
+  if (config.objectStoragePublicBaseUrl) {
+    try {
+      const storagePublicOrigin = new URL(config.objectStoragePublicBaseUrl).origin;
+      if (!storagePreviewSources.includes(storagePublicOrigin)) storagePreviewSources.push(storagePublicOrigin);
+    } catch { /* Invalid public URL is reported by readiness checks. */ }
   }
   app.set("trust proxy", 1);
   app.disable("x-powered-by");
@@ -38,6 +49,8 @@ export function createApp() {
     contentSecurityPolicy: isProduction ? {
       directives: {
         connectSrc: connectSources,
+        imgSrc: ["'self'", "data:", ...storagePreviewSources],
+        frameSrc: ["'self'", ...storagePreviewSources],
         scriptSrc: ["'self'", "'sha256-TSms3c3Q8YdPIIyrvzAZ038jj6+maTTSDzgxjFuN17E='"]
       }
     } : false,
