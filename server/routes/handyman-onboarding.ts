@@ -65,6 +65,8 @@ const completionSchema = z.object({
     route: z.enum(["already_enhanced", "needs_application", "basic_or_not_sure"]),
     certificateReference: z.string().trim().max(160).optional().default(""),
     issueDate: z.string().date().optional().nullable(),
+    currentSurname: z.string().trim().max(80).optional().default(""),
+    dateOfBirth: z.string().date().optional().nullable(),
     workforceType: z.enum(["adult", "child", "adult_and_child", "unknown"]).default("unknown"),
     updateServiceConsent: z.boolean().default(false),
     applicationRequested: z.boolean().default(false)
@@ -106,6 +108,15 @@ const completionSchema = z.object({
     }
     if (!data.dbs.issueDate) {
       ctx.addIssue({ code: "custom", path: ["dbs", "issueDate"], message: "Enter the DBS issue date" });
+    }
+    if (!data.dbs.currentSurname || data.dbs.currentSurname.length < 2) {
+      ctx.addIssue({ code: "custom", path: ["dbs", "currentSurname"], message: "Enter the surname shown on the DBS certificate" });
+    }
+    if (!data.dbs.dateOfBirth) {
+      ctx.addIssue({ code: "custom", path: ["dbs", "dateOfBirth"], message: "Enter the date of birth shown on the DBS certificate" });
+    }
+    if (!data.dbs.updateServiceConsent) {
+      ctx.addIssue({ code: "custom", path: ["dbs", "updateServiceConsent"], message: "Consent is required before TaskBridge can check DBS Update Service status" });
     }
     if (!data.documents.some((document) => document.documentType === "enhanced_dbs")) {
       ctx.addIssue({ code: "custom", path: ["documents"], message: "Upload the DBS certificate evidence" });
@@ -195,6 +206,9 @@ handymanOnboardingRouter.post("/:token/complete", asyncHandler(async (req, res) 
   if (data.dbs.issueDate && new Date(`${data.dbs.issueDate}T00:00:00Z`) > new Date()) {
     return res.status(422).json({ error: "DBS issue date cannot be in the future" });
   }
+  if (data.dbs.dateOfBirth && new Date(`${data.dbs.dateOfBirth}T00:00:00Z`) > new Date()) {
+    return res.status(422).json({ error: "DBS date of birth cannot be in the future" });
+  }
   const access = await activeInvitation(req.params.token);
   if (!("invitation" in access)) return res.status(access.status).json({ error: access.error });
 
@@ -271,6 +285,9 @@ handymanOnboardingRouter.post("/:token/complete", asyncHandler(async (req, res) 
         data.dbs.route === "needs_application" ? "dbs_umbrella_route" : "manual",
         {
           certificateReferenceSupplied: Boolean(data.dbs.certificateReference),
+          certificateHolderSurnameCiphertext: data.dbs.currentSurname ? encryptField(data.dbs.currentSurname) : null,
+          certificateHolderDateOfBirthCiphertext: data.dbs.dateOfBirth ? encryptField(data.dbs.dateOfBirth) : null,
+          homeOfficeCheckUrl: "https://secure.crbonline.gov.uk/crsc/check?execution=e1s1",
           applicationRequested: data.dbs.applicationRequested,
           route: data.dbs.route
         },

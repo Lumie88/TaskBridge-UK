@@ -1108,20 +1108,32 @@ adminRouter.get("/traders/:id/documents", asyncHandler(async (req, res) => {
     id: string; document_type: string; storage_key: string; original_filename_ciphertext: string;
     content_type: string; size_bytes: number; document_reference_ciphertext: string | null;
     issue_date: string | null; expiry_date: string | null; review_status: string; review_notes: string | null;
-    reviewed_at: string | null; reviewer_name: string | null; created_at: string;
+    reviewed_at: string | null; reviewer_name: string | null; created_at: string; dbs_payload: Record<string, unknown> | null;
   }>(
     `SELECT d.id::text, d.document_type, d.storage_key, d.original_filename_ciphertext,
             d.content_type, d.size_bytes, d.document_reference_ciphertext,
             d.issue_date::text, d.expiry_date::text, d.review_status, d.review_notes,
-            d.reviewed_at::text, u.full_name AS reviewer_name, d.created_at::text
+            d.reviewed_at::text, u.full_name AS reviewer_name, d.created_at::text,
+            dbs.provider_payload AS dbs_payload
      FROM trader.onboarding_documents d
      LEFT JOIN auth.users u ON u.id = d.reviewed_by_user_id
+     LEFT JOIN LATERAL (
+       SELECT provider_payload
+       FROM trader.dbs_verifications dv
+       WHERE dv.trader_id = d.trader_id
+         AND dv.evidence_reference = 'onboarding-document:' || d.id::text
+       ORDER BY dv.created_at DESC LIMIT 1
+     ) dbs ON true
      WHERE d.trader_id = $1 ORDER BY d.created_at DESC`,
     [req.params.id]
   );
   const mapped = await Promise.all(documents.rows.map(async (document) => {
     let reviewUrl: string | null = null;
     try { reviewUrl = await createComplianceDocumentReviewUrl(document.storage_key); } catch { reviewUrl = null; }
+    const dbsPayload = document.dbs_payload || {};
+    const dbsSurnameCiphertext = typeof dbsPayload.certificateHolderSurnameCiphertext === "string" ? dbsPayload.certificateHolderSurnameCiphertext : "";
+    const dbsDateOfBirthCiphertext = typeof dbsPayload.certificateHolderDateOfBirthCiphertext === "string" ? dbsPayload.certificateHolderDateOfBirthCiphertext : "";
+    const dbsCheckUrl = typeof dbsPayload.homeOfficeCheckUrl === "string" ? dbsPayload.homeOfficeCheckUrl : null;
     return {
       id: document.id,
       documentType: document.document_type,
@@ -1136,7 +1148,14 @@ adminRouter.get("/traders/:id/documents", asyncHandler(async (req, res) => {
       reviewedAt: document.reviewed_at,
       reviewerName: document.reviewer_name,
       createdAt: document.created_at,
-      reviewUrl
+      reviewUrl,
+      dbsCheck: document.document_type === "enhanced_dbs" ? {
+        certificateNumber: document.document_reference_ciphertext ? decryptField(document.document_reference_ciphertext) : "",
+        issueDate: document.issue_date,
+        currentSurname: dbsSurnameCiphertext ? decryptField(dbsSurnameCiphertext) : "",
+        dateOfBirth: dbsDateOfBirthCiphertext ? decryptField(dbsDateOfBirthCiphertext) : "",
+        homeOfficeCheckUrl: dbsCheckUrl || "https://secure.crbonline.gov.uk/crsc/check?execution=e1s1"
+      } : null
     };
   }));
   res.json({ trader: { id: trader.id, displayName: trader.display_name, services: trader.services }, documents: mapped });

@@ -146,6 +146,8 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
             route: dbsRoute,
             certificateReference: values.get("dbsReference") || "",
             issueDate: values.get("dbsIssueDate") || null,
+            currentSurname: values.get("dbsCurrentSurname") || "",
+            dateOfBirth: values.get("dbsDateOfBirth") || null,
             workforceType: values.get("dbsWorkforceType") || "unknown",
             updateServiceConsent: values.get("updateServiceConsent") === "on",
             applicationRequested: dbsRoute === "needs_application"
@@ -213,6 +215,7 @@ export function HandymanOnboardingPage({ token }: { token: string }) {
                     {dbsRoute === "already_enhanced" ? <>
                       <DocumentField label="DBS certificate" detail="Enhanced DBS evidence for a legally eligible role" required onFile={(file) => setFiles((current) => ({ ...current, enhanced_dbs: file }))} />
                       <div className="field-row"><label>Certificate reference<input required name="dbsReference" /></label><label>Certificate issue date<input required name="dbsIssueDate" type="date" /></label></div>
+                      <div className="field-row"><label>Surname on certificate<input required name="dbsCurrentSurname" autoComplete="family-name" /></label><label>Date of birth on certificate<input required name="dbsDateOfBirth" type="date" /></label></div>
                       <div className="field-row"><label>Workforce type<select name="dbsWorkforceType" defaultValue="adult"><option value="adult">Adult workforce</option><option value="child">Child workforce</option><option value="adult_and_child">Adult and child workforce</option><option value="unknown">Not sure</option></select></label><label className="toggle-row compact-toggle"><input name="updateServiceConsent" type="checkbox" /><span><strong>Update Service consent</strong><small>I consent to TaskBridge checking my DBS Update Service status.</small></span></label></div>
                     </> : <div className="onboarding-advisory"><strong>{dbsRoute === "needs_application" ? "DBS route review requested" : "Limited access route"}</strong><p>{dbsRoute === "needs_application" ? "TaskBridge admin will review whether your proposed work is eligible for Enhanced DBS. If it is not, you can still be considered for non-vulnerable or supervised tasks once Basic DBS, identity and insurance checks are approved." : "You may be considered only for non-vulnerable or supervised tasks once Basic DBS, identity and insurance checks are approved. Lone vulnerable-adult work remains blocked unless Enhanced DBS eligibility is verified."}</p></div>}
                     {dbsRoute === "needs_application" && <div className="document-block ddc-helper-block">

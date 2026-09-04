@@ -127,6 +127,7 @@ const defaultRateCards: Record<string, {
 const fallbackRateCard = { fixedPrice: null, hourlyRate: 35, minimumHours: 1, callOutFee: 0, materialsRule: "charged_with_receipt" as const };
 const TASKBRIDGE_MARGIN_RATE = 0.15;
 const STANDARD_LABOUR_MINUTES = 60;
+const HOME_OFFICE_DBS_CHECK_URL = "https://disclosure.homeoffice.gov.uk/HomeOfficeExternalPortal/faces/wcnav_defaultSelection";
 
 function splitIncludedMargin(customerPrice: number) {
   const handymanPayout = Number((customerPrice / (1 + TASKBRIDGE_MARGIN_RATE)).toFixed(2));
@@ -161,6 +162,13 @@ interface ComplianceDocument {
   reviewerName: string | null;
   createdAt: string;
   reviewUrl: string | null;
+  dbsCheck: {
+    certificateNumber: string;
+    issueDate: string | null;
+    currentSurname: string;
+    dateOfBirth: string;
+    homeOfficeCheckUrl: string;
+  } | null;
 }
 
 interface DdcPack {
@@ -1029,17 +1037,19 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
   }
   async function reviewDocument(document: ComplianceDocument, status: "approved" | "rejected") {
     if (!reviewingTrader) return;
+    const isDbsDocument = document.documentType === "enhanced_dbs";
     const reason = status === "approved"
-      ? "Approved by TaskBridge compliance review."
+      ? isDbsDocument
+        ? "DBS certificate details checked against the official Home Office route and approved by TaskBridge compliance review."
+        : "Approved by TaskBridge compliance review."
       : window.prompt("Record the reason for rejection");
     if (!reason || reason.trim().length < 5) {
       setError("Record a review reason before rejecting the document.");
       return;
     }
-    const dbsExpiryDate = document.documentType === "enhanced_dbs" && status === "approved"
-      ? window.prompt("DBS review expiry date (YYYY-MM-DD)", nextAnnualReviewDate()) : null;
-    if (document.documentType === "enhanced_dbs" && status === "approved" && !dbsExpiryDate) {
-      setError("Enter the DBS review expiry date before approving DBS evidence.");
+    const dbsExpiryDate = isDbsDocument && status === "approved" ? nextAnnualReviewDate() : null;
+    if (isDbsDocument && status === "approved" && (!document.dbsCheck?.certificateNumber || !document.dbsCheck.currentSurname || !document.dbsCheck.dateOfBirth)) {
+      setError("The DBS evidence is missing the certificate number, surname or date of birth needed for the official DBS check. Ask the handyman to resubmit it or record a manual DBS decision.");
       return;
     }
     setBusy(document.id); setError("");
@@ -1270,6 +1280,16 @@ function nextAnnualReviewDate() {
   return date.toISOString().slice(0, 10);
 }
 
+function dbsCheckFields(document: ComplianceDocument) {
+  const fields = [
+    ["Certificate number", document.dbsCheck?.certificateNumber || document.reference || ""],
+    ["Current surname", document.dbsCheck?.currentSurname || ""],
+    ["Date of birth", document.dbsCheck?.dateOfBirth || ""],
+    ["Certificate issue date", document.dbsCheck?.issueDate || document.issueDate || ""]
+  ].filter(([, value]) => value);
+  return fields;
+}
+
 function RateCardSummary({ trader }: { trader: Trader }) {
   const approved = trader.rateCards.filter((card) => card.status === "approved");
   const primary = approved[0] || trader.rateCards[0];
@@ -1315,11 +1335,27 @@ function ComplianceDocumentReview({ trader, documents, ddcPack, ddcMessage, load
     {loading ? <div className="app-loading"><LoaderCircle className="spin" /> Loading secure documents...</div> : <div className="compliance-document-grid">{documents.map((document) => <article key={document.id} className="compliance-document-card">
       <div className="compliance-document-heading"><span><FileCheck2 size={19} /></span><div><h3>{humanize(document.documentType)}</h3><p>{document.originalFilename}</p></div><StatusBadge status={document.reviewStatus}>{humanize(document.reviewStatus)}</StatusBadge></div>
       <dl><div><dt>Submitted</dt><dd>{formatDate(document.createdAt, true)}</dd></div>{document.reference && <div><dt>Reference</dt><dd>{document.reference}</dd></div>}{document.issueDate && <div><dt>Issue date</dt><dd>{formatDate(document.issueDate)}</dd></div>}{document.expiryDate && <div><dt>Expiry date</dt><dd>{formatDate(document.expiryDate)}</dd></div>}<div><dt>File size</dt><dd>{Math.max(1, Math.round(document.sizeBytes / 1024))} KB</dd></div></dl>
+      {document.documentType === "enhanced_dbs" && <DbsCertificateCheckHelper document={document} />}
       {document.reviewNotes && <p className="review-note"><strong>Review note:</strong> {document.reviewNotes}</p>}
-      <div className="compliance-document-actions">{document.reviewUrl ? <a className="button button-secondary button-small" href={document.reviewUrl} target="_blank" rel="noreferrer">Open evidence <ExternalLink size={15} /></a> : <span className="document-unavailable">Secure preview unavailable</span>}{document.reviewStatus === "pending" && <><button className="button button-success button-small" disabled={busy === document.id || !document.reviewUrl} onClick={() => onReview(document, "approved")}>Approve</button><button className="button button-secondary button-small document-reject" disabled={busy === document.id} onClick={() => onReview(document, "rejected")}>Reject</button></>}</div>
+      <div className="compliance-document-actions">{document.reviewUrl ? <a className="button button-secondary button-small" href={document.reviewUrl} target="_blank" rel="noreferrer">Open evidence <ExternalLink size={15} /></a> : <span className="document-unavailable">Secure preview unavailable</span>}{document.reviewStatus === "pending" && <><button className="button button-success button-small" disabled={busy === document.id || !document.reviewUrl || (document.documentType === "enhanced_dbs" && (!document.dbsCheck?.certificateNumber || !document.dbsCheck.currentSurname || !document.dbsCheck.dateOfBirth))} onClick={() => onReview(document, "approved")}>{document.documentType === "enhanced_dbs" ? "Approve after match" : "Approve"}</button><button className="button button-secondary button-small document-reject" disabled={busy === document.id} onClick={() => onReview(document, "rejected")}>Reject</button></>}</div>
     </article>)}</div>}
     {!loading && !documents.length && <EmptyState icon={<FileCheck2 />} title="No documents submitted" detail="The handyman has not completed document registration." />}
   </section>;
+}
+
+function DbsCertificateCheckHelper({ document }: { document: ComplianceDocument }) {
+  const fields = dbsCheckFields(document);
+  const ready = Boolean(document.dbsCheck?.certificateNumber && document.dbsCheck.currentSurname && document.dbsCheck.dateOfBirth);
+  return <div className={`dbs-check-helper ${ready ? "ready" : "manual"}`}>
+    <div>
+      <strong>{ready ? "Ready for official DBS check" : "Manual DBS confirmation needed"}</strong>
+      <p>{ready
+        ? "Use the copied details with the Home Office certificate route. Approve only when the uploaded evidence and official result match."
+        : "The uploaded DBS evidence does not include all required details. Ask the handyman to resubmit, or record a manual DBS decision from the action row."}</p>
+    </div>
+    {fields.length > 0 && <div className="dbs-check-fields">{fields.map(([label, value]) => <span key={label}><b>{label}</b><code>{value}</code><button className="icon-button" type="button" onClick={() => navigator.clipboard.writeText(value)} aria-label={`Copy ${label}`}><Copy size={15} /></button></span>)}</div>}
+    <a className="button button-secondary button-small" href={document.dbsCheck?.homeOfficeCheckUrl || HOME_OFFICE_DBS_CHECK_URL} target="_blank" rel="noreferrer">Open Home Office DBS check <ExternalLink size={15} /></a>
+  </div>;
 }
 
 function DdcRegistrationPack({ pack, message, busy, onStatus }: { pack: DdcPack | null; message: string; busy: string; onStatus: (status: string, adminNotes: string) => Promise<void> }) {
