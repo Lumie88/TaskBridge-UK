@@ -4,6 +4,7 @@ import { audit } from "../audit.js";
 import { asyncHandler } from "../async-handler.js";
 import { config } from "../config.js";
 import { query, withTransaction } from "../db.js";
+import { splitIncludedMargin } from "../pricing.js";
 import { decryptField, hashToken } from "../security.js";
 import { createStripeCheckoutSession, retrieveStripeCheckoutSession, stripeConfigured } from "../stripe.js";
 
@@ -39,6 +40,8 @@ familyRouter.get("/payments/:token", asyncHandler(async (req, res) => {
     return res.status(410).json({ error: "Payment link has expired" });
   }
   await query("UPDATE billing.family_payment_sessions SET status = 'opened' WHERE id = $1 AND status = 'created'", [session.id]);
+  const unitPrice = Number(session.amount);
+  const priceSplit = splitIncludedMargin(unitPrice);
   res.json({
     payment: {
       id: session.id,
@@ -47,7 +50,9 @@ familyRouter.get("/payments/:token", asyncHandler(async (req, res) => {
       serviceUserInitials: initials(decryptField(session.encrypted_name)),
       category: session.category,
       summary: session.summary,
-      amount: Number(session.amount),
+      amount: unitPrice,
+      unitPrice,
+      taskbridgeMargin: priceSplit.platformFee,
       currency: session.currency,
       status: session.status === "created" ? "opened" : session.status,
       provider: session.provider,

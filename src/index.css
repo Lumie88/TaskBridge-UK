@@ -2192,6 +2192,8 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 .payment-amount { margin: 18px 0; padding: 17px; display: flex; justify-content: space-between; gap: 14px; align-items: center; color: #0e2538; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; }
 .payment-amount small { color: #9a5a19; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; }
 .payment-amount strong { font-size: 1.45rem; }
+.family-price-breakdown { margin: -6px 0 14px; padding: 11px 13px; display: flex; justify-content: space-between; gap: 14px; align-items: center; color: #244a57; background: #f8fbfb; border: 1px solid #dbe7e4; border-radius: 8px; font-size: .92rem; }
+.family-price-breakdown span { font-weight: 750; }
 .family-note, .family-completion-note { color: #667a7e; line-height: 1.65; }
 .family-success { padding: 26px 0 8px; text-align: center; }
 .family-success svg { color: #0f9f6e; }
@@ -2212,5 +2214,5 @@ td small { margin-top: 5px; color: var(--muted); font-size: .67rem; }
 @media (max-width: 640px) {
   .family-card { padding: 24px 18px; }
   .family-summary, .family-evidence-grid { grid-template-columns: 1fr; }
-  .payment-amount, .family-status-strip { align-items: flex-start; flex-direction: column; }
+  .payment-amount, .family-price-breakdown, .family-status-strip { align-items: flex-start; flex-direction: column; }
 }

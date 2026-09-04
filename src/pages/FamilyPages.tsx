@@ -11,6 +11,8 @@ interface FamilyPayment {
   category: string;
   summary: string;
   amount: number;
+  unitPrice: number;
+  taskbridgeMargin: number;
   currency: string;
   status: string;
   stripeEnabled: boolean;
@@ -77,7 +79,12 @@ export function FamilyPaymentPage({ token }: { token: string }) {
                   <small>{loadedPayment.agencyName} - Service user {loadedPayment.serviceUserInitials} - {loadedPayment.taskId}</small>
                 </div>
               </div>
-              <div className="payment-amount"><small>Amount due</small><strong>{loadedPayment.currency} {loadedPayment.amount.toFixed(2)}</strong></div>
+              <div className="payment-amount"><small>Unit price due</small><strong>{loadedPayment.currency} {(loadedPayment.unitPrice ?? loadedPayment.amount).toFixed(2)}</strong></div>
+              <div className="family-price-breakdown">
+                <span>TaskBridge margin included</span>
+                <strong>{loadedPayment.currency} {loadedPayment.taskbridgeMargin.toFixed(2)}</strong>
+              </div>
+              <p className="family-note">This price excludes VAT. VAT is added later only where it applies on the invoice.</p>
               <div className="stack">
                 <label>Your name<input value={payerName} onChange={(event) => setPayerName(event.target.value)} /></label>
                 <button type="button" className="button button-primary button-full" disabled={busy || !loadedPayment.stripeEnabled} onClick={startCheckout}>{busy ? <><LoaderCircle className="spin" size={17} /> Opening Stripe...</> : <><ShieldCheck size={17} /> Pay securely by card</>}</button>
