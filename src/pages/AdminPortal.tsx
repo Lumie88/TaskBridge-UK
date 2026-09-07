@@ -181,7 +181,9 @@ interface ComplianceDocument {
     certificateNumber: string;
     issueDate: string | null;
     currentSurname: string;
-    dateOfBirth: string;
+    dateOfBirth: string | null;
+    updateServiceConsent: boolean;
+    consentReference: string;
     homeOfficeCheckUrl: string;
   } | null;
 }
@@ -195,6 +197,8 @@ interface AdminDocumentUploadInput {
   dbsCurrentSurname: string;
   dbsDateOfBirth: string;
   dbsWorkforceType: "adult" | "child" | "adult_and_child" | "unknown";
+  updateServiceConsent: boolean;
+  dbsConsentReference: string;
 }
 
 interface DdcPack {
@@ -1133,7 +1137,9 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
       expiryDate: input.expiryDate,
       dbsCurrentSurname: input.dbsCurrentSurname,
       dbsDateOfBirth: input.dbsDateOfBirth,
-      dbsWorkforceType: input.dbsWorkforceType
+      dbsWorkforceType: input.dbsWorkforceType,
+      updateServiceConsent: String(input.updateServiceConsent),
+      dbsConsentReference: input.dbsConsentReference
     });
     try {
       const response = await fetch(`/api/admin/traders/${trader.id}/documents/server-upload?${params.toString()}`, {
@@ -1329,7 +1335,8 @@ function dbsCheckFields(document: ComplianceDocument) {
     ["Certificate number", document.dbsCheck?.certificateNumber || document.reference || ""],
     ["Current surname", document.dbsCheck?.currentSurname || ""],
     ["Date of birth", document.dbsCheck?.dateOfBirth || ""],
-    ["Certificate issue date", document.dbsCheck?.issueDate || document.issueDate || ""]
+    ["Certificate issue date", document.dbsCheck?.issueDate || document.issueDate || ""],
+    ["Consent reference", document.dbsCheck?.consentReference || ""]
   ].filter(([, value]) => value);
   return fields;
 }
@@ -1556,7 +1563,7 @@ function ComplianceDocumentReview({ trader, documents, ddcPack, ddcMessage, load
       <dl><div><dt>Submitted</dt><dd>{formatDate(document.createdAt, true)}</dd></div>{document.reference && <div><dt>Reference</dt><dd>{document.reference}</dd></div>}{document.issueDate && <div><dt>Issue date</dt><dd>{formatDate(document.issueDate)}</dd></div>}{document.expiryDate && <div><dt>Expiry date</dt><dd>{formatDate(document.expiryDate)}</dd></div>}<div><dt>File size</dt><dd>{Math.max(1, Math.round(document.sizeBytes / 1024))} KB</dd></div></dl>
       {document.documentType === "enhanced_dbs" && <DbsCertificateCheckHelper document={document} />}
       {document.reviewNotes && <p className="review-note"><strong>Review note:</strong> {document.reviewNotes}</p>}
-      <div className="compliance-document-actions">{document.reviewUrl ? <a className="button button-secondary button-small" href={document.reviewUrl} target="_blank" rel="noreferrer">Open evidence <ExternalLink size={15} /></a> : <span className="document-unavailable">Secure preview unavailable</span>}{document.reviewStatus === "pending" && <><button className="button button-success button-small" disabled={busy === document.id || !document.reviewUrl || (document.documentType === "enhanced_dbs" && (!document.dbsCheck?.certificateNumber || !document.dbsCheck.currentSurname || !document.dbsCheck.dateOfBirth))} onClick={() => onReview(document, "approved")}>{document.documentType === "enhanced_dbs" ? "Approve after match" : "Approve"}</button><button className="button button-secondary button-small document-reject" disabled={busy === document.id} onClick={() => onReview(document, "rejected")}>Reject</button></>}</div>
+      <div className="compliance-document-actions">{document.reviewUrl ? <a className="button button-secondary button-small" href={document.reviewUrl} target="_blank" rel="noreferrer">Open evidence <ExternalLink size={15} /></a> : <span className="document-unavailable">Secure preview unavailable</span>}{document.reviewStatus === "pending" && <><button className="button button-success button-small" disabled={busy === document.id || !document.reviewUrl || (document.documentType === "enhanced_dbs" && (!document.dbsCheck?.certificateNumber || !document.dbsCheck.currentSurname || !document.dbsCheck.dateOfBirth || !document.dbsCheck.updateServiceConsent))} onClick={() => onReview(document, "approved")}>{document.documentType === "enhanced_dbs" ? "Approve after match" : "Approve"}</button><button className="button button-secondary button-small document-reject" disabled={busy === document.id} onClick={() => onReview(document, "rejected")}>Reject</button></>}</div>
     </article>)}</div>}
     {!loading && !documents.length && <EmptyState icon={<FileCheck2 />} title="No documents submitted" detail="The handyman has not completed document registration." />}
   </section>;
@@ -1583,7 +1590,9 @@ function AdminDocumentUploadPanel({ trader, busy, onUpload }: {
       expiryDate: String(values.get("expiryDate") || ""),
       dbsCurrentSurname: String(values.get("dbsCurrentSurname") || ""),
       dbsDateOfBirth: String(values.get("dbsDateOfBirth") || ""),
-      dbsWorkforceType: String(values.get("dbsWorkforceType") || "adult") as AdminDocumentUploadInput["dbsWorkforceType"]
+      dbsWorkforceType: String(values.get("dbsWorkforceType") || "adult") as AdminDocumentUploadInput["dbsWorkforceType"],
+      updateServiceConsent: values.get("updateServiceConsent") === "on",
+      dbsConsentReference: String(values.get("dbsConsentReference") || "")
     });
     event.currentTarget.reset();
     setFile(null);
@@ -1593,20 +1602,21 @@ function AdminDocumentUploadPanel({ trader, busy, onUpload }: {
     <div className="field-row"><label>Document type<select value={documentType} onChange={(event) => setDocumentType(event.target.value as AdminDocumentUploadInput["documentType"])}><option value="enhanced_dbs">DBS certificate</option><option value="identity">ID / form of ID</option><option value="public_liability_insurance">Public liability insurance</option><option value="qualification">Qualification</option></select></label><label>File<input required type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => setFile(event.target.files?.[0] || null)} /></label></div>
     <div className="field-row"><label>{isInsurance ? "Policy reference" : isDbs ? "DBS certificate reference" : "Reference"}<input name="reference" placeholder={isDbs ? "Certificate number" : isInsurance ? "Policy number" : "Optional"} /></label><label>{isInsurance ? "Expiry date" : "Issue date"}<input name={isInsurance ? "expiryDate" : "issueDate"} type="date" required={isInsurance} /></label></div>
     {isDbs && <div className="field-row"><label>Surname on certificate<input name="dbsCurrentSurname" placeholder="Required before DBS approval" /></label><label>Date of birth on certificate<input name="dbsDateOfBirth" type="date" /></label></div>}
-    {isDbs && <div className="field-row"><label>DBS workforce<select name="dbsWorkforceType" defaultValue="adult"><option value="adult">Adult workforce</option><option value="child">Child workforce</option><option value="adult_and_child">Adult and child workforce</option><option value="unknown">Unknown</option></select></label></div>}
+    {isDbs && <div className="field-row"><label>DBS workforce<select name="dbsWorkforceType" defaultValue="adult"><option value="adult">Adult workforce</option><option value="child">Child workforce</option><option value="adult_and_child">Adult and child workforce</option><option value="unknown">Unknown</option></select></label><label>Consent reference or note<input name="dbsConsentReference" placeholder="Text message, email, verbal consent note" /></label></div>}
+    {isDbs && <label className="toggle-row compact-toggle"><input required name="updateServiceConsent" type="checkbox" /><span><strong>DBS Update Service consent received</strong><small>The handyman has given TaskBridge permission to check this certificate against the DBS Update Service.</small></span></label>}
     <div className="modal-action-row"><button className="button button-secondary button-small" disabled={!file || busy} type="submit">{busy ? "Uploading..." : "Upload to compliance file"}</button></div>
   </form>;
 }
 
 function DbsCertificateCheckHelper({ document }: { document: ComplianceDocument }) {
   const fields = dbsCheckFields(document);
-  const ready = Boolean(document.dbsCheck?.certificateNumber && document.dbsCheck.currentSurname && document.dbsCheck.dateOfBirth);
+  const ready = Boolean(document.dbsCheck?.certificateNumber && document.dbsCheck.currentSurname && document.dbsCheck.dateOfBirth && document.dbsCheck.updateServiceConsent);
   return <div className={`dbs-check-helper ${ready ? "ready" : "manual"}`}>
     <div>
       <strong>{ready ? "Ready for official DBS check" : "Manual DBS confirmation needed"}</strong>
       <p>{ready
-        ? "Use the copied details with the Home Office certificate route. Approve only when the uploaded evidence and official result match."
-        : "The uploaded DBS evidence does not include all required details. Ask the handyman to resubmit, or record a manual DBS decision from the action row."}</p>
+        ? "Use the copied details with the Home Office certificate route. Approve only when the uploaded evidence, consent and official result match."
+        : "The uploaded DBS evidence must include the certificate number, surname, date of birth and applicant consent before approval."}</p>
     </div>
     {fields.length > 0 && <div className="dbs-check-fields">{fields.map(([label, value]) => <span key={label}><b>{label}</b><code>{value}</code><button className="icon-button" type="button" onClick={() => navigator.clipboard.writeText(value)} aria-label={`Copy ${label}`}><Copy size={15} /></button></span>)}</div>}
     <a className="button button-secondary button-small" href={document.dbsCheck?.homeOfficeCheckUrl || HOME_OFFICE_DBS_CHECK_URL} target="_blank" rel="noreferrer">Open Home Office DBS check <ExternalLink size={15} /></a>

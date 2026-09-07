@@ -131,7 +131,9 @@ const adminDocumentUploadSchema = z.object({
   expiryDate: z.string().date().optional().or(z.literal("")).default(""),
   dbsCurrentSurname: z.string().trim().max(80).optional().default(""),
   dbsDateOfBirth: z.string().date().optional().or(z.literal("")).default(""),
-  dbsWorkforceType: z.enum(["adult", "child", "adult_and_child", "unknown"]).optional().default("adult")
+  dbsWorkforceType: z.enum(["adult", "child", "adult_and_child", "unknown"]).optional().default("adult"),
+  updateServiceConsent: z.preprocess((value) => value === true || value === "true" || value === "on" || value === "1", z.boolean()).optional().default(false),
+  dbsConsentReference: z.string().trim().max(160).optional().default("")
 });
 const ddcPackStatusSchema = z.object({
   status: z.enum(["not_started", "ready_to_enter", "ddc_invite_sent", "applicant_submitted", "awaiting_result", "approved", "query", "rejected"]),
@@ -1140,16 +1142,18 @@ adminRouter.get("/traders/:id/documents", asyncHandler(async (req, res) => {
     content_type: string; size_bytes: number; document_reference_ciphertext: string | null;
     issue_date: string | null; expiry_date: string | null; review_status: string; review_notes: string | null;
     reviewed_at: string | null; reviewer_name: string | null; created_at: string; dbs_payload: Record<string, unknown> | null;
+    dbs_update_service_consent: boolean | null;
   }>(
     `SELECT d.id::text, d.document_type, d.storage_key, d.original_filename_ciphertext,
             d.content_type, d.size_bytes, d.document_reference_ciphertext,
             d.issue_date::text, d.expiry_date::text, d.review_status, d.review_notes,
             d.reviewed_at::text, u.full_name AS reviewer_name, d.created_at::text,
-            dbs.provider_payload AS dbs_payload
+            dbs.provider_payload AS dbs_payload,
+            dbs.update_service_consent AS dbs_update_service_consent
      FROM trader.onboarding_documents d
      LEFT JOIN auth.users u ON u.id = d.reviewed_by_user_id
      LEFT JOIN LATERAL (
-       SELECT provider_payload
+       SELECT provider_payload, update_service_consent
        FROM trader.dbs_verifications dv
        WHERE dv.trader_id = d.trader_id
          AND dv.evidence_reference = 'onboarding-document:' || d.id::text
@@ -1164,7 +1168,9 @@ adminRouter.get("/traders/:id/documents", asyncHandler(async (req, res) => {
     const dbsPayload = document.dbs_payload || {};
     const dbsSurnameCiphertext = typeof dbsPayload.certificateHolderSurnameCiphertext === "string" ? dbsPayload.certificateHolderSurnameCiphertext : "";
     const dbsDateOfBirthCiphertext = typeof dbsPayload.certificateHolderDateOfBirthCiphertext === "string" ? dbsPayload.certificateHolderDateOfBirthCiphertext : "";
+    const dbsConsentReferenceCiphertext = typeof dbsPayload.consentReferenceCiphertext === "string" ? dbsPayload.consentReferenceCiphertext : "";
     const dbsCheckUrl = typeof dbsPayload.homeOfficeCheckUrl === "string" ? dbsPayload.homeOfficeCheckUrl : null;
+    const updateServiceConsent = typeof dbsPayload.updateServiceConsent === "boolean" ? dbsPayload.updateServiceConsent : Boolean(document.dbs_update_service_consent);
     return {
       id: document.id,
       documentType: document.document_type,
@@ -1185,6 +1191,8 @@ adminRouter.get("/traders/:id/documents", asyncHandler(async (req, res) => {
         issueDate: document.issue_date,
         currentSurname: dbsSurnameCiphertext ? decryptField(dbsSurnameCiphertext) : "",
         dateOfBirth: dbsDateOfBirthCiphertext ? decryptField(dbsDateOfBirthCiphertext) : "",
+        updateServiceConsent,
+        consentReference: dbsConsentReferenceCiphertext ? decryptField(dbsConsentReferenceCiphertext) : "",
         homeOfficeCheckUrl: dbsCheckUrl || "https://secure.crbonline.gov.uk/crsc/check?execution=e1s1"
       } : null
     };
@@ -1433,6 +1441,8 @@ adminRouter.post("/traders/:id/documents/server-upload", asyncHandler(async (req
     dbsCurrentSurname: req.query.dbsCurrentSurname || "",
     dbsDateOfBirth: req.query.dbsDateOfBirth || "",
     dbsWorkforceType: req.query.dbsWorkforceType || "adult",
+    updateServiceConsent: req.query.updateServiceConsent || false,
+    dbsConsentReference: req.query.dbsConsentReference || "",
     contentType,
     sizeBytes: Buffer.isBuffer(req.body) ? req.body.length : 0
   });
@@ -1485,19 +1495,25 @@ adminRouter.post("/traders/:id/documents/server-upload", asyncHandler(async (req
       await client.query(
         `INSERT INTO trader.dbs_verifications
           (trader_id, status, outcome, evidence_reference, provider_name, provider_payload,
-           verification_route, enhanced_dbs_eligible, workforce_type, update_service_status)
-         VALUES ($1, 'pending', $2, $3, 'manual_admin_upload', $4, 'self_submitted_certificate', true, $5, 'consented_pending_check')`,
+           verification_route, enhanced_dbs_eligible, workforce_type, update_service_consent, update_service_status)
+         VALUES ($1, 'pending', $2, $3, 'manual_admin_upload', $4, 'self_submitted_certificate', true, $5, $6, $7)`,
         [req.params.id,
-          "DBS certificate uploaded by TaskBridge admin from evidence supplied outside the onboarding form; pending compliance review.",
+          data.updateServiceConsent
+            ? "DBS certificate uploaded by TaskBridge admin from evidence supplied outside the onboarding form; applicant consent recorded for Update Service check."
+            : "DBS certificate uploaded by TaskBridge admin from evidence supplied outside the onboarding form; applicant consent is still required before Update Service check.",
           `onboarding-document:${row.id}`,
           {
             certificateReferenceSupplied: Boolean(data.reference),
             certificateHolderSurnameCiphertext: data.dbsCurrentSurname ? encryptField(data.dbsCurrentSurname) : null,
             certificateHolderDateOfBirthCiphertext: data.dbsDateOfBirth ? encryptField(data.dbsDateOfBirth) : null,
+            updateServiceConsent: data.updateServiceConsent,
+            consentReferenceCiphertext: data.dbsConsentReference ? encryptField(data.dbsConsentReference) : null,
             homeOfficeCheckUrl: "https://secure.crbonline.gov.uk/crsc/check?execution=e1s1",
             adminUploaded: true
           },
-          data.dbsWorkforceType]
+          data.dbsWorkforceType,
+          data.updateServiceConsent,
+          data.updateServiceConsent ? "consented_pending_check" : "not_checked"]
       );
     }
     if (data.documentType === "public_liability_insurance") {
@@ -1538,6 +1554,8 @@ adminRouter.post("/traders/:id/documents/server-upload", asyncHandler(async (req
         issueDate: data.issueDate || null,
         currentSurname: data.dbsCurrentSurname,
         dateOfBirth: data.dbsDateOfBirth || null,
+        updateServiceConsent: data.updateServiceConsent,
+        consentReference: data.dbsConsentReference,
         homeOfficeCheckUrl: "https://secure.crbonline.gov.uk/crsc/check?execution=e1s1"
       } : null
     }
@@ -1552,11 +1570,20 @@ adminRouter.post("/traders/:id/documents/:documentId/review", asyncHandler(async
     const documentResult = await client.query<{
       id: string; document_type: string; storage_key: string; expiry_date: string | null;
       trader_status: string; trader_email: string | null; trader_name: string;
+      dbs_update_service_consent: boolean | null;
     }>(
       `SELECT d.id::text, d.document_type, d.storage_key, d.expiry_date::text,
-              t.status::text AS trader_status, t.email::text AS trader_email, t.display_name AS trader_name
+              t.status::text AS trader_status, t.email::text AS trader_email, t.display_name AS trader_name,
+              dbs.update_service_consent AS dbs_update_service_consent
        FROM trader.onboarding_documents d
        JOIN trader.traders t ON t.id = d.trader_id
+       LEFT JOIN LATERAL (
+         SELECT update_service_consent
+         FROM trader.dbs_verifications dv
+         WHERE dv.trader_id = d.trader_id
+           AND dv.evidence_reference = 'onboarding-document:' || d.id::text
+         ORDER BY dv.created_at DESC LIMIT 1
+       ) dbs ON true
        WHERE d.id = $1 AND d.trader_id = $2 FOR UPDATE OF d, t`,
       [req.params.documentId, req.params.id]
     );
@@ -1564,6 +1591,9 @@ adminRouter.post("/traders/:id/documents/:documentId/review", asyncHandler(async
     if (!document) throw Object.assign(new Error("Compliance document not found"), { statusCode: 404 });
     if (document.document_type === "enhanced_dbs" && data.status === "approved" && !data.dbsExpiryDate) {
       throw Object.assign(new Error("Enter the DBS review expiry date"), { statusCode: 422 });
+    }
+    if (document.document_type === "enhanced_dbs" && data.status === "approved" && !document.dbs_update_service_consent) {
+      throw Object.assign(new Error("Record the applicant's DBS Update Service consent before approving this DBS evidence"), { statusCode: 422 });
     }
     if (document.document_type === "public_liability_insurance" && data.status === "approved" &&
         (!document.expiry_date || new Date(`${document.expiry_date}T23:59:59Z`) < new Date())) {
