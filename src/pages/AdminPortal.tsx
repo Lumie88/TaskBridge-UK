@@ -186,6 +186,17 @@ interface ComplianceDocument {
   } | null;
 }
 
+interface AdminDocumentUploadInput {
+  documentType: "identity" | "public_liability_insurance" | "enhanced_dbs" | "qualification";
+  file: File;
+  reference: string;
+  issueDate: string;
+  expiryDate: string;
+  dbsCurrentSurname: string;
+  dbsDateOfBirth: string;
+  dbsWorkforceType: "adult" | "child" | "adult_and_child" | "unknown";
+}
+
 interface DdcPack {
   title: string;
   forename: string;
@@ -1108,6 +1119,36 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to record document review"); }
     finally { setBusy(""); }
   }
+  async function uploadComplianceDocument(trader: Trader, input: AdminDocumentUploadInput) {
+    if (!["application/pdf", "image/jpeg", "image/png"].includes(input.file.type)) {
+      setError("Compliance documents must be PDF, JPEG or PNG.");
+      return;
+    }
+    setBusy(`upload-doc-${trader.id}`); setError("");
+    const params = new URLSearchParams({
+      documentType: input.documentType,
+      originalFilename: input.file.name,
+      reference: input.reference,
+      issueDate: input.issueDate,
+      expiryDate: input.expiryDate,
+      dbsCurrentSurname: input.dbsCurrentSurname,
+      dbsDateOfBirth: input.dbsDateOfBirth,
+      dbsWorkforceType: input.dbsWorkforceType
+    });
+    try {
+      const response = await fetch(`/api/admin/traders/${trader.id}/documents/server-upload?${params.toString()}`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": input.file.type },
+        body: input.file
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Unable to upload document");
+      await openDocuments(trader);
+      await onChanged();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to upload document"); }
+    finally { setBusy(""); }
+  }
   async function updateDdcStatus(status: string, adminNotes: string) {
     if (!reviewingTrader) return;
     setBusy(`ddc-${reviewingTrader.id}`); setError("");
@@ -1265,7 +1306,7 @@ function ComplianceHub({ traders, joinRequests, filter, onFilter, user, onChange
     {businessEditingTrader && <BusinessProfileModal trader={businessEditingTrader} busy={busy === `business-${businessEditingTrader.id}`} onClose={() => setBusinessEditingTrader(null)} onSave={saveBusinessProfile} />}
     {rateEditingTrader && <RateCardModal trader={rateEditingTrader} busy={busy === `rate-${rateEditingTrader.id}`} onClose={() => setRateEditingTrader(null)} onSave={saveRateCard} />}
     {priceReviewTrader && <PriceAllServicesModal trader={priceReviewTrader} busy={busy === `rate-all-${priceReviewTrader.id}`} onClose={() => setPriceReviewTrader(null)} onConfirm={priceAllServices} />}
-    {reviewingTrader && <div className="modal-backdrop"><ComplianceDocumentReview trader={reviewingTrader} documents={documents} ddcPack={ddcPack} ddcMessage={ddcMessage} loading={documentsLoading} busy={busy} onClose={() => { setReviewingTrader(null); setDocuments([]); setDdcPack(null); setDdcMessage(""); }} onReview={reviewDocument} onDdcStatus={updateDdcStatus} /></div>}
+    {reviewingTrader && <div className="modal-backdrop"><ComplianceDocumentReview trader={reviewingTrader} documents={documents} ddcPack={ddcPack} ddcMessage={ddcMessage} loading={documentsLoading} busy={busy} onClose={() => { setReviewingTrader(null); setDocuments([]); setDdcPack(null); setDdcMessage(""); }} onReview={reviewDocument} onUpload={uploadComplianceDocument} onDdcStatus={updateDdcStatus} /></div>}
   </>;
 }
 
@@ -1486,7 +1527,7 @@ function RateCardSummary({ trader }: { trader: Trader }) {
   </>;
 }
 
-function ComplianceDocumentReview({ trader, documents, ddcPack, ddcMessage, loading, busy, onClose, onReview, onDdcStatus }: {
+function ComplianceDocumentReview({ trader, documents, ddcPack, ddcMessage, loading, busy, onClose, onReview, onUpload, onDdcStatus }: {
   trader: Trader;
   documents: ComplianceDocument[];
   ddcPack: DdcPack | null;
@@ -1495,6 +1536,7 @@ function ComplianceDocumentReview({ trader, documents, ddcPack, ddcMessage, load
   busy: string;
   onClose: () => void;
   onReview: (document: ComplianceDocument, status: "approved" | "rejected") => Promise<void>;
+  onUpload: (trader: Trader, input: AdminDocumentUploadInput) => Promise<void>;
   onDdcStatus: (status: string, adminNotes: string) => Promise<void>;
 }) {
   const identity = documents.find((document) => document.documentType === "identity");
@@ -1507,6 +1549,7 @@ function ComplianceDocumentReview({ trader, documents, ddcPack, ddcMessage, load
       <article className="compliance-document-card"><div className="compliance-document-heading"><span><BadgeCheck size={19} /></span><div><h3>DBS route</h3><p>Approve submitted evidence or record a manual DBS decision</p></div><StatusBadge status={trader.dbsStatus}>{humanize(trader.dbsStatus)}</StatusBadge></div></article>
       <article className="compliance-document-card"><div className="compliance-document-heading"><span><FileCheck2 size={19} /></span><div><h3>Activation</h3><p>Active only after identity, insurance and DBS are approved</p></div><StatusBadge status={trader.status}>{humanize(trader.status)}</StatusBadge></div></article>
     </div>}
+    {!loading && <AdminDocumentUploadPanel trader={trader} busy={busy === `upload-doc-${trader.id}`} onUpload={onUpload} />}
     {!loading && <DdcRegistrationPack pack={ddcPack} message={ddcMessage} busy={busy} onStatus={onDdcStatus} />}
     {loading ? <div className="app-loading"><LoaderCircle className="spin" /> Loading secure documents...</div> : <div className="compliance-document-grid">{documents.map((document) => <article key={document.id} className="compliance-document-card">
       <div className="compliance-document-heading"><span><FileCheck2 size={19} /></span><div><h3>{humanize(document.documentType)}</h3><p>{document.originalFilename}</p></div><StatusBadge status={document.reviewStatus}>{humanize(document.reviewStatus)}</StatusBadge></div>
@@ -1517,6 +1560,42 @@ function ComplianceDocumentReview({ trader, documents, ddcPack, ddcMessage, load
     </article>)}</div>}
     {!loading && !documents.length && <EmptyState icon={<FileCheck2 />} title="No documents submitted" detail="The handyman has not completed document registration." />}
   </section>;
+}
+
+function AdminDocumentUploadPanel({ trader, busy, onUpload }: {
+  trader: Trader;
+  busy: boolean;
+  onUpload: (trader: Trader, input: AdminDocumentUploadInput) => Promise<void>;
+}) {
+  const [documentType, setDocumentType] = useState<AdminDocumentUploadInput["documentType"]>("enhanced_dbs");
+  const [file, setFile] = useState<File | null>(null);
+  const isDbs = documentType === "enhanced_dbs";
+  const isInsurance = documentType === "public_liability_insurance";
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!file) return;
+    const values = new FormData(event.currentTarget);
+    await onUpload(trader, {
+      documentType,
+      file,
+      reference: String(values.get("reference") || ""),
+      issueDate: String(values.get("issueDate") || ""),
+      expiryDate: String(values.get("expiryDate") || ""),
+      dbsCurrentSurname: String(values.get("dbsCurrentSurname") || ""),
+      dbsDateOfBirth: String(values.get("dbsDateOfBirth") || ""),
+      dbsWorkforceType: String(values.get("dbsWorkforceType") || "adult") as AdminDocumentUploadInput["dbsWorkforceType"]
+    });
+    event.currentTarget.reset();
+    setFile(null);
+  }
+  return <form className="admin-document-upload-panel" onSubmit={submit}>
+    <div className="ddc-pack-heading"><div><span className="eyebrow">Admin upload</span><h3>Upload evidence for this handyman</h3><p>Use this when a handyman sends evidence outside the onboarding form, for example by text, WhatsApp or email.</p></div></div>
+    <div className="field-row"><label>Document type<select value={documentType} onChange={(event) => setDocumentType(event.target.value as AdminDocumentUploadInput["documentType"])}><option value="enhanced_dbs">DBS certificate</option><option value="identity">ID / form of ID</option><option value="public_liability_insurance">Public liability insurance</option><option value="qualification">Qualification</option></select></label><label>File<input required type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => setFile(event.target.files?.[0] || null)} /></label></div>
+    <div className="field-row"><label>{isInsurance ? "Policy reference" : isDbs ? "DBS certificate reference" : "Reference"}<input name="reference" placeholder={isDbs ? "Certificate number" : isInsurance ? "Policy number" : "Optional"} /></label><label>{isInsurance ? "Expiry date" : "Issue date"}<input name={isInsurance ? "expiryDate" : "issueDate"} type="date" required={isInsurance} /></label></div>
+    {isDbs && <div className="field-row"><label>Surname on certificate<input name="dbsCurrentSurname" placeholder="Required before DBS approval" /></label><label>Date of birth on certificate<input name="dbsDateOfBirth" type="date" /></label></div>}
+    {isDbs && <div className="field-row"><label>DBS workforce<select name="dbsWorkforceType" defaultValue="adult"><option value="adult">Adult workforce</option><option value="child">Child workforce</option><option value="adult_and_child">Adult and child workforce</option><option value="unknown">Unknown</option></select></label></div>}
+    <div className="modal-action-row"><button className="button button-secondary button-small" disabled={!file || busy} type="submit">{busy ? "Uploading..." : "Upload to compliance file"}</button></div>
+  </form>;
 }
 
 function DbsCertificateCheckHelper({ document }: { document: ComplianceDocument }) {

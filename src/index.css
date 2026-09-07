@@ -632,6 +632,8 @@ p { line-height: 1.65; }
 .identity-preview-details { display: grid; gap: 13px; padding: 14px; border: 1px solid #dfe7e5; border-radius: 8px; background: white; }
 .identity-preview-details h3 { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 900px) { .identity-preview-layout { grid-template-columns: 1fr; } .identity-preview-frame { min-height: 380px; } .identity-preview-frame iframe { height: 460px; } }
+.admin-document-upload-panel { display: grid; gap: 14px; padding: 16px; border: 1px solid #dfe7e5; border-radius: 8px; background: #f8fbfb; }
+.admin-document-upload-panel input[type="file"] { padding: 11px; background: white; cursor: pointer; }
 
 .studio-demo-backdrop { position: fixed; inset: 0; z-index: 100; padding: 18px; display: grid; place-items: center; background: rgba(2,6,23,.48); backdrop-filter: blur(6px); }
 .studio-demo-modal { width: min(760px, 100%); max-height: calc(100vh - 36px); display: grid; grid-template-columns: 5fr 7fr; overflow: hidden; background: white; border: 1px solid rgba(241,245,249,.8); border-radius: 24px; box-shadow: 0 30px 90px rgba(15,23,42,.3); position: relative; }

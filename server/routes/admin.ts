@@ -10,7 +10,7 @@ import { config } from "../config.js";
 import { query, withTransaction } from "../db.js";
 import { dispatchToHandymanNetwork, sendCareIntegrationRequirementsEmail, sendFamilyPaymentSms, sendHandymanComplianceApprovedEmail, sendHandymanOnboardingInvite, sendHandymanOnboardingSms, sendSecureVisitLink, sendStaffOnboardingInvite, startDbsVerification } from "../integrations.js";
 import { evaluateTrader, requiresElectricalQualification, type MatchableTask, type MatchableTrader } from "../matching.js";
-import { createComplianceDocumentReviewUrl } from "../media.js";
+import { createComplianceDocumentReviewUrl, storeComplianceDocumentUpload } from "../media.js";
 import { STANDARD_LABOUR_MINUTES, TASKBRIDGE_MARGIN_RATE, requiresLargerJobApproval, splitIncludedMargin } from "../pricing.js";
 import { processRetryQueue } from "../retry-worker.js";
 import { createOpaqueToken, decryptField, encryptField, hashToken, isWorkEmail, publicId, safeInitials, slugify } from "../security.js";
@@ -120,6 +120,18 @@ const documentReviewSchema = z.object({
   status: z.enum(["approved", "rejected"]),
   reason: z.string().trim().min(5).max(500),
   dbsExpiryDate: z.string().date().nullable().optional()
+});
+const adminDocumentUploadSchema = z.object({
+  documentType: z.enum(["identity", "public_liability_insurance", "enhanced_dbs", "qualification"]),
+  originalFilename: z.string().trim().min(1).max(255),
+  contentType: z.enum(["application/pdf", "image/jpeg", "image/png"]),
+  sizeBytes: z.number().int().positive().max(15 * 1024 * 1024),
+  reference: z.string().trim().max(160).optional().default(""),
+  issueDate: z.string().date().optional().or(z.literal("")).default(""),
+  expiryDate: z.string().date().optional().or(z.literal("")).default(""),
+  dbsCurrentSurname: z.string().trim().max(80).optional().default(""),
+  dbsDateOfBirth: z.string().date().optional().or(z.literal("")).default(""),
+  dbsWorkforceType: z.enum(["adult", "child", "adult_and_child", "unknown"]).optional().default("adult")
 });
 const ddcPackStatusSchema = z.object({
   status: z.enum(["not_started", "ready_to_enter", "ddc_invite_sent", "applicant_submitted", "awaiting_result", "approved", "query", "rejected"]),
@@ -1408,6 +1420,128 @@ adminRouter.patch("/incidents/:id", asyncHandler(async (req, res) => {
   if (!result.rows[0]) return res.status(404).json({ error: "Incident not found" });
   await audit(req, "admin.incident.updated", "incident", result.rows[0].id, { status: parsed.data.status });
   res.json({ id: result.rows[0].id, status: parsed.data.status });
+}));
+
+adminRouter.post("/traders/:id/documents/server-upload", asyncHandler(async (req, res) => {
+  const contentType = req.get("content-type")?.split(";")[0] || "";
+  const parsed = adminDocumentUploadSchema.safeParse({
+    documentType: req.query.documentType,
+    originalFilename: req.query.originalFilename,
+    reference: req.query.reference || "",
+    issueDate: req.query.issueDate || "",
+    expiryDate: req.query.expiryDate || "",
+    dbsCurrentSurname: req.query.dbsCurrentSurname || "",
+    dbsDateOfBirth: req.query.dbsDateOfBirth || "",
+    dbsWorkforceType: req.query.dbsWorkforceType || "adult",
+    contentType,
+    sizeBytes: Buffer.isBuffer(req.body) ? req.body.length : 0
+  });
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0]?.message || "Invalid compliance document" });
+  const data = parsed.data;
+  const invitation = await withTransaction(req.auth!, async (client) => {
+    const trader = await client.query<{ id: string; email: string }>(
+      "SELECT id::text, COALESCE(email::text, 'admin-upload+' || id::text || '@taskbridge.local') AS email FROM trader.traders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+      [req.params.id]
+    );
+    if (!trader.rows[0]) throw Object.assign(new Error("Handyman not found"), { statusCode: 404 });
+    const latest = await client.query<{ id: string }>(
+      "SELECT id::text FROM trader.onboarding_invitations WHERE trader_id = $1 ORDER BY created_at DESC LIMIT 1",
+      [req.params.id]
+    );
+    if (latest.rows[0]) return latest.rows[0];
+    const created = await client.query<{ id: string }>(
+      `INSERT INTO trader.onboarding_invitations
+        (trader_id, email, token_hash, created_by_user_id, expires_at, status, email_delivery_status)
+       VALUES ($1, $2, $3, $4, clock_timestamp() + interval '7 days', 'submitted', 'sent')
+       RETURNING id::text`,
+      [req.params.id, trader.rows[0].email, hashToken(createOpaqueToken(36)), req.auth!.userId]
+    );
+    return created.rows[0];
+  });
+  const upload = await storeComplianceDocumentUpload(
+    invitation.id,
+    data.documentType,
+    data.contentType,
+    req.body as Buffer
+  );
+  const document = await withTransaction(req.auth!, async (client) => {
+    const inserted = await client.query<{
+      id: string; document_type: string; original_filename_ciphertext: string;
+      content_type: string; size_bytes: number; document_reference_ciphertext: string | null;
+      issue_date: string | null; expiry_date: string | null; review_status: string; created_at: string;
+    }>(
+      `INSERT INTO trader.onboarding_documents
+        (trader_id, invitation_id, document_type, storage_key, original_filename_ciphertext,
+         content_type, size_bytes, document_reference_ciphertext, issue_date, expiry_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::date, $10::date)
+       RETURNING id::text, document_type, original_filename_ciphertext, content_type, size_bytes,
+                 document_reference_ciphertext, issue_date::text, expiry_date::text, review_status, created_at::text`,
+      [req.params.id, invitation.id, data.documentType, upload.storageKey, encryptField(data.originalFilename),
+        data.contentType, data.sizeBytes, data.reference ? encryptField(data.reference) : null,
+        data.issueDate || null, data.expiryDate || null]
+    );
+    const row = inserted.rows[0];
+    if (data.documentType === "enhanced_dbs") {
+      await client.query(
+        `INSERT INTO trader.dbs_verifications
+          (trader_id, status, outcome, evidence_reference, provider_name, provider_payload,
+           verification_route, enhanced_dbs_eligible, workforce_type, update_service_status)
+         VALUES ($1, 'pending', $2, $3, 'manual_admin_upload', $4, 'self_submitted_certificate', true, $5, 'consented_pending_check')`,
+        [req.params.id,
+          "DBS certificate uploaded by TaskBridge admin from evidence supplied outside the onboarding form; pending compliance review.",
+          `onboarding-document:${row.id}`,
+          {
+            certificateReferenceSupplied: Boolean(data.reference),
+            certificateHolderSurnameCiphertext: data.dbsCurrentSurname ? encryptField(data.dbsCurrentSurname) : null,
+            certificateHolderDateOfBirthCiphertext: data.dbsDateOfBirth ? encryptField(data.dbsDateOfBirth) : null,
+            homeOfficeCheckUrl: "https://secure.crbonline.gov.uk/crsc/check?execution=e1s1",
+            adminUploaded: true
+          },
+          data.dbsWorkforceType]
+      );
+    }
+    if (data.documentType === "public_liability_insurance") {
+      await client.query(
+        `INSERT INTO trader.insurance_records
+          (trader_id, status, provider_name, policy_reference_ciphertext, expiry_date, evidence_url)
+         VALUES ($1, 'pending', 'Admin uploaded public liability insurance', $2, $3::date, $4)`,
+        [req.params.id, data.reference ? encryptField(data.reference) : null,
+          data.expiryDate || null, `private-object://${upload.storageKey}`]
+      );
+    }
+    return { ...row, storageKey: upload.storageKey };
+  });
+  let reviewUrl: string | null = null;
+  try { reviewUrl = await createComplianceDocumentReviewUrl(document.storageKey); } catch { reviewUrl = null; }
+  await audit(req, "admin.trader_document.uploaded", "trader", req.params.id, {
+    documentId: document.id,
+    documentType: data.documentType
+  });
+  res.status(201).json({
+    document: {
+      id: document.id,
+      documentType: document.document_type,
+      originalFilename: decryptField(document.original_filename_ciphertext),
+      contentType: document.content_type,
+      sizeBytes: document.size_bytes,
+      reference: document.document_reference_ciphertext ? decryptField(document.document_reference_ciphertext) : null,
+      issueDate: document.issue_date,
+      expiryDate: document.expiry_date,
+      reviewStatus: document.review_status,
+      reviewNotes: null,
+      reviewedAt: null,
+      reviewerName: null,
+      createdAt: document.created_at,
+      reviewUrl,
+      dbsCheck: data.documentType === "enhanced_dbs" ? {
+        certificateNumber: data.reference,
+        issueDate: data.issueDate || null,
+        currentSurname: data.dbsCurrentSurname,
+        dateOfBirth: data.dbsDateOfBirth || null,
+        homeOfficeCheckUrl: "https://secure.crbonline.gov.uk/crsc/check?execution=e1s1"
+      } : null
+    }
+  });
 }));
 
 adminRouter.post("/traders/:id/documents/:documentId/review", asyncHandler(async (req, res) => {

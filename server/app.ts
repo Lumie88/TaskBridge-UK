@@ -65,6 +65,10 @@ export function createApp() {
     type: ["application/pdf", "image/jpeg", "image/png"],
     limit: "15mb"
   }));
+  app.use("/api/admin/traders/:id/documents/server-upload", express.raw({
+    type: ["application/pdf", "image/jpeg", "image/png"],
+    limit: "15mb"
+  }));
   app.use(express.json({
     limit: "1mb",
     verify: (req, _res, buffer) => {
